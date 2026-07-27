@@ -69,7 +69,8 @@ finlink_ws_handshake_status finlink_ws_parse_handshake_response(const uint8_t *d
 /* --- Frames --- */
 
 typedef enum {
-    FINLINK_WS_OPCODE_BINARY = 0x2,
+    FINLINK_WS_OPCODE_TEXT = 0x1,   /* app-level handshake JSON, see finlink/handshake.h */
+    FINLINK_WS_OPCODE_BINARY = 0x2, /* Video/Audio/Input, see finlink/protocol.h */
     FINLINK_WS_OPCODE_CLOSE = 0x8
 } finlink_ws_opcode;
 

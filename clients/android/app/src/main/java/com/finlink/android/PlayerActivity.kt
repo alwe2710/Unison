@@ -13,6 +13,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
@@ -216,27 +219,89 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
     /** Cross-shaped D-pad: only the four edge-center cells of a 3x3 grid are
      * filled, which alone reads as a plus/cross, matching a real D-pad
-     * instead of four buttons in a row. */
+     * instead of four buttons in a row.
+     *
+     * Unlike every other on-screen button (HoldButton below, independent
+     * per-button gestures), the D-pad is one continuous touch area with a
+     * single gesture: dragging from one direction into an adjacent one
+     * without lifting the finger switches the pressed key, the way a real
+     * D-pad thumb-slide would. Four separate HoldButtons can't do this --
+     * each one's detectTapGestures(onPress) keeps following the same
+     * pointer whichever way it later moves (Compose tracks it by ID, not by
+     * current position), so a slide off one button's bounds never reaches
+     * the neighboring button's own, never-started gesture. */
     @Composable
     private fun DPad(modifier: Modifier = Modifier) {
         val segment = 56.dp
-        Box(modifier = modifier.size(segment * 3)) {
-            HoldButton(
-                "▲", GbaStreamClient.KEY_UP, shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.align(Alignment.TopCenter).size(segment)
-            )
-            HoldButton(
-                "▼", GbaStreamClient.KEY_DOWN, shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.align(Alignment.BottomCenter).size(segment)
-            )
-            HoldButton(
-                "◀", GbaStreamClient.KEY_LEFT, shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.align(Alignment.CenterStart).size(segment)
-            )
-            HoldButton(
-                "▶", GbaStreamClient.KEY_RIGHT, shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.align(Alignment.CenterEnd).size(segment)
-            )
+        val dpadMask = GbaStreamClient.KEY_UP or GbaStreamClient.KEY_DOWN or
+            GbaStreamClient.KEY_LEFT or GbaStreamClient.KEY_RIGHT
+
+        Box(
+            modifier = modifier
+                .size(segment * 3)
+                .pointerInput(Unit) {
+                    val segmentPx = segment.toPx()
+
+                    // Which of the 3x3 grid's cells `position` (local to this
+                    // Box) falls into -- the four edge cells map to a
+                    // direction, the empty corners/center map to "nothing
+                    // pressed" rather than snapping to the nearest direction,
+                    // so a drag through a corner briefly releases instead of
+                    // guessing which of the two adjacent directions was meant.
+                    fun bitsAt(position: Offset): Int {
+                        val col = (position.x / segmentPx).toInt().coerceIn(0, 2)
+                        val row = (position.y / segmentPx).toInt().coerceIn(0, 2)
+                        return when {
+                            col == 1 && row == 0 -> GbaStreamClient.KEY_UP
+                            col == 1 && row == 2 -> GbaStreamClient.KEY_DOWN
+                            col == 0 && row == 1 -> GbaStreamClient.KEY_LEFT
+                            col == 2 && row == 1 -> GbaStreamClient.KEY_RIGHT
+                            else -> 0
+                        }
+                    }
+
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var activeBits = bitsAt(down.position)
+                        touchMask = (touchMask and dpadMask.inv()) or activeBits
+                        sendCombinedInput()
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val newBits = bitsAt(change.position)
+                            if (newBits != activeBits) {
+                                activeBits = newBits
+                                touchMask = (touchMask and dpadMask.inv()) or activeBits
+                                sendCombinedInput()
+                            }
+                            change.consume()
+                        }
+
+                        touchMask = touchMask and dpadMask.inv()
+                        sendCombinedInput()
+                    }
+                }
+        ) {
+            DPadCell("▲", modifier = Modifier.align(Alignment.TopCenter).size(segment))
+            DPadCell("▼", modifier = Modifier.align(Alignment.BottomCenter).size(segment))
+            DPadCell("◀", modifier = Modifier.align(Alignment.CenterStart).size(segment))
+            DPadCell("▶", modifier = Modifier.align(Alignment.CenterEnd).size(segment))
+        }
+    }
+
+    /** Purely visual D-pad cell -- press state is driven entirely by DPad's
+     * own single gesture above, not by anything attached here. */
+    @Composable
+    private fun DPadCell(label: String, modifier: Modifier = Modifier) {
+        Box(
+            modifier = modifier
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
+                    RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = MaterialTheme.colorScheme.onSecondaryContainer)
         }
     }
 

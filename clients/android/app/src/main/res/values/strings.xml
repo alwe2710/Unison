@@ -27,7 +27,7 @@
     <string name="discovery_title">Netzwerk-Suche</string>
     <string name="discovery_start">Server suchen</string>
     <string name="discovery_scanning">Scanne…</string>
-    <string name="discovery_no_subnet">Kein WLAN-Subnetz gefunden</string>
     <string name="discovery_none_found">Keine Server gefunden</string>
     <string name="discovery_found">%1$d Server gefunden</string>
+    <string name="discovery_incompatible">Inkompatible Protokollversion (Server: v%1$d, App: v%2$d)</string>
 </resources>

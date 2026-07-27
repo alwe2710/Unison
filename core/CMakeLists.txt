@@ -7,6 +7,9 @@ add_library(finlink_core STATIC
     src/protocol.c
     src/inflate.c
     src/websocket.c
+    src/json.c
+    src/handshake.c
+    src/discovery.c
     third_party/miniz/miniz_tinfl.c
     third_party/teeny-sha1/teeny-sha1.c
 )

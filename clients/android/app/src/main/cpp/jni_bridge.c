@@ -14,12 +14,15 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "finlink/endian.h"
+#include "finlink/handshake.h"
 #include "finlink/inflate.h"
 #include "finlink/protocol.h"
 #include "finlink/websocket.h"
@@ -96,22 +99,28 @@ static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop
     return true;
 }
 
-// Connects the session's socket and performs the WS handshake. On success,
-// `leftover` holds any bytes received past the handshake response header --
-// those are already WebSocket frame data and must feed straight into the
-// session loop's receive buffer, not be discarded.
-static bool do_connect_and_handshake(finlink_session *s, byte_buf *leftover) {
+// Raw TCP connect + RFC6455 WS upgrade only -- no app-level handshake (see
+// perform_app_handshake below for that). Takes host/port as parameters
+// rather than reading them off `s` so it can be called again against a
+// redirect target without disturbing s->host/s->port until it's known to
+// have succeeded. On success, *out_fd is the connected socket and `leftover`
+// holds any bytes received past the handshake response header -- those are
+// already WebSocket frame data (the server sends `hello` immediately after
+// upgrading, so this is often non-empty) and must feed straight into the
+// caller's receive buffer, not be discarded.
+static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop_flag, int *out_fd,
+                                    byte_buf *leftover) {
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
     char port_str[16];
-    snprintf(port_str, sizeof(port_str), "%d", s->port);
+    snprintf(port_str, sizeof(port_str), "%d", port);
 
     struct addrinfo *result = NULL;
-    if (getaddrinfo(s->host, port_str, &hints, &result) != 0 || !result) {
-        LOGE("getaddrinfo failed for %s:%d", s->host, s->port);
+    if (getaddrinfo(host, port_str, &hints, &result) != 0 || !result) {
+        LOGE("getaddrinfo failed for %s:%d", host, port);
         return false;
     }
 
@@ -129,10 +138,9 @@ static bool do_connect_and_handshake(finlink_session *s, byte_buf *leftover) {
     }
     freeaddrinfo(result);
     if (fd < 0) {
-        LOGE("connect failed for %s:%d", s->host, s->port);
+        LOGE("connect failed for %s:%d", host, port);
         return false;
     }
-    s->sockfd = fd;
 
     uint8_t random_bytes[16];
     arc4random_buf(random_bytes, sizeof(random_bytes));
@@ -140,13 +148,14 @@ static bool do_connect_and_handshake(finlink_session *s, byte_buf *leftover) {
     finlink_ws_generate_key(random_bytes, key);
 
     char host_header[160];
-    snprintf(host_header, sizeof(host_header), "%s:%d", s->host, s->port);
+    snprintf(host_header, sizeof(host_header), "%s:%d", host, port);
 
     char request[512];
     size_t request_len =
         finlink_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
-    if (request_len == 0 || !send_all(fd, (const uint8_t *)request, request_len, &s->stop)) {
+    if (request_len == 0 || !send_all(fd, (const uint8_t *)request, request_len, stop_flag)) {
         LOGE("failed to send handshake request");
+        close(fd);
         return false;
     }
 
@@ -156,33 +165,274 @@ static bool do_connect_and_handshake(finlink_session *s, byte_buf *leftover) {
     size_t header_len = 0;
 
     while (status == FINLINK_WS_HANDSHAKE_INCOMPLETE) {
-        if (atomic_load(&s->stop)) {
+        if (atomic_load(stop_flag)) {
             byte_buf_free(&recv_buf);
+            close(fd);
             return false;
         }
         ssize_t n = recv(fd, chunk, sizeof(chunk), 0);
         if (n <= 0) {
             LOGE("connection closed during handshake");
             byte_buf_free(&recv_buf);
+            close(fd);
             return false;
         }
         byte_buf_append(&recv_buf, chunk, (size_t)n);
         if (recv_buf.len > 16384) { // guard against a runaway/malformed response
             LOGE("handshake response too large");
             byte_buf_free(&recv_buf);
+            close(fd);
             return false;
         }
         status = finlink_ws_parse_handshake_response(recv_buf.data, recv_buf.len, key, &header_len);
         if (status == FINLINK_WS_HANDSHAKE_ERR) {
             LOGE("handshake rejected (bad status or Sec-WebSocket-Accept mismatch)");
             byte_buf_free(&recv_buf);
+            close(fd);
             return false;
         }
     }
 
     byte_buf_append(leftover, recv_buf.data + header_len, recv_buf.len - header_len);
     byte_buf_free(&recv_buf);
+    *out_fd = fd;
     return true;
+}
+
+// Blocks (bounded by timeout_ms, checking s->stop throughout) until `buf`
+// holds one full WebSocket frame, receiving more off s->sockfd as needed.
+// Frame data already sitting in `buf` (e.g. left over from the WS upgrade,
+// or a previous call) is tried first before any recv().
+//
+// Deliberately does NOT consume the frame's bytes from `buf` on success --
+// out_frame->payload points *into* buf->data, and byte_buf_consume() shifts
+// buf->data's contents down in place (memmove), which would invalidate that
+// pointer out from under the caller before it ever reads it. The caller
+// must finish reading out_frame->payload first, then call
+// byte_buf_consume(buf, out_frame->frame_size) itself once it's safe to
+// discard -- same order run_session_loop's own frame handling already uses
+// for Video/Audio/Input frames.
+static bool receive_one_ws_frame(finlink_session *s, byte_buf *buf, finlink_ws_frame *out_frame,
+                                  int timeout_ms) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+    }
+
+    for (;;) {
+        finlink_ws_frame_status fs = finlink_ws_parse_frame(buf->data, buf->len, out_frame);
+        if (fs == FINLINK_WS_FRAME_OK) {
+            return true;
+        }
+        if (fs == FINLINK_WS_FRAME_ERR) {
+            LOGE("malformed frame while waiting for handshake message");
+            return false;
+        }
+
+        if (atomic_load(&s->stop)) {
+            return false;
+        }
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long remaining_ms = (long)(deadline.tv_sec - now.tv_sec) * 1000 +
+                             (deadline.tv_nsec - now.tv_nsec) / 1000000;
+        if (remaining_ms <= 0) {
+            LOGE("timed out waiting for handshake message");
+            return false;
+        }
+
+        struct pollfd pfd = {.fd = s->sockfd, .events = POLLIN};
+        int pr = poll(&pfd, 1, remaining_ms > 200 ? 200 : (int)remaining_ms);
+        if (pr < 0 && errno != EINTR) {
+            return false;
+        }
+        if (pr > 0 && (pfd.revents & POLLIN)) {
+            uint8_t chunk[4096];
+            ssize_t n = recv(s->sockfd, chunk, sizeof(chunk), 0);
+            if (n <= 0) {
+                LOGE("connection closed while waiting for handshake message");
+                return false;
+            }
+            byte_buf_append(buf, chunk, (size_t)n);
+        }
+    }
+}
+
+// GC_GBA_LINK player ports are always this + the GC device number
+// (docs/protocol.md; matches GbaStreamClient.PLAYER_BASE_PORT on the Kotlin
+// side and GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork).
+#define FINLINK_GBA_LINK_PLAYER_BASE_PORT 6801
+
+#define APP_HANDSHAKE_TIMEOUT_MS 3000
+
+typedef struct {
+    bool ok;
+    char reason[160];
+} app_handshake_result;
+
+// App-level handshake (finlink/handshake.h, docs/protocol.md
+// "Verbindungsaufbau: Handshake"), run once `s->sockfd` is already
+// WebSocket-upgraded and `buf` may already hold the server's first message.
+// On a `session_ready` with `redirect` (only possible for multi-slot stream
+// types via the lobby port -- not reachable through this app's current
+// "connect straight to a player port" UI, but handled anyway per
+// docs/protocol.md rather than assumed away), closes the current socket,
+// reconnects to the redirect target, and repeats -- bounded to one hop,
+// matching the protocol's own design (never more than a single redirect).
+static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *buf) {
+    app_handshake_result result = {false, ""};
+
+    for (int hop = 0; hop < 2; hop++) {
+        finlink_ws_frame frame;
+        if (!receive_one_ws_frame(s, buf, &frame, APP_HANDSHAKE_TIMEOUT_MS)) {
+            snprintf(result.reason, sizeof(result.reason),
+                     "Server hat keinen Handshake gestartet (evtl. veraltete Protokollversion)");
+            return result;
+        }
+        if (frame.opcode != FINLINK_WS_OPCODE_TEXT ||
+            finlink_peek_handshake_message(frame.payload, frame.payload_size) != FINLINK_HS_MSG_HELLO) {
+            snprintf(result.reason, sizeof(result.reason), "Unerwartete erste Nachricht vom Server");
+            return result;
+        }
+
+        finlink_hello hello;
+        const finlink_handshake_result hello_parsed =
+            finlink_parse_hello(frame.payload, frame.payload_size, &hello);
+        // Done reading frame.payload either way -- safe to drop it from buf
+        // now, before it's invalidated by any later receive_one_ws_frame()
+        // call shifting buf's contents (see that function's own comment).
+        byte_buf_consume(buf, frame.frame_size);
+        if (hello_parsed != FINLINK_HANDSHAKE_OK) {
+            snprintf(result.reason, sizeof(result.reason), "hello konnte nicht gelesen werden");
+            return result;
+        }
+        if (hello.protocol_version != FINLINK_PROTOCOL_VERSION) {
+            snprintf(result.reason, sizeof(result.reason),
+                     "Server spricht Protokollversion %d, dieser Client unterstuetzt nur Version %d "
+                     "-- bitte Client oder Server aktualisieren",
+                     hello.protocol_version, FINLINK_PROTOCOL_VERSION);
+            return result;
+        }
+
+        // This app always dials a specific already-chosen player port (see
+        // GbaStreamClient.PLAYER_BASE_PORT), never the lobby port -- so the
+        // slot being asked about is simply "the one this connection is on",
+        // derived the same way the server itself assigns device_number to
+        // player ports (GBA_STREAM_PLAYER_BASE_PORT + device_number).
+        finlink_hello_ack_request ack_req;
+        memset(&ack_req, 0, sizeof(ack_req));
+        ack_req.requested_slot = s->port - FINLINK_GBA_LINK_PLAYER_BASE_PORT;
+        // Generous/native limits throughout: a phone has no trouble with a
+        // 240x160 GBA stream at native rate, so there's never a reason for
+        // this client to ask the server to downscale.
+        ack_req.max_width = hello.video.width > 0 ? hello.video.width : 240;
+        ack_req.max_height = hello.video.height > 0 ? hello.video.height : 160;
+        ack_req.max_fps = hello.video.fps > 0 ? hello.video.fps : 60.0;
+        ack_req.wants_audio = hello.has_audio;
+        ack_req.max_sample_rate = hello.has_audio && hello.audio.sample_rate > 0 ? hello.audio.sample_rate : 48000;
+        ack_req.max_channels = hello.has_audio && hello.audio.channels > 0 ? hello.audio.channels : 2;
+
+        char ack_json[512];
+        size_t ack_len = finlink_build_hello_ack(&ack_req, ack_json, sizeof(ack_json));
+        if (ack_len == 0) {
+            snprintf(result.reason, sizeof(result.reason), "hello_ack zu gross fuer den Puffer");
+            return result;
+        }
+
+        uint8_t mask_key[4];
+        arc4random_buf(mask_key, sizeof(mask_key));
+        uint8_t frame_buf[512 + 14];
+        size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_TEXT, (const uint8_t *)ack_json,
+                                                   ack_len, mask_key, frame_buf, sizeof(frame_buf));
+        if (frame_len == 0 || !send_all(s->sockfd, frame_buf, frame_len, &s->stop)) {
+            snprintf(result.reason, sizeof(result.reason), "hello_ack konnte nicht gesendet werden");
+            return result;
+        }
+
+        finlink_ws_frame reply;
+        if (!receive_one_ws_frame(s, buf, &reply, APP_HANDSHAKE_TIMEOUT_MS)) {
+            snprintf(result.reason, sizeof(result.reason), "keine Antwort auf hello_ack");
+            return result;
+        }
+        if (reply.opcode != FINLINK_WS_OPCODE_TEXT) {
+            LOGE("unexpected opcode after hello_ack: 0x%x (payload_size=%zu)", reply.opcode,
+                 reply.payload_size);
+            snprintf(result.reason, sizeof(result.reason), "unerwartete Antwort auf hello_ack");
+            return result;
+        }
+
+        const finlink_handshake_message_type reply_type =
+            finlink_peek_handshake_message(reply.payload, reply.payload_size);
+        if (reply_type == FINLINK_HS_MSG_HANDSHAKE_ERROR) {
+            finlink_handshake_error err;
+            const finlink_handshake_result err_parsed =
+                finlink_parse_handshake_error(reply.payload, reply.payload_size, &err);
+            byte_buf_consume(buf, reply.frame_size); // done reading reply.payload either way
+            if (err_parsed == FINLINK_HANDSHAKE_OK) {
+                snprintf(result.reason, sizeof(result.reason), "%s", err.detail);
+            } else {
+                snprintf(result.reason, sizeof(result.reason), "Handshake vom Server abgelehnt");
+            }
+            return result;
+        }
+        if (reply_type != FINLINK_HS_MSG_SESSION_READY) {
+            // Logs the raw payload (bounded, and JSON text is never NUL-safe
+            // to assume, so an explicit length-bounded %.*s) -- this is the
+            // one report we have of this path actually firing ("ab und zu"),
+            // and guessing at the cause without seeing what the server
+            // actually sent isn't worth another guess-and-ship round trip.
+            LOGE("unexpected message after hello_ack (peeked type=%d): %.*s", (int)reply_type,
+                 (int)(reply.payload_size < 400 ? reply.payload_size : 400), (const char *)reply.payload);
+            byte_buf_consume(buf, reply.frame_size);
+            snprintf(result.reason, sizeof(result.reason), "unerwartete Antwort auf hello_ack");
+            return result;
+        }
+
+        finlink_session_ready ready;
+        const finlink_handshake_result ready_parsed =
+            finlink_parse_session_ready(reply.payload, reply.payload_size, &ready);
+        // Done reading reply.payload either way -- must happen before any
+        // later use of `buf` (the redirect reconnect below reuses it, and a
+        // successful non-redirect return hands it to run_session_loop),
+        // same reasoning as the `hello` frame's consume above.
+        byte_buf_consume(buf, reply.frame_size);
+        if (ready_parsed != FINLINK_HANDSHAKE_OK) {
+            snprintf(result.reason, sizeof(result.reason), "session_ready konnte nicht gelesen werden");
+            return result;
+        }
+
+        if (!ready.has_redirect) {
+            result.ok = true;
+            return result;
+        }
+
+        // Redirect: this connection carries no stream data, ever -- close
+        // it, reconnect to the target, and let the loop try the same
+        // exchange again there (hop 1, the only one this loop allows).
+        close(s->sockfd);
+        s->sockfd = -1;
+        byte_buf_free(buf);
+        memset(buf, 0, sizeof(*buf));
+
+        strncpy(s->host, ready.redirect_host, sizeof(s->host) - 1);
+        s->host[sizeof(s->host) - 1] = '\0';
+        s->port = ready.redirect_port;
+
+        int new_fd = -1;
+        if (!connect_and_ws_upgrade(s->host, s->port, &s->stop, &new_fd, buf)) {
+            snprintf(result.reason, sizeof(result.reason), "Verbindung zum weitergeleiteten Port fehlgeschlagen");
+            return result;
+        }
+        s->sockfd = new_fd;
+        // loop: expect a fresh `hello` on the new connection
+    }
+
+    snprintf(result.reason, sizeof(result.reason), "zu viele Weiterleitungen");
+    return result;
 }
 
 // `inflate_out`/`inflate_out_cap` is scratch space for finlink_inflate_raw()'s
@@ -370,8 +620,18 @@ static void *client_thread_main(void *arg) {
         (*env)->GetMethodID(env, listener_class, "onDisconnected", "(Ljava/lang/String;)V");
 
     byte_buf buf = {0};
-    if (!do_connect_and_handshake(s, &buf)) {
-        call_on_disconnected(env, s, on_disconnected, "Verbindung/Handshake fehlgeschlagen");
+    int fd = -1;
+    if (!connect_and_ws_upgrade(s->host, s->port, &s->stop, &fd, &buf)) {
+        call_on_disconnected(env, s, on_disconnected, "Verbindung fehlgeschlagen");
+        byte_buf_free(&buf);
+        (*s->jvm)->DetachCurrentThread(s->jvm);
+        return NULL;
+    }
+    s->sockfd = fd;
+
+    app_handshake_result hs = perform_app_handshake(s, &buf);
+    if (!hs.ok) {
+        call_on_disconnected(env, s, on_disconnected, hs.reason);
         byte_buf_free(&buf);
         if (s->sockfd >= 0) {
             close(s->sockfd);

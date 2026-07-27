@@ -216,7 +216,8 @@ finlink_ws_frame_status finlink_ws_parse_frame(uint8_t *data, size_t size, finli
          * misinterpreting a partial message as complete. */
         return FINLINK_WS_FRAME_ERR;
     }
-    if (opcode != FINLINK_WS_OPCODE_BINARY && opcode != FINLINK_WS_OPCODE_CLOSE) {
+    if (opcode != FINLINK_WS_OPCODE_TEXT && opcode != FINLINK_WS_OPCODE_BINARY &&
+        opcode != FINLINK_WS_OPCODE_CLOSE) {
         return FINLINK_WS_FRAME_ERR;
     }
 

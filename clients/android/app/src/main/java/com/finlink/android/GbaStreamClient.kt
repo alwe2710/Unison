@@ -42,12 +42,21 @@ class GbaStreamClient(private val listener: Listener) {
     private external fun nativeDisconnect(handle: Long)
 
     companion object {
-        // Player ports 6801-6804 (docs/protocol.md); the lobby itself (6800)
-        // only ever serves the HTML page on any path, so a native picker has
-        // to poll each player port's /status individually -- there's no
-        // combined status endpoint to ask instead.
+        // Player ports 6801-6804 (docs/protocol.md); /status on each one
+        // (not a combined endpoint) is still how the P1-P4 picker below
+        // finds a free slot -- the app-level handshake (core's
+        // finlink/handshake.h, spoken over the WebSocket connection itself
+        // once nativeConnect() dials a specific port) is a separate,
+        // later step, not a replacement for this pre-connect check.
         const val PLAYER_BASE_PORT = 6801
         const val PLAYER_SLOT_COUNT = 4
+
+        // Mirrors FINLINK_PROTOCOL_VERSION (core/include/finlink/handshake.h)
+        // and FINLINK_BEACON_PORT (core/include/finlink/discovery.h) --
+        // MenuActivity's discovery listener needs both before any native
+        // handshake code runs, so it can't just call into core for them.
+        const val PROTOCOL_VERSION = 2
+        const val BEACON_PORT = 6805
 
         // Mirrors finlink_key in core/include/finlink/protocol.h.
         const val KEY_A = 1 shl 0
