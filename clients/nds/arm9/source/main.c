@@ -619,6 +619,28 @@ static void runSession(const char *hostIn, int portIn) {
                                     window.videoBytes += (unsigned)frame.payload_size;
                                     totalVideoFrames++;
                                     blitFrame(g_framebuf);
+                                    /* Re-send input right after every decoded
+                                     * video frame, not just once per outer
+                                     * loop iteration (see the top of this
+                                     * loop) -- a burst of several video
+                                     * frames arriving back-to-back (e.g.
+                                     * after a brief WiFi stall) used to be
+                                     * decoded here in full, with input never
+                                     * re-scanned until the whole backlog was
+                                     * drained; a quick press+release entirely
+                                     * within that window was silently never
+                                     * sent at all, not just delayed --
+                                     * scanKeys() only captures state at the
+                                     * moment it's called. This doesn't wait
+                                     * for the next real hardware vblank
+                                     * (unlike the outer loop's own
+                                     * swiWaitForVBlank()), so it costs
+                                     * nothing when there's no backlog: keys
+                                     * only actually change once per real
+                                     * vblank regardless of how often
+                                     * scanKeys() itself is called. */
+                                    scanKeys();
+                                    sendGbaInput(fd, buildGbaKeyMask(keysHeld()));
                                 } else {
                                     window.decodeErrors++;
                                     totalDecodeErrors++;
