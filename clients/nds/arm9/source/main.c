@@ -89,6 +89,15 @@ static uint8_t g_framebuf[FRAMEBUF_CAP];
  * resets to the default (top) every time the app is launched. */
 static bool g_prefBottomScreen = false;
 
+/* false (default) = centered 1:1, every GBA pixel exactly one NDS pixel,
+ * bordered on all four sides. true = uniformly upscaled to fill as much of
+ * the 256x192 screen as possible *without* distorting the GBA's 3:2 aspect
+ * ratio against the screen's 4:3 -- the screen's width is the tighter
+ * constraint (256/240 < 192/160), so this fills the screen edge-to-edge
+ * horizontally and leaves only a small letterbox top/bottom, rather than
+ * stretching to fill both axes independently. See blitFrame(). */
+static bool g_prefAspectScale = false;
+
 static void recvBufConsume(size_t n) {
     memmove(g_recvBuf, g_recvBuf + n, g_recvLen - n);
     g_recvLen -= n;
@@ -100,24 +109,58 @@ static void weakRandomBytes(uint8_t *out, size_t n) {
     }
 }
 
-/* Draws framebuffer_rgb565 (GBA_W x GBA_H, row-major u16le RGB565)
- * centered into VRAM_A, which main() put in MODE_FB0 (direct pixel
- * display, see nds/arm9/video.h) -- converts each pixel from the wire's
- * 5-6-5 RGB to the NDS framebuffer's 5-5-5 RGB + the mandatory bit-15
- * "opaque" flag (an FB-mode pixel with bit 15 clear is treated as
- * transparent/shows nothing). */
+static inline uint16_t rgb565ToNds(uint16_t px) {
+    uint8_t r = (px >> 11) & 0x1F;
+    uint8_t g = (px >> 5) & 0x3F;
+    uint8_t b = px & 0x1F;
+    return RGB15(r, g >> 1, b) | BIT(15);
+}
+
+/* Uniform-scale variant of blitFrame() below -- see g_prefAspectScale's own
+ * comment for the exact target size (256x170, screen-width-bound). Nearest-
+ * neighbor: column source indices only depend on x (not y), so they're
+ * precomputed once per call into colSrc[] instead of one integer division
+ * per pixel -- ARM9 has no hardware divider, so this turns ~43,520
+ * divisions into ~426. */
+static void blitFrameScaled(const uint8_t *rgb565) {
+    const int scaledW = 256;
+    const int scaledH = (GBA_H * scaledW) / GBA_W; /* 170 */
+    const int offY = (192 - scaledH) / 2;
+
+    static int colSrc[256];
+    for (int x = 0; x < scaledW; x++) {
+        colSrc[x] = (x * GBA_W) / scaledW;
+    }
+
+    for (int y = 0; y < scaledH; y++) {
+        const int srcY = (y * GBA_H) / scaledH;
+        const uint8_t *srcRow = rgb565 + (size_t)srcY * GBA_W * 2;
+        uint16_t *dstRow = VRAM_A + (size_t)(y + offY) * 256;
+        for (int x = 0; x < scaledW; x++) {
+            dstRow[x] = rgb565ToNds(finlink_read_u16le(srcRow + (size_t)colSrc[x] * 2));
+        }
+    }
+}
+
+/* Draws framebuffer_rgb565 (GBA_W x GBA_H, row-major u16le RGB565) into
+ * VRAM_A, which main() put in MODE_FB0 (direct pixel display, see
+ * nds/arm9/video.h) -- converts each pixel from the wire's 5-6-5 RGB to the
+ * NDS framebuffer's 5-5-5 RGB + the mandatory bit-15 "opaque" flag (an
+ * FB-mode pixel with bit 15 clear is treated as transparent/shows nothing).
+ * Centered 1:1 by default, or uniformly upscaled (blitFrameScaled()) if the
+ * user opted into that via g_prefAspectScale. */
 static void blitFrame(const uint8_t *rgb565) {
+    if (g_prefAspectScale) {
+        blitFrameScaled(rgb565);
+        return;
+    }
     const int offX = (256 - GBA_W) / 2;
     const int offY = (192 - GBA_H) / 2;
     for (int y = 0; y < GBA_H; y++) {
         const uint8_t *srcRow = rgb565 + (size_t)y * GBA_W * 2;
         uint16_t *dstRow = VRAM_A + (size_t)(y + offY) * 256 + offX;
         for (int x = 0; x < GBA_W; x++) {
-            uint16_t px = finlink_read_u16le(srcRow + (size_t)x * 2);
-            uint8_t r = (px >> 11) & 0x1F;
-            uint8_t g = (px >> 5) & 0x3F;
-            uint8_t b = px & 0x1F;
-            dstRow[x] = RGB15(r, g >> 1, b) | BIT(15);
+            dstRow[x] = rgb565ToNds(finlink_read_u16le(srcRow + (size_t)x * 2));
         }
     }
 }
@@ -511,6 +554,13 @@ static void runSession(const char *hostIn, int portIn) {
         lcdMainOnTop();
     }
 
+    /* blitFrame()'s two modes (centered 1:1 vs. aspect-scaled) draw
+     * different-sized regions of VRAM_A -- re-clear it here so a mode
+     * switched since the last session (or main()'s own one-time startup
+     * clear, for the very first session) doesn't leave stale border pixels
+     * from the other mode's differently-sized draw region. */
+    memset(VRAM_A, 0, 256 * 192 * 2);
+
     consoleClear();
     iprintf("Verbunden. X+Y halten zum Beenden.\n\n");
     iprintf("Video: -- fps  -- KB/s\n");
@@ -746,12 +796,14 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     iprintf(" SELECT = Server erneut suchen\n");
     iprintf(" R = IP manuell eingeben\n");
     iprintf(" L = Bildschirm umschalten\n");
+    iprintf(" HOCH = Skalierung umschalten\n");
     iprintf(" START = Beenden\n\n");
     /* Only affects single-screen stream types (GC_GBA_LINK today) -- a
      * stream_type that's itself a dual-screen source's secondary screen
      * always goes to this client's bottom screen regardless, so this
      * setting is only actually consulted in that case. See runSession(). */
-    iprintf("\x1b[16;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
+    iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
+    iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? "ausgefuellt" : "1:1");
 
     for (;;) {
         swiWaitForVBlank();
@@ -765,7 +817,11 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
         if (keys & KEY_R) return -3;
         if (keys & KEY_L) {
             g_prefBottomScreen = !g_prefBottomScreen;
-            iprintf("\x1b[16;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
+            iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
+        }
+        if (keys & KEY_UP) {
+            g_prefAspectScale = !g_prefAspectScale;
+            iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? "ausgefuellt" : "1:1");
         }
         if (keys & KEY_START) return -1;
     }
