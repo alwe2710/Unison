@@ -129,6 +129,18 @@ finlink_handshake_result finlink_parse_session_ready(const uint8_t *data, size_t
 finlink_handshake_result finlink_parse_handshake_error(const uint8_t *data, size_t size,
                                                         finlink_handshake_error *out);
 
+/* Whether a hello.stream_type is itself the *secondary* screen of a
+ * dual-screen source (an emulator's own bottom/GamePad screen, e.g.
+ * N3DS_BOTTOM_SCREEN, NDS_BOTTOM_SCREEN, or a future WIIU_GAMEPAD) rather
+ * than a primary display like GC_GBA_LINK. Clients with two physical
+ * screens of their own (3DS, DS/DSi) should show this content on their
+ * own secondary/bottom screen unconditionally -- the same way a real
+ * DS/DSi/Wii U shows its second screen on fixed hardware, not a
+ * user-chosen one -- overriding whatever screen the user otherwise
+ * prefers for single-screen stream types. See docs/protocol.md,
+ * "Stream-Typen". */
+int finlink_stream_type_prefers_secondary_screen(const char *stream_type);
+
 #ifdef __cplusplus
 }
 #endif

@@ -120,11 +120,23 @@ behandeln, ohne mit einer ungültigen Zahlen-Kombination verwechselt zu werden:
 | `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja |
 | `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen | 1 | nein |
 | `NDS_BOTTOM_SCREEN` | *reserviert, noch nicht implementiert* — zukünftiger NDS-Bottom-Screen-Stream | 1 | nein |
+| `WIIU_GAMEPAD` | *reserviert, noch nicht implementiert* — zukünftiger Cemu/Wii-U-GamePad-Stream | 1 | nein |
 
-Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`) lassen das
-`audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die Audio-Verhandlung in
-`hello_ack` entfällt vollständig — es gibt in diesem Fall zu keinem Zeitpunkt eine
-`type=3`-Audio-Message auf der Verbindung.
+Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`, `WIIU_GAMEPAD`)
+lassen das `audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die
+Audio-Verhandlung in `hello_ack` entfällt vollständig — es gibt in diesem Fall zu
+keinem Zeitpunkt eine `type=3`-Audio-Message auf der Verbindung.
+
+### Zielbildschirm auf Zweitbildschirm-Clients (3DS, DS/DSi)
+
+`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN` und `WIIU_GAMEPAD` sind selbst schon der
+*Zweitbildschirm* einer entfernten Dual-Screen-Quelle — auf einem Client mit zwei
+eigenen Bildschirmen (3DS, DS/DSi) landet ihr Bild deshalb immer zwingend auf dessen
+eigenem unteren/zweiten Bildschirm, unabhängig von einer sonst wählbaren
+Bildschirm-Einstellung (die nur für Einzelbildschirm-Typen wie `GC_GBA_LINK`
+greift). `core/`s `finlink_stream_type_prefers_secondary_screen()`
+(`finlink/handshake.h`) kapselt genau diese Zuordnung, damit sie nicht in jedem
+Client einzeln dupliziert wird.
 
 ## Verbindungsaufbau: Handshake
 

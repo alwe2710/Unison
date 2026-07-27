@@ -83,6 +83,12 @@ static size_t g_recvLen = 0;
 static uint8_t g_inflateBuf[INFLATE_BUF_CAP];
 static uint8_t g_framebuf[FRAMEBUF_CAP];
 
+/* User's screen preference for single-screen stream types (GC_GBA_LINK
+ * today) -- toggled from slotSelectMenu(), applied in runSession(). Not
+ * persisted (no save file exists in this client, see its own top comment):
+ * resets to the default (top) every time the app is launched. */
+static bool g_prefBottomScreen = false;
+
 static void recvBufConsume(size_t n) {
     memmove(g_recvBuf, g_recvBuf + n, g_recvLen - n);
     g_recvLen -= n;
@@ -292,8 +298,9 @@ static bool receiveOneWsFrame(int fd, finlink_ws_frame *outFrame) {
  * protocol's own one-hop design). outReason must be at least 96 bytes --
  * always NUL-terminated on return, empty string on success. */
 static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, char *outReason,
-                                 size_t outReasonCap) {
+                                 size_t outReasonCap, char outStreamType[FINLINK_STREAM_TYPE_LEN]) {
     outReason[0] = '\0';
+    outStreamType[0] = '\0';
 
     for (int hop = 0; hop < 2; hop++) {
         finlink_ws_frame frame;
@@ -319,6 +326,11 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
                      hello.protocol_version, FINLINK_PROTOCOL_VERSION);
             return false;
         }
+        /* Last hop wins on a redirect -- the redirect target's own hello is
+         * the authoritative one for the connection that actually carries
+         * stream data (see below). */
+        strncpy(outStreamType, hello.stream_type, FINLINK_STREAM_TYPE_LEN - 1);
+        outStreamType[FINLINK_STREAM_TYPE_LEN - 1] = '\0';
 
         /* This client always dials a specific already-chosen player port
          * (see kSlotPorts[]/slotSelectMenu()), never the lobby port -- so
@@ -464,7 +476,9 @@ static void runSession(const char *hostIn, int portIn) {
      * binary frame is allowed on this connection. May reconnect fd/host/
      * port once, on a redirect. */
     char handshakeFailReason[96];
-    if (!performAppHandshake(&fd, host, sizeof(host), &port, handshakeFailReason, sizeof(handshakeFailReason))) {
+    char streamType[FINLINK_STREAM_TYPE_LEN];
+    if (!performAppHandshake(&fd, host, sizeof(host), &port, handshakeFailReason, sizeof(handshakeFailReason),
+                              streamType)) {
         if (fd >= 0) {
             closesocket(fd);
         }
@@ -481,6 +495,21 @@ static void runSession(const char *hostIn, int portIn) {
 
     int nonblocking = 1;
     ioctl(fd, FIONBIO, &nonblocking);
+
+    /* Which physical screen shows the video (MAIN engine, VRAM_A) vs. the
+     * text console/stats (SUB engine, see main()'s videoSetMode/
+     * consoleDemoInit) -- lcdMainOnBottom() swaps the whole MAIN/SUB-to-
+     * physical-panel assignment, so this is the entire "move video to the
+     * other screen" operation, no drawing-code changes needed either way.
+     * A stream_type that's itself a dual-screen source's secondary screen
+     * (docs/protocol.md) always goes to this client's own bottom screen,
+     * overriding g_prefBottomScreen -- see
+     * finlink_stream_type_prefers_secondary_screen(). */
+    if (g_prefBottomScreen || finlink_stream_type_prefers_secondary_screen(streamType)) {
+        lcdMainOnBottom();
+    } else {
+        lcdMainOnTop();
+    }
 
     consoleClear();
     iprintf("Verbunden. X+Y halten zum Beenden.\n\n");
@@ -694,7 +723,13 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     iprintf(" Y = Slot 4 (Port 6804)\n\n");
     iprintf(" SELECT = Server erneut suchen\n");
     iprintf(" R = IP manuell eingeben\n");
-    iprintf(" START = Beenden\n");
+    iprintf(" L = Bildschirm umschalten\n");
+    iprintf(" START = Beenden\n\n");
+    /* Only affects single-screen stream types (GC_GBA_LINK today) -- a
+     * stream_type that's itself a dual-screen source's secondary screen
+     * always goes to this client's bottom screen regardless, so this
+     * setting is only actually consulted in that case. See runSession(). */
+    iprintf("\x1b[16;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
 
     for (;;) {
         swiWaitForVBlank();
@@ -706,6 +741,10 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
         if (keys & KEY_Y) return 3;
         if (keys & KEY_SELECT) return -2;
         if (keys & KEY_R) return -3;
+        if (keys & KEY_L) {
+            g_prefBottomScreen = !g_prefBottomScreen;
+            iprintf("\x1b[16;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
+        }
         if (keys & KEY_START) return -1;
     }
 }
@@ -801,6 +840,12 @@ int main(void) {
             break;
         }
         runSession(serverIp, kSlotPorts[slot]);
+        /* runSession() may have swapped MAIN/SUB to the bottom screen (see
+         * its own comment) -- every one of its exit paths returns here, so
+         * resetting once, in this one place, is enough to keep every menu
+         * screen back on its usual (top-screen-video) layout regardless of
+         * how the session ended. */
+        lcdMainOnTop();
     }
 
     return 0;

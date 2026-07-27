@@ -1,8 +1,14 @@
-// finlink for Nintendo 3DS: top screen shows the GBA stream, bottom
-// screen shows Menu/Settings before connecting and a status + "Trennen"
-// button while playing -- the 3DS's dual screens map onto
+// finlink for Nintendo 3DS: by default, top screen shows the GBA stream,
+// bottom screen shows Menu/Settings before connecting and a status +
+// "Trennen" button while playing -- the 3DS's dual screens map onto
 // Menu/Settings/Player far more naturally than the single-screen-at-a-time
 // approach the other clients use. See clients/3ds/README.md.
+//
+// Which physical screen actually gets the video (vs. the status/"Trennen"
+// UI) can flip once connected: either via Prefs::bottomScreenVideo (a
+// user setting, single-screen stream types only), or unconditionally for a
+// stream_type that's itself a dual-screen source's own secondary screen
+// (docs/protocol.md "Stream-Typen") -- see useBottomForVideo below.
 //
 // No on-screen touch overlay for GBA input here (unlike Android/Switch):
 // the 3DS's physical buttons already match the GBA's layout, and the
@@ -24,6 +30,8 @@
 #include <3ds.h>
 #include <citro2d.h>
 
+#include "finlink/handshake.h"
+
 #include "audio.hpp"
 #include "discovery.hpp"
 #include "gba_buttons.hpp"
@@ -37,6 +45,16 @@ namespace {
 constexpr int kPlayerBasePort = 6801;
 constexpr int kPlayerSlotCount = 4;
 constexpr u32 kSocBufferSize = 0x100000;
+// ~0.6s at 60Hz, same value/reasoning as clients/nds's EXIT_HOLD_TICKS_REQUIRED
+// and clients/switch's kExitHoldSeconds -- held rather than a single tap to
+// avoid an accidental mid-game disconnect. X/Y have no GBA equivalent (see
+// gba_buttons.hpp) so this doesn't take anything away from the game; unlike
+// the "Trennen" touch button, it also still works once useBottomForVideo
+// (see main()) has moved that button's screen under the video where the
+// touchscreen itself no longer reaches it -- the 3DS's touch panel is fixed
+// to the physical bottom screen regardless of which C3D_RenderTarget the UI
+// is actually drawn to.
+constexpr int kExitHoldTicksRequired = 36;
 
 enum class BottomScreenState { MENU, SETTINGS };
 
@@ -176,7 +194,7 @@ std::string promptForHost(const std::string &initial) {
 
 void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu, BottomScreenState *screenState,
                      GbaSession *session, VideoTex *videoTex, AudioPlayer *audio, std::atomic<bool> *connected,
-                     std::string *connectedHost) {
+                     std::string *connectedHost, std::string *connectedStreamType) {
     // Snapshot under a short lock, then draw/hit-test from local copies --
     // promptForHost() below blocks for as long as the user is typing, and
     // runSearch()/startDiscovery() spawn threads that take menu->mutex
@@ -231,7 +249,17 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 videoTex->reset();
                 session->connect(lastSearchedHost, port,
                     GbaSession::Listener {
-                        .onConnected = [connected]() { *connected = true; },
+                        // Written from the session's background thread, in
+                        // this order (streamType before the connected flag)
+                        // so the main thread never observes connected=true
+                        // with a stale/empty streamType -- same
+                        // flag-guarded-publish pattern connected itself
+                        // already relies on.
+                        .onConnected =
+                            [connected, connectedStreamType](std::string streamType) {
+                                *connectedStreamType = std::move(streamType);
+                                *connected = true;
+                            },
                         .onVideoFrame =
                             [videoTex](uint32_t w, uint32_t h, std::vector<uint8_t> rgb) {
                                 videoTex->setFrame(w, h, rgb);
@@ -307,6 +335,18 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
         videoTex->setBilinearFilter(prefs->bilinearVideoFilter);
     }
 
+    ui::drawText(textBuf, "Bild auf unterem Bildschirm", 8, 84, 0.45f, ui::kColorText);
+    ui::Rect t3 { 250, 80, 60, 28 };
+    if (ui::toggle(touch, t3, prefs->bottomScreenVideo)) {
+        prefs->bottomScreenVideo = !prefs->bottomScreenVideo;
+        prefs->save();
+    }
+    // Only affects single-screen stream types (GC_GBA_LINK today) -- see
+    // this file's own top comment and useBottomForVideo in main().
+    ui::drawText(textBuf, "(wirkungslos bei Streams, die selbst schon",
+                 8, 112, 0.36f, ui::kColorTextDim);
+    ui::drawText(textBuf, "ein Zweitbildschirm-Inhalt sind)", 8, 128, 0.36f, ui::kColorTextDim);
+
     ui::Rect backRect { 8, 210, 304, 24 };
     if (ui::button(textBuf, touch, backRect, "Zurueck")) {
         *screenState = BottomScreenState::MENU;
@@ -352,8 +392,10 @@ int main(int argc, char *argv[]) {
     // onDisconnected callbacks) and read every frame on the main thread.
     std::atomic<bool> connected { false };
     std::string connectedHost;
+    std::string connectedStreamType;
     uint16_t physicalMask = 0;
     ui::Touch touch;
+    int exitHoldTicks = 0;
 
     while (aptMainLoop()) {
         hidScanInput();
@@ -373,6 +415,19 @@ int main(int argc, char *argv[]) {
                 }
             }
             physicalMask = newMask;
+
+            // X+Y held together disconnects -- see kExitHoldTicksRequired.
+            if ((held & (KEY_X | KEY_Y)) == (KEY_X | KEY_Y)) {
+                if (++exitHoldTicks >= kExitHoldTicksRequired) {
+                    session.disconnect();
+                    connected = false;
+                    exitHoldTicks = 0;
+                }
+            } else {
+                exitHoldTicks = 0;
+            }
+        } else {
+            exitHoldTicks = 0;
         }
 
         videoTex.upload();
@@ -380,10 +435,23 @@ int main(int argc, char *argv[]) {
 
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 
-        C2D_TargetClear(topTarget, ui::kColorBg);
-        C2D_SceneBegin(topTarget);
+        // Which physical screen gets the video vs. the status/menu/settings
+        // UI -- see this file's own top comment. Pre-connect, video (or the
+        // "finlink" placeholder) always stays on top and the UI on bottom,
+        // same as always: connectedStreamType is only known once connected,
+        // and there's nothing stream-type-specific to show before then
+        // anyway.
+        const bool useBottomForVideo =
+            connected && (prefs.bottomScreenVideo ||
+                          finlink_stream_type_prefers_secondary_screen(connectedStreamType.c_str()));
+        C3D_RenderTarget *videoTarget = useBottomForVideo ? bottomTarget : topTarget;
+        C3D_RenderTarget *uiTarget = useBottomForVideo ? topTarget : bottomTarget;
+        const float videoTargetWidth = useBottomForVideo ? 320.0f : 400.0f;
+
+        C2D_TargetClear(videoTarget, ui::kColorBg);
+        C2D_SceneBegin(videoTarget);
         if (connected && videoTex.hasFrame()) {
-            videoTex.drawFitted(0, 0, 400, 240);
+            videoTex.drawFitted(0, 0, videoTargetWidth, 240);
         } else {
             ui::drawText(textBuf, "finlink", 150, 100, 0.9f, ui::kColorText);
             if (connected) {
@@ -391,12 +459,13 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        C2D_TargetClear(bottomTarget, ui::kColorBg);
-        C2D_SceneBegin(bottomTarget);
+        C2D_TargetClear(uiTarget, ui::kColorBg);
+        C2D_SceneBegin(uiTarget);
 
         if (connected) {
             ui::drawText(textBuf, "Verbunden", 8, 90, 0.55f, ui::kColorText);
             ui::drawText(textBuf, "Physische Tasten sind aktiv.", 8, 120, 0.42f, ui::kColorTextDim);
+            ui::drawText(textBuf, "X+Y halten zum Trennen.", 8, 140, 0.42f, ui::kColorTextDim);
             ui::Rect disconnectRect { 8, 206, 304, 26 };
             if (ui::button(textBuf, touch, disconnectRect, "Trennen")) {
                 session.disconnect();
@@ -405,7 +474,7 @@ int main(int argc, char *argv[]) {
             session.sendInput(physicalMask);
         } else if (screenState == BottomScreenState::MENU) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
-                           &connectedHost);
+                           &connectedHost, &connectedStreamType);
         } else {
             drawSettingsScreen(textBuf, touch, &prefs, &videoTex, &screenState);
         }

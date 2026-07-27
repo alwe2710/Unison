@@ -214,6 +214,7 @@ constexpr int kAppHandshakeTimeoutMs = 3000;
 struct AppHandshakeResult {
     bool ok = false;
     std::string reason;
+    std::string streamType;
 };
 
 // App-level handshake (finlink/handshake.h, docs/protocol.md
@@ -226,6 +227,9 @@ struct AppHandshakeResult {
 // repeating -- bounded to one hop, matching the protocol's own design.
 AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *host, int *port,
                                         std::atomic<bool> *stop_flag) {
+    // Last hop wins on a redirect -- the redirect target's own hello is the
+    // authoritative one for the connection that actually carries stream data.
+    std::string streamType;
     for (int hop = 0; hop < 2; hop++) {
         finlink_ws_frame frame;
         if (!receive_one_ws_frame(*fd, buf, stop_flag, kAppHandshakeTimeoutMs, &frame)) {
@@ -248,6 +252,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
                                 std::to_string(FINLINK_PROTOCOL_VERSION) +
                                 " -- bitte Client oder Server aktualisieren" };
         }
+        streamType = hello.stream_type;
 
         // This app always dials a specific already-chosen player port (see
         // main.cpp's P1-P4 picker), never the lobby port -- so the slot
@@ -306,7 +311,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         }
 
         if (!ready.has_redirect) {
-            return { true, "" };
+            return { true, "", streamType };
         }
 
         // Redirect: this connection carries no stream data, ever -- close
@@ -382,7 +387,7 @@ void GbaSession::threadMain(std::string host, int port) {
     }
 
     if (listener.onConnected) {
-        listener.onConnected();
+        listener.onConnected(hs.streamType);
     }
 
     // inflate_buf is scratch space for finlink_inflate_raw()'s output,

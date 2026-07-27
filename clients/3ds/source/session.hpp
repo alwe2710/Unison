@@ -19,7 +19,11 @@
 class GbaSession {
   public:
     struct Listener {
-        std::function<void()> onConnected;
+        // streamType is the server's hello.stream_type (finlink/handshake.h,
+        // docs/protocol.md "Stream-Typen") -- e.g. "GC_GBA_LINK" -- so the
+        // caller can decide which physical screen to show video on (see
+        // finlink_stream_type_prefers_secondary_screen() and main.cpp).
+        std::function<void(std::string streamType)> onConnected;
         std::function<void(uint32_t width, uint32_t height, std::vector<uint8_t> rgb565)> onVideoFrame;
         std::function<void(uint32_t sampleRate, uint8_t channels, std::vector<int16_t> pcm)> onAudioFrame;
         std::function<void(std::string reason)> onDisconnected;

@@ -33,6 +33,10 @@ void Prefs::load() {
     if (it != values.end()) {
         bilinearVideoFilter = it->second == "1";
     }
+    it = values.find("bottom_screen_video");
+    if (it != values.end()) {
+        bottomScreenVideo = it->second == "1";
+    }
 }
 
 void Prefs::save() {
@@ -42,4 +46,5 @@ void Prefs::save() {
         return;
     }
     out << "bilinear_video_filter=" << (bilinearVideoFilter ? "1" : "0") << "\n";
+    out << "bottom_screen_video=" << (bottomScreenVideo ? "1" : "0") << "\n";
 }

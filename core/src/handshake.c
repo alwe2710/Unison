@@ -180,3 +180,9 @@ finlink_handshake_result finlink_parse_handshake_error(const uint8_t *data, size
     get_string_field(text, obj.start, obj.end, "detail", out->detail, sizeof(out->detail));
     return FINLINK_HANDSHAKE_OK;
 }
+
+int finlink_stream_type_prefers_secondary_screen(const char *stream_type) {
+    return strcmp(stream_type, "N3DS_BOTTOM_SCREEN") == 0 ||
+           strcmp(stream_type, "NDS_BOTTOM_SCREEN") == 0 ||
+           strcmp(stream_type, "WIIU_GAMEPAD") == 0;
+}
