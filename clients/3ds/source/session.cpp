@@ -1,6 +1,7 @@
 #include "session.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <netdb.h>
@@ -10,6 +11,7 @@
 
 extern "C" {
 #include "finlink/endian.h"
+#include "finlink/handshake.h"
 #include "finlink/inflate.h"
 #include "finlink/protocol.h"
 #include "finlink/websocket.h"
@@ -67,11 +69,16 @@ bool send_all(int fd, const uint8_t *data, size_t size, std::atomic<bool> *stop_
     return true;
 }
 
-// On success, `leftover` holds any bytes received past the handshake
-// response header -- already WebSocket frame data, must feed straight into
-// the session loop's receive buffer, not be discarded.
-bool do_connect_and_handshake(const std::string &host, int port, int *out_fd, std::atomic<bool> *stop_flag,
-                               RecvBuffer *leftover) {
+// Raw TCP connect + RFC6455 WS upgrade only -- no app-level handshake (see
+// performAppHandshake below for that), so this can be called again against
+// a redirect target without disturbing anything until it's known to have
+// succeeded. On success, `leftover` holds any bytes received past the
+// handshake response header -- already WebSocket frame data (the server
+// sends `hello` immediately after upgrading, so this is often non-empty)
+// and must feed straight into the caller's receive buffer, not be
+// discarded.
+bool connect_and_ws_upgrade(const std::string &host, int port, int *out_fd, std::atomic<bool> *stop_flag,
+                             RecvBuffer *leftover) {
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -144,6 +151,183 @@ bool do_connect_and_handshake(const std::string &host, int port, int *out_fd, st
     return true;
 }
 
+// GC_GBA_LINK player ports are always this + the GC device number
+// (docs/protocol.md; matches kPlayerBasePort in main.cpp and
+// GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork). Not shared
+// with main.cpp's own constant of the same value -- this file has no
+// dependency on it otherwise, and duplicating one int is simpler than
+// introducing one.
+constexpr int kPlayerBasePort = 6801;
+
+// Blocks (bounded by timeoutMs, checking stop_flag throughout) until `buf`
+// holds one full WebSocket frame, receiving more off `fd` as needed. Frame
+// data already sitting in `buf` (e.g. left over from the WS upgrade, or a
+// previous call) is tried first before any recv().
+//
+// Deliberately does NOT consume the frame's bytes from `buf` on success --
+// out_frame->payload points *into* buf.data, and RecvBuffer::consume()
+// shifts buf.data's contents down in place (erase() from the front), which
+// would invalidate that pointer out from under the caller before it ever
+// reads it. The caller must finish reading out_frame->payload first, then
+// call buf->consume(out_frame->frame_size) itself once it's safe to
+// discard -- same order threadMain's own frame handling below already uses
+// for Video/Audio/Input frames (and the same bug this fixed in
+// clients/android/.../jni_bridge.c's equivalent helper, found from a live
+// report -- see that file's history for the postmortem).
+bool receive_one_ws_frame(int fd, RecvBuffer *buf, std::atomic<bool> *stop_flag, int timeoutMs,
+                           finlink_ws_frame *out_frame) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    for (;;) {
+        finlink_ws_frame_status fs = finlink_ws_parse_frame(buf->data.data(), buf->data.size(), out_frame);
+        if (fs == FINLINK_WS_FRAME_OK) {
+            return true;
+        }
+        if (fs == FINLINK_WS_FRAME_ERR) {
+            return false;
+        }
+
+        if (stop_flag->load()) {
+            return false;
+        }
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (remaining.count() <= 0) {
+            return false;
+        }
+        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+        int pr = poll(&pfd, 1, static_cast<int>(remaining.count() > 200 ? 200 : remaining.count()));
+        if (pr < 0 && errno != EINTR) {
+            return false;
+        }
+        if (pr > 0 && (pfd.revents & POLLIN)) {
+            uint8_t chunk[4096];
+            ssize_t n = recv(fd, chunk, sizeof(chunk), 0);
+            if (n <= 0) {
+                return false;
+            }
+            buf->append(chunk, static_cast<size_t>(n));
+        }
+    }
+}
+
+constexpr int kAppHandshakeTimeoutMs = 3000;
+
+struct AppHandshakeResult {
+    bool ok = false;
+    std::string reason;
+};
+
+// App-level handshake (finlink/handshake.h, docs/protocol.md
+// "Verbindungsaufbau: Handshake"), run once `*fd`/`*buf` are already
+// WebSocket-upgraded (`buf` may already hold the server's first message).
+// On a `session_ready` with `redirect` (only possible for multi-slot
+// stream types via the lobby port -- not reachable through this app's own
+// "connect straight to a player port" UI, but handled anyway per
+// docs/protocol.md), closes `*fd` and reconnects to the redirect target,
+// repeating -- bounded to one hop, matching the protocol's own design.
+AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *host, int *port,
+                                        std::atomic<bool> *stop_flag) {
+    for (int hop = 0; hop < 2; hop++) {
+        finlink_ws_frame frame;
+        if (!receive_one_ws_frame(*fd, buf, stop_flag, kAppHandshakeTimeoutMs, &frame)) {
+            return { false, "Server hat keinen Handshake gestartet (evtl. veraltete Protokollversion)" };
+        }
+        if (frame.opcode != FINLINK_WS_OPCODE_TEXT ||
+            finlink_peek_handshake_message(frame.payload, frame.payload_size) != FINLINK_HS_MSG_HELLO) {
+            return { false, "Unerwartete erste Nachricht vom Server" };
+        }
+
+        finlink_hello hello;
+        const finlink_handshake_result helloParsed = finlink_parse_hello(frame.payload, frame.payload_size, &hello);
+        buf->consume(frame.frame_size); // done reading frame.payload either way
+        if (helloParsed != FINLINK_HANDSHAKE_OK) {
+            return { false, "hello konnte nicht gelesen werden" };
+        }
+        if (hello.protocol_version != FINLINK_PROTOCOL_VERSION) {
+            return { false, "Server spricht Protokollversion " + std::to_string(hello.protocol_version) +
+                                ", dieser Client unterstuetzt nur Version " +
+                                std::to_string(FINLINK_PROTOCOL_VERSION) +
+                                " -- bitte Client oder Server aktualisieren" };
+        }
+
+        // This app always dials a specific already-chosen player port (see
+        // main.cpp's P1-P4 picker), never the lobby port -- so the slot
+        // being asked about is simply "the one this connection is on".
+        finlink_hello_ack_request ackReq {};
+        ackReq.requested_slot = *port - kPlayerBasePort;
+        ackReq.max_width = hello.video.width > 0 ? hello.video.width : 240;
+        ackReq.max_height = hello.video.height > 0 ? hello.video.height : 160;
+        ackReq.max_fps = hello.video.fps > 0 ? hello.video.fps : 60.0;
+        ackReq.wants_audio = hello.has_audio;
+        ackReq.max_sample_rate = hello.has_audio && hello.audio.sample_rate > 0 ? hello.audio.sample_rate : 48000;
+        ackReq.max_channels = hello.has_audio && hello.audio.channels > 0 ? hello.audio.channels : 2;
+
+        char ackJson[512];
+        size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
+        if (ackLen == 0) {
+            return { false, "hello_ack zu gross fuer den Puffer" };
+        }
+
+        uint8_t maskKey[4];
+        weakRandomBytes(maskKey, sizeof(maskKey));
+        uint8_t frameBuf[512 + 14];
+        size_t frameLen = finlink_ws_build_frame(FINLINK_WS_OPCODE_TEXT, reinterpret_cast<const uint8_t *>(ackJson),
+                                                  ackLen, maskKey, frameBuf, sizeof(frameBuf));
+        if (frameLen == 0 || !send_all(*fd, frameBuf, frameLen, stop_flag)) {
+            return { false, "hello_ack konnte nicht gesendet werden" };
+        }
+
+        finlink_ws_frame reply;
+        if (!receive_one_ws_frame(*fd, buf, stop_flag, kAppHandshakeTimeoutMs, &reply)) {
+            return { false, "keine Antwort auf hello_ack" };
+        }
+        if (reply.opcode != FINLINK_WS_OPCODE_TEXT) {
+            return { false, "unerwartete Antwort auf hello_ack" };
+        }
+
+        const finlink_handshake_message_type replyType = finlink_peek_handshake_message(reply.payload, reply.payload_size);
+        if (replyType == FINLINK_HS_MSG_HANDSHAKE_ERROR) {
+            finlink_handshake_error err;
+            std::string reason = finlink_parse_handshake_error(reply.payload, reply.payload_size, &err) == FINLINK_HANDSHAKE_OK
+                                      ? std::string(err.detail)
+                                      : std::string("Handshake vom Server abgelehnt");
+            buf->consume(reply.frame_size);
+            return { false, reason };
+        }
+        if (replyType != FINLINK_HS_MSG_SESSION_READY) {
+            buf->consume(reply.frame_size);
+            return { false, "unerwartete Antwort auf hello_ack" };
+        }
+
+        finlink_session_ready ready;
+        const finlink_handshake_result readyParsed = finlink_parse_session_ready(reply.payload, reply.payload_size, &ready);
+        buf->consume(reply.frame_size); // done reading reply.payload either way
+        if (readyParsed != FINLINK_HANDSHAKE_OK) {
+            return { false, "session_ready konnte nicht gelesen werden" };
+        }
+
+        if (!ready.has_redirect) {
+            return { true, "" };
+        }
+
+        // Redirect: this connection carries no stream data, ever -- close
+        // it, reconnect to the target, and let the loop try the same
+        // exchange again there (hop 1, the only one this loop allows).
+        close(*fd);
+        *fd = -1;
+        buf->data.clear();
+
+        *host = ready.redirect_host;
+        *port = ready.redirect_port;
+
+        if (!connect_and_ws_upgrade(*host, *port, fd, stop_flag, buf)) {
+            return { false, "Verbindung zum weitergeleiteten Port fehlgeschlagen" };
+        }
+        // loop: expect a fresh `hello` on the new connection
+    }
+
+    return { false, "zu viele Weiterleitungen" };
+}
+
 } // namespace
 
 GbaSession::~GbaSession() {
@@ -170,13 +354,29 @@ void GbaSession::disconnect() {
 
 void GbaSession::threadMain(std::string host, int port) {
     RecvBuffer buf;
-    if (!do_connect_and_handshake(host, port, &sockfd, &stop, &buf)) {
+    if (!connect_and_ws_upgrade(host, port, &sockfd, &stop, &buf)) {
         if (sockfd >= 0) {
             close(sockfd);
             sockfd = -1;
         }
         if (listener.onDisconnected) {
-            listener.onDisconnected("Verbindung/Handshake fehlgeschlagen");
+            listener.onDisconnected("Verbindung fehlgeschlagen");
+        }
+        return;
+    }
+
+    // App-level handshake (finlink/handshake.h): must succeed -- version
+    // match, this slot requested and free -- before any Video/Audio/Input
+    // binary frame is allowed on this connection. May reconnect `sockfd`/
+    // `host`/`port` once, on a redirect (see performAppHandshake).
+    AppHandshakeResult hs = performAppHandshake(&sockfd, &buf, &host, &port, &stop);
+    if (!hs.ok) {
+        if (sockfd >= 0) {
+            close(sockfd);
+            sockfd = -1;
+        }
+        if (listener.onDisconnected) {
+            listener.onDisconnected(hs.reason);
         }
         return;
     }

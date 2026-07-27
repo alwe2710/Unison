@@ -1,4 +1,4 @@
-#include "discovery.h"
+#include "subnet_discovery.h"
 
 #include <dswifi9.h>
 #include <errno.h>

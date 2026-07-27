@@ -38,8 +38,9 @@
 #include <string.h>
 #include <errno.h>
 
-#include "discovery.h"
+#include "subnet_discovery.h"
 #include "finlink/endian.h"
+#include "finlink/handshake.h"
 #include "finlink/inflate.h"
 #include "finlink/protocol.h"
 #include "finlink/websocket.h"
@@ -240,6 +241,181 @@ static bool connectAndHandshake(const char *host, int port, int *out_fd) {
     return true;
 }
 
+/* Blocking (no explicit timeout, same as connectAndHandshake() above --
+ * this client has no watchdog for either phase) read from `fd` into the
+ * global g_recvBuf/g_recvLen until one full WebSocket frame is available.
+ * Frame data already sitting in g_recvBuf (e.g. left over from the WS
+ * upgrade) is tried first before any recv().
+ *
+ * Deliberately does NOT consume the frame's bytes from g_recvBuf on
+ * success -- out_frame->payload points *into* g_recvBuf, and
+ * recvBufConsume() shifts g_recvBuf's contents down in place (memmove),
+ * which would invalidate that pointer out from under the caller before it
+ * ever reads it. The caller must finish reading out_frame->payload first,
+ * then call recvBufConsume(out_frame->frame_size) itself once it's safe to
+ * discard -- same bug (found from a live report on the Android client,
+ * clients/android/.../jni_bridge.c's history has the postmortem) this
+ * avoids by construction rather than fixing after the fact. */
+static bool receiveOneWsFrame(int fd, finlink_ws_frame *outFrame) {
+    for (;;) {
+        finlink_ws_frame_status fs = finlink_ws_parse_frame(g_recvBuf, g_recvLen, outFrame);
+        if (fs == FINLINK_WS_FRAME_OK) {
+            return true;
+        }
+        if (fs == FINLINK_WS_FRAME_ERR) {
+            return false;
+        }
+        if (g_recvLen >= RECV_BUF_CAP) {
+            return false; /* frame won't ever fit -- same guard as runSession()'s overflow check */
+        }
+        ssize_t n = recv(fd, g_recvBuf + g_recvLen, RECV_BUF_CAP - g_recvLen, 0);
+        if (n <= 0) {
+            return false;
+        }
+        g_recvLen += (size_t)n;
+    }
+}
+
+/* GC_GBA_LINK player ports are always this + the GC device number
+ * (docs/protocol.md; matches kSlotPorts[] above and
+ * GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork). */
+#define PLAYER_BASE_PORT 6801
+
+/* App-level handshake (finlink/handshake.h, docs/protocol.md
+ * "Verbindungsaufbau: Handshake"), run once *fd is already WS-upgraded
+ * (g_recvBuf may already hold the server's first message -- see
+ * connectAndHandshake()). On a session_ready with a redirect (only
+ * possible for multi-slot stream types via the lobby port -- not
+ * reachable through this client's own "connect straight to a player
+ * port" slot menu, but handled anyway per docs/protocol.md), closes *fd
+ * and reconnects to the redirect target, repeating once (matching the
+ * protocol's own one-hop design). outReason must be at least 96 bytes --
+ * always NUL-terminated on return, empty string on success. */
+static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, char *outReason,
+                                 size_t outReasonCap) {
+    outReason[0] = '\0';
+
+    for (int hop = 0; hop < 2; hop++) {
+        finlink_ws_frame frame;
+        if (!receiveOneWsFrame(*fd, &frame)) {
+            snprintf(outReason, outReasonCap, "Server hat keinen Handshake gestartet");
+            return false;
+        }
+        if (frame.opcode != FINLINK_WS_OPCODE_TEXT ||
+            finlink_peek_handshake_message(frame.payload, frame.payload_size) != FINLINK_HS_MSG_HELLO) {
+            snprintf(outReason, outReasonCap, "Unerwartete erste Nachricht vom Server");
+            return false;
+        }
+
+        finlink_hello hello;
+        finlink_handshake_result helloParsed = finlink_parse_hello(frame.payload, frame.payload_size, &hello);
+        recvBufConsume(frame.frame_size); /* done reading frame.payload either way */
+        if (helloParsed != FINLINK_HANDSHAKE_OK) {
+            snprintf(outReason, outReasonCap, "hello konnte nicht gelesen werden");
+            return false;
+        }
+        if (hello.protocol_version != FINLINK_PROTOCOL_VERSION) {
+            snprintf(outReason, outReasonCap, "Server: Protokollversion %d, Client: %d",
+                     hello.protocol_version, FINLINK_PROTOCOL_VERSION);
+            return false;
+        }
+
+        /* This client always dials a specific already-chosen player port
+         * (see kSlotPorts[]/slotSelectMenu()), never the lobby port -- so
+         * the slot being asked about is simply "the one this connection
+         * is on". */
+        finlink_hello_ack_request ackReq;
+        memset(&ackReq, 0, sizeof(ackReq));
+        ackReq.requested_slot = *port - PLAYER_BASE_PORT;
+        ackReq.max_width = hello.video.width > 0 ? hello.video.width : GBA_W;
+        ackReq.max_height = hello.video.height > 0 ? hello.video.height : GBA_H;
+        ackReq.max_fps = hello.video.fps > 0 ? hello.video.fps : 60.0;
+        /* No audio playback here regardless of what the server offers (see
+         * this file's top comment) -- still requesting it anyway would
+         * make the server send audio frames this client has to receive
+         * and discard either way (docs/protocol.md: no opt-out
+         * mechanism), so wants_audio=0 at least keeps this client's own
+         * *request* honest about what it actually uses. */
+        ackReq.wants_audio = 0;
+
+        char ackJson[256];
+        size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
+        if (ackLen == 0) {
+            snprintf(outReason, outReasonCap, "hello_ack zu gross fuer den Puffer");
+            return false;
+        }
+
+        uint8_t maskKey[4];
+        weakRandomBytes(maskKey, sizeof(maskKey));
+        uint8_t frameBuf[256 + 14];
+        size_t frameLen = finlink_ws_build_frame(FINLINK_WS_OPCODE_TEXT, (const uint8_t *)ackJson, ackLen, maskKey,
+                                                  frameBuf, sizeof(frameBuf));
+        if (frameLen == 0 || !sendAll(*fd, frameBuf, frameLen)) {
+            snprintf(outReason, outReasonCap, "hello_ack konnte nicht gesendet werden");
+            return false;
+        }
+
+        finlink_ws_frame reply;
+        if (!receiveOneWsFrame(*fd, &reply)) {
+            snprintf(outReason, outReasonCap, "keine Antwort auf hello_ack");
+            return false;
+        }
+        if (reply.opcode != FINLINK_WS_OPCODE_TEXT) {
+            snprintf(outReason, outReasonCap, "unerwartete Antwort auf hello_ack");
+            return false;
+        }
+
+        finlink_handshake_message_type replyType = finlink_peek_handshake_message(reply.payload, reply.payload_size);
+        if (replyType == FINLINK_HS_MSG_HANDSHAKE_ERROR) {
+            finlink_handshake_error err;
+            if (finlink_parse_handshake_error(reply.payload, reply.payload_size, &err) == FINLINK_HANDSHAKE_OK) {
+                snprintf(outReason, outReasonCap, "%s", err.detail);
+            } else {
+                snprintf(outReason, outReasonCap, "Handshake vom Server abgelehnt");
+            }
+            recvBufConsume(reply.frame_size);
+            return false;
+        }
+        if (replyType != FINLINK_HS_MSG_SESSION_READY) {
+            snprintf(outReason, outReasonCap, "unerwartete Antwort auf hello_ack");
+            recvBufConsume(reply.frame_size);
+            return false;
+        }
+
+        finlink_session_ready ready;
+        finlink_handshake_result readyParsed = finlink_parse_session_ready(reply.payload, reply.payload_size, &ready);
+        recvBufConsume(reply.frame_size); /* done reading reply.payload either way */
+        if (readyParsed != FINLINK_HANDSHAKE_OK) {
+            snprintf(outReason, outReasonCap, "session_ready konnte nicht gelesen werden");
+            return false;
+        }
+
+        if (!ready.has_redirect) {
+            return true;
+        }
+
+        /* Redirect: this connection carries no stream data, ever -- close
+         * it, reconnect to the target, and let the loop try the same
+         * exchange again there (hop 1, the only one this loop allows). */
+        closesocket(*fd);
+        *fd = -1;
+        g_recvLen = 0;
+
+        strncpy(host, ready.redirect_host, hostCap - 1);
+        host[hostCap - 1] = '\0';
+        *port = ready.redirect_port;
+
+        if (!connectAndHandshake(host, *port, fd)) {
+            snprintf(outReason, outReasonCap, "Verbindung zum weitergeleiteten Port fehlgeschlagen");
+            return false;
+        }
+        /* loop: expect a fresh hello on the new connection */
+    }
+
+    snprintf(outReason, outReasonCap, "zu viele Weiterleitungen");
+    return false;
+}
+
 typedef struct {
     unsigned videoFrames, videoBytes;
     unsigned audioFrames, audioBytes;
@@ -258,13 +434,41 @@ typedef struct {
  * error). One 4KB-chunked read per 16.7ms tick comfortably drains far
  * more than the ~2-4KB/tick this link can theoretically deliver at
  * 1-2 Mbit/s, so this doesn't cap actual throughput either. */
-static void runSession(const char *host, int port) {
+static void runSession(const char *hostIn, int portIn) {
     consoleClear();
-    iprintf("Verbinde zu %s:%d ...\n", host, port);
+    iprintf("Verbinde zu %s:%d ...\n", hostIn, portIn);
+
+    /* Local mutable copies -- performAppHandshake() may rewrite both on a
+     * redirect (see its own comment; not reachable via this client's own
+     * slot menu today, but handled per docs/protocol.md regardless). */
+    char host[64];
+    strncpy(host, hostIn, sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+    int port = portIn;
 
     int fd;
     if (!connectAndHandshake(host, port, &fd)) {
-        iprintf("Verbindung/Handshake fehlgeschlagen.\n");
+        iprintf("Verbindung fehlgeschlagen.\n");
+        iprintf("\nTaste druecken fuer Menue.\n");
+        while (true) {
+            swiWaitForVBlank();
+            scanKeys();
+            if (keysDown()) {
+                return;
+            }
+        }
+    }
+
+    /* App-level handshake (finlink/handshake.h): must succeed -- version
+     * match, this slot requested and free -- before any Video/Audio/Input
+     * binary frame is allowed on this connection. May reconnect fd/host/
+     * port once, on a redirect. */
+    char handshakeFailReason[96];
+    if (!performAppHandshake(&fd, host, sizeof(host), &port, handshakeFailReason, sizeof(handshakeFailReason))) {
+        if (fd >= 0) {
+            closesocket(fd);
+        }
+        iprintf("Handshake fehlgeschlagen:\n%s\n", handshakeFailReason);
         iprintf("\nTaste druecken fuer Menue.\n");
         while (true) {
             swiWaitForVBlank();
