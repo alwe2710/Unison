@@ -31,6 +31,17 @@ class VideoTex {
     // from the main/render thread, outside of C3D_FrameBegin/End.
     void upload();
 
+    // Clears the currently-displayed frame (hasFrame() goes back to
+    // false) and drops any not-yet-uploaded pending one. Unlike the
+    // Android/Switch clients, where a fresh VideoTex-equivalent object is
+    // created for every new connection, this one is a single instance
+    // shared across the app's whole lifetime (see main.cpp) -- without
+    // this, reconnecting to a different host/session would keep showing
+    // the previous stream's last frame during the "Verbinde..." gap
+    // before the new stream's first (always full, per docs/protocol.md)
+    // frame arrives.
+    void reset();
+
     bool hasFrame() const {
         return frameWidth > 0 && frameHeight > 0;
     }

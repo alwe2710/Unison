@@ -8,3 +8,10 @@ clients/android/local.properties
 clients/android/*/build/
 clients/android/*/.cxx/
 clients/android/*.iml
+
+# NDS -- classic devkitARM Makefile build (see clients/nds/README.md),
+# puts final .elf/.nds directly in the source tree instead of a build/
+# subdir like the other three clients' CMake builds.
+clients/nds/arm7/*.elf
+clients/nds/arm9/*.elf
+clients/nds/*.nds

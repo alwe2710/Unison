@@ -185,33 +185,56 @@ static bool do_connect_and_handshake(finlink_session *s, byte_buf *leftover) {
     return true;
 }
 
+// `inflate_out`/`inflate_out_cap` is scratch space for finlink_inflate_raw()'s
+// output, whose content depends on hdr.format (raw/indexed pixels, whole
+// frame or only changed tiles -- see finlink/protocol.h) --
+// `rgb565_out`/`rgb565_out_cap` is the PERSISTENT framebuffer, decoded from
+// that via finlink_decode_video_frame(): width*height RGB565 pixels,
+// row-major. It's only reallocated when growing (never shrunk, never
+// cleared), so its content survives across calls at a fixed size -- which
+// is exactly what a FINLINK_VIDEO_FORMAT_TILES message needs, since it only
+// patches the tiles it lists and leaves every other pixel as the previous
+// frame decoded it.
 static void handle_video_message(JNIEnv *env, finlink_session *s, jmethodID on_video,
-                                  const uint8_t *payload, size_t payload_size, uint8_t **video_out,
-                                  size_t *video_out_cap) {
+                                  const uint8_t *payload, size_t payload_size, uint8_t **inflate_out,
+                                  size_t *inflate_out_cap, uint8_t **rgb565_out, size_t *rgb565_out_cap) {
     finlink_video_header hdr;
     if (finlink_parse_video_header(payload, payload_size, &hdr) != FINLINK_OK) {
         return;
     }
 
-    size_t needed = (size_t)hdr.width * hdr.height * 2;
-    if (needed > *video_out_cap) {
-        uint8_t *grown = realloc(*video_out, needed);
+    size_t inflate_needed = finlink_video_max_inflated_size(hdr.width, hdr.height);
+    if (inflate_needed > *inflate_out_cap) {
+        uint8_t *grown = realloc(*inflate_out, inflate_needed);
         if (!grown) {
             return;
         }
-        *video_out = grown;
-        *video_out_cap = needed;
+        *inflate_out = grown;
+        *inflate_out_cap = inflate_needed;
     }
 
-    size_t out_size = 0;
-    if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, *video_out, *video_out_cap,
-                             &out_size) != FINLINK_INFLATE_OK ||
-        out_size != needed) {
+    size_t framebuffer_needed = (size_t)hdr.width * hdr.height * 2;
+    if (framebuffer_needed > *rgb565_out_cap) {
+        uint8_t *grown = realloc(*rgb565_out, framebuffer_needed);
+        if (!grown) {
+            return;
+        }
+        *rgb565_out = grown;
+        *rgb565_out_cap = framebuffer_needed;
+    }
+
+    size_t inflated_size = 0;
+    if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, *inflate_out, *inflate_out_cap,
+                             &inflated_size) != FINLINK_INFLATE_OK) {
+        return;
+    }
+    if (finlink_decode_video_frame(hdr.format, *inflate_out, inflated_size, hdr.width, hdr.height, *rgb565_out,
+                                    *rgb565_out_cap) != FINLINK_OK) {
         return;
     }
 
-    jbyteArray arr = (*env)->NewByteArray(env, (jsize)needed);
-    (*env)->SetByteArrayRegion(env, arr, 0, (jsize)needed, (const jbyte *)*video_out);
+    jbyteArray arr = (*env)->NewByteArray(env, (jsize)framebuffer_needed);
+    (*env)->SetByteArrayRegion(env, arr, 0, (jsize)framebuffer_needed, (const jbyte *)*rgb565_out);
     (*env)->CallVoidMethod(env, s->listener, on_video, (jint)hdr.width, (jint)hdr.height, arr);
     (*env)->DeleteLocalRef(env, arr);
 }
@@ -268,8 +291,10 @@ static void maybe_send_input(finlink_session *s) {
 static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video,
                               jmethodID on_audio, byte_buf *buf) {
     uint8_t chunk[4096];
-    uint8_t *video_out = NULL;
-    size_t video_out_cap = 0;
+    uint8_t *inflate_out = NULL;
+    size_t inflate_out_cap = 0;
+    uint8_t *rgb565_out = NULL;
+    size_t rgb565_out_cap = 0;
 
     while (!atomic_load(&s->stop)) {
         struct pollfd pfd = {.fd = s->sockfd, .events = POLLIN};
@@ -306,7 +331,7 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
             if (finlink_peek_type(frame.payload, frame.payload_size, &type) == FINLINK_OK) {
                 if (type == FINLINK_MSG_VIDEO) {
                     handle_video_message(env, s, on_video, frame.payload, frame.payload_size,
-                                         &video_out, &video_out_cap);
+                                         &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
                 } else if (type == FINLINK_MSG_AUDIO) {
                     handle_audio_message(env, s, on_audio, frame.payload, frame.payload_size);
                 }
@@ -321,7 +346,8 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
         maybe_send_input(s);
     }
 
-    free(video_out);
+    free(inflate_out);
+    free(rgb565_out);
 }
 
 static void call_on_disconnected(JNIEnv *env, finlink_session *s, jmethodID on_disconnected,

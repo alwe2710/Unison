@@ -21,7 +21,11 @@ set(PROJECT_AUTHOR "finlink")
 # homebrew .nro to have a distinct save/config folder.
 set(PROJECT_TITLEID "0100FIN0A0000000")
 string(REGEX REPLACE "[^0-9A-Fa-f]" "0" PROJECT_TITLEID "${PROJECT_TITLEID}")
-set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/logo/finlink-logo.png)
+# elf2nro/hbmenu expect a 256x256 JPEG specifically, not the arbitrary PNG
+# the other clients' icons accept -- pre-converted once from
+# assets/logo/finlink-logo.png rather than depending on ImageMagick/PIL at
+# build time (same rationale as clients/3ds/CMakeLists.txt's icon.png).
+set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/icon.jpg)
 set(PROJECT_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 
 if (NOT PLATFORM_SWITCH)
@@ -29,6 +33,16 @@ if (NOT PLATFORM_SWITCH)
 endif ()
 
 add_subdirectory(${BOREALIS_LIBRARY} ${CMAKE_BINARY_DIR}/borealis)
+
+# borealis's own toolchain.cmake only sets up i18n string loading (used for
+# its built-in "hints/ok"/"hints/back"/... bottom-bar labels) for
+# Desktop/iOS/Android -- for PLATFORM_SWITCH, BRLS_RESOURCES never gets a
+# real value, so those lookups always miss and fall back to showing the
+# raw key. Point it at our already-working romfs mount (romfsInit() in
+# main.cpp, same "romfs:/" prefix switch_font.cpp already uses
+# successfully for the material icon font) instead, with the actual
+# strings in resources/i18n/.
+target_compile_definitions(borealis PUBLIC BRLS_RESOURCES="romfs:/")
 
 # finlink_core (WS handshake/framing, app protocol, deflate) -- unchanged
 # from the core used by every other client, see core/README.md.

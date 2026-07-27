@@ -1,18 +1,28 @@
 #include "menu_activity.hpp"
 
-#include <array>
-#include <optional>
-#include <thread>
+#include <algorithm>
+#include <atomic>
+#include <memory>
 
 #include "discovery.hpp"
 #include "player_activity.hpp"
 #include "settings_activity.hpp"
+#include "thread_utils.hpp"
 
 namespace {
 
-constexpr int kLobbyPort = 6800;
 constexpr int kPlayerBasePort = 6801;
-constexpr int kPlayerSlotCount = 4;
+
+// Shared state for startDiscovery()'s worker pool -- kept alive by the
+// shared_ptr each worker lambda captures for as long as any of them are
+// still running.
+struct DiscoveryState {
+    std::vector<std::string> hosts;
+    std::atomic<size_t> nextIndex { 0 };
+    std::atomic<int> nextRow { 0 };
+    std::atomic<int> completed { 0 };
+    std::atomic<int> workersRemaining { 0 };
+};
 
 void addDivider(brls::Box *parent) {
     auto *rect = new brls::Rectangle(nvgRGBA(255, 255, 255, 40));
@@ -52,6 +62,21 @@ brls::View *MenuActivity::createContentView() {
     slotRow = new brls::Box();
     slotRow->setAxis(brls::Axis::ROW);
     slotRow->setMarginTop(8);
+    for (int slot = 0; slot < kPlayerSlotCount; slot++) {
+        auto *button = new brls::Button();
+        // BUTTONSTYLE_DEFAULT (what a plain new Button() uses) has
+        // identical enabled/disabled colors in borealis's built-in theme --
+        // ButtonState::DISABLED works (registerClickAction stops firing),
+        // it just looks the same. BUTTONSTYLE_PRIMARY is the one built-in
+        // style that actually dims when disabled.
+        button->setStyle(&brls::BUTTONSTYLE_PRIMARY);
+        button->setVisibility(brls::Visibility::GONE);
+        button->setText("P" + std::to_string(slot + 1));
+        button->setGrow(1.0f);
+        button->setMarginLeft(slot == 0 ? 0 : 8);
+        slotRow->addView(button);
+        slotButtons[slot] = button;
+    }
     column->addView(slotRow);
 
     statusLabel = new brls::Label();
@@ -69,6 +94,11 @@ brls::View *MenuActivity::createContentView() {
     });
     column->addView(discoverCell);
 
+    discoveryProgress = new ProgressBar();
+    discoveryProgress->setVisibility(brls::Visibility::GONE);
+    discoveryProgress->setMarginTop(8);
+    column->addView(discoveryProgress);
+
     discoveryStatusLabel = new brls::Label();
     discoveryStatusLabel->setText("");
     discoveryStatusLabel->setMarginTop(4);
@@ -77,6 +107,12 @@ brls::View *MenuActivity::createContentView() {
     discoveredList = new brls::Box();
     discoveredList->setAxis(brls::Axis::COLUMN);
     discoveredList->setMarginTop(4);
+    for (int i = 0; i < kMaxDiscoveredRows; i++) {
+        auto *cell = new brls::DetailCell();
+        cell->setVisibility(brls::Visibility::GONE);
+        discoveredList->addView(cell);
+        discoveredCells[i] = cell;
+    }
     column->addView(discoveredList);
 
     addDivider(column);
@@ -103,10 +139,12 @@ void MenuActivity::runSearch(const std::string &host) {
         return;
     }
     searching = true;
-    slotRow->clearViews();
+    for (auto *button : slotButtons) {
+        button->setVisibility(brls::Visibility::GONE);
+    }
     statusLabel->setText("Suche...");
 
-    std::thread([this, host]() {
+    thread_utils::spawnDetached([this, host]() {
         std::array<std::optional<bool>, kPlayerSlotCount> occupied;
         for (int slot = 0; slot < kPlayerSlotCount; slot++) {
             occupied[slot] = discovery::fetchOccupied(host, kPlayerBasePort + slot);
@@ -118,16 +156,13 @@ void MenuActivity::runSearch(const std::string &host) {
 
             bool anyFree = false;
             for (int slot = 0; slot < kPlayerSlotCount; slot++) {
-                auto *button = new brls::Button();
-                button->setText("P" + std::to_string(slot + 1));
-                button->setGrow(1.0f);
-                button->setMarginLeft(slot == 0 ? 0 : 8);
+                auto *button = slotButtons[slot];
+                button->setVisibility(brls::Visibility::VISIBLE);
 
-                if (!occupied[slot].has_value()) {
-                    button->setState(brls::ButtonState::DISABLED);
-                } else if (*occupied[slot]) {
+                if (!occupied[slot].has_value() || *occupied[slot]) {
                     button->setState(brls::ButtonState::DISABLED);
                 } else {
+                    button->setState(brls::ButtonState::ENABLED);
                     anyFree = true;
                     int port = kPlayerBasePort + slot;
                     button->registerClickAction([this, host, port](brls::View *) {
@@ -135,12 +170,11 @@ void MenuActivity::runSearch(const std::string &host) {
                         return true;
                     });
                 }
-                slotRow->addView(button);
             }
 
             statusLabel->setText(anyFree ? "Freien Slot wählen." : "Kein freier Slot auf diesem Host.");
         });
-    }).detach();
+    });
 }
 
 void MenuActivity::startDiscovery() {
@@ -148,40 +182,74 @@ void MenuActivity::startDiscovery() {
         return;
     }
     discovering = true;
-    discoveredList->clearViews();
+    for (auto *cell : discoveredCells) {
+        cell->setVisibility(brls::Visibility::GONE);
+    }
+    discoveryProgress->setProgress(0.0f);
+    discoveryProgress->setVisibility(brls::Visibility::VISIBLE);
     discoveryStatusLabel->setText("Suche läuft...");
 
-    std::thread([this]() {
+    thread_utils::spawnDetached([this]() {
         auto hosts = discovery::localSubnetHosts();
         if (hosts.empty()) {
             brls::sync([this]() {
                 discovering = false;
+                discoveryProgress->setVisibility(brls::Visibility::GONE);
                 discoveryStatusLabel->setText("Kein lokales Netzwerk gefunden.");
             });
             return;
         }
 
-        for (const auto &ip : hosts) {
-            if (discovery::probeLobby(ip)) {
-                brls::sync([this, ip]() {
-                    auto *cell = new brls::DetailCell();
-                    cell->setText(ip);
-                    cell->registerClickAction([this, ip](brls::View *) {
-                        hostInput->setValue(ip);
-                        runSearch(ip);
-                        return true;
-                    });
-                    discoveredList->addView(cell);
-                });
-            }
-        }
+        // Probing all (up to 254) hosts one at a time would take far too
+        // long -- split the range across a handful of worker threads
+        // instead, same as clients/3ds/source/main.cpp's startDiscovery().
+        constexpr int kWorkers = 8;
+        auto state = std::make_shared<DiscoveryState>();
+        state->hosts = std::move(hosts);
+        state->workersRemaining = kWorkers;
+        auto total = static_cast<float>(state->hosts.size());
 
-        brls::sync([this]() {
-            discovering = false;
-            discoveryStatusLabel->setText(discoveredList->getChildren().empty() ? "Nichts gefunden."
-                                                                                  : "Suche abgeschlossen.");
-        });
-    }).detach();
+        for (int w = 0; w < kWorkers; w++) {
+            thread_utils::spawnDetached([this, state, total]() {
+                for (;;) {
+                    size_t i = state->nextIndex.fetch_add(1);
+                    if (i >= state->hosts.size()) {
+                        break;
+                    }
+                    const std::string &ip = state->hosts[i];
+                    if (discovery::probeLobby(ip)) {
+                        int row = state->nextRow.fetch_add(1);
+                        if (row < kMaxDiscoveredRows) {
+                            brls::sync([this, ip, row]() {
+                                auto *cell = discoveredCells[row];
+                                cell->setText(ip);
+                                cell->setVisibility(brls::Visibility::VISIBLE);
+                                cell->registerClickAction([this, ip](brls::View *) {
+                                    hostInput->setValue(ip);
+                                    runSearch(ip);
+                                    return true;
+                                });
+                            });
+                        }
+                    }
+
+                    int done = state->completed.fetch_add(1) + 1;
+                    brls::sync([this, done, total]() {
+                        discoveryProgress->setProgress(static_cast<float>(done) / total);
+                    });
+                }
+
+                if (state->workersRemaining.fetch_sub(1) == 1) {
+                    int shown = std::min(state->nextRow.load(), kMaxDiscoveredRows);
+                    brls::sync([this, shown]() {
+                        discovering = false;
+                        discoveryProgress->setVisibility(brls::Visibility::GONE);
+                        discoveryStatusLabel->setText(shown == 0 ? "Nichts gefunden." : "Suche abgeschlossen.");
+                    });
+                }
+            });
+        }
+    });
 }
 
 void MenuActivity::launchPlayer(const std::string &host, int port) {

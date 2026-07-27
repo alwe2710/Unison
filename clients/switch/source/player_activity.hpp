@@ -13,11 +13,11 @@
 
 // The actual stream view: connects to host:port (passed in via the
 // constructor, set by MenuActivity), shows video full-screen, plays
-// audio, and accepts input from both the on-screen touch overlay (if
-// enabled in Settings) and whatever physical controller bindings are set
-// there. Owns the one GbaSession instance for its lifetime -- Menu and
-// Settings never touch it. Mirrors
-// clients/android/.../PlayerActivity.kt.
+// audio, and reads input from the physical controller using each GBA
+// button's default mapping (see gba_buttons.hpp) -- no on-screen touch
+// overlay and no per-button rebinding, removed at the user's request.
+// Owns the one GbaSession instance for its lifetime -- Menu and Settings
+// never touch it. Mirrors clients/android/.../PlayerActivity.kt.
 //
 // Not wrapped in an AppletFrame: B is a GBA input here (mapped to the GBA
 // B button by default), not "go back" like every other screen -- unlike
@@ -46,6 +46,14 @@ class PlayerActivity : public brls::Activity {
     bool connected = false;
     uint16_t physicalMask = 0;
     float exitHoldSeconds = 0.0f;
+    // Application::popActivity() only actually removes this activity once
+    // its hide animation finishes (a callback, not immediate) -- until
+    // then it's still in the stack and this activity's own FramePoller
+    // keeps ticking, so without this guard, holding ZL+ZR past the
+    // threshold called popActivity() again on every subsequent frame,
+    // popping the focus stack an extra time each call and leaving focus
+    // on the wrong view once back on the Menu.
+    bool exiting = false;
 
     bool audioOpen = false;
 

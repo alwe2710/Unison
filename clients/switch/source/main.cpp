@@ -22,8 +22,19 @@ int main(int argc, char *argv[]) {
     // open; was missing from the initial version of this file.
     romfsInit();
 
+    // Also needed before Application::init(): borealis's Switch font
+    // loader gets the actual regular/CJK/icon glyphs from the system's
+    // shared font via plGetSharedFontByType(), which -- like romfs above --
+    // silently fails on every call until pl:u is initialized. Without this
+    // the app doesn't crash, it just renders with every label blank (no
+    // glyphs to draw), which is exactly what going straight from
+    // Application::init() into pushActivity() without this call looked
+    // like.
+    plInitialize(PlServiceType_User);
+
     if (!brls::Application::init()) {
         brls::Logger::error("Unable to init Borealis application");
+        plExit();
         romfsExit();
         socketExit();
         return EXIT_FAILURE;
@@ -43,6 +54,7 @@ int main(int argc, char *argv[]) {
     while (brls::Application::mainLoop())
         ;
 
+    plExit();
     romfsExit();
     socketExit();
     return EXIT_SUCCESS;

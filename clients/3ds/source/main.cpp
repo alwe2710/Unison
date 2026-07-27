@@ -82,12 +82,26 @@ void runSearch(MenuState *menu, std::string host) {
         menu->pickerVisible = true;
 
         bool anyFree = false;
+        bool anyReachable = false;
         for (const auto &o : occupied) {
-            if (o.has_value() && !*o) {
-                anyFree = true;
+            if (o.has_value()) {
+                anyReachable = true;
+                if (!*o) {
+                    anyFree = true;
+                }
             }
         }
-        menu->statusText = anyFree ? "Freien Slot waehlen." : "Kein freier Slot auf diesem Host.";
+        // Distinguishes "connected fine, every slot is just taken" from
+        // "couldn't reach a single one of the four ports" -- both used to
+        // show the same "kein freier Slot" message, which made a dead
+        // connection look identical to a genuinely full host.
+        if (anyFree) {
+            menu->statusText = "Freien Slot waehlen.";
+        } else if (anyReachable) {
+            menu->statusText = "Kein freier Slot auf diesem Host.";
+        } else {
+            menu->statusText = "Host nicht erreichbar (Port 6801-6804).";
+        }
     }).detach();
 }
 
@@ -208,6 +222,13 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
             if (ui::button(textBuf, touch, r, label, free)) {
                 int port = kPlayerBasePort + slot;
                 *connectedHost = lastSearchedHost;
+                // videoTex is one long-lived object shared across every
+                // connection this app makes (unlike Android/Switch, which
+                // get a fresh one each time) -- without resetting it here,
+                // reconnecting would keep showing the previous stream's
+                // last frame until the new one's first (always full) frame
+                // arrives.
+                videoTex->reset();
                 session->connect(lastSearchedHost, port,
                     GbaSession::Listener {
                         .onConnected = [connected]() { *connected = true; },

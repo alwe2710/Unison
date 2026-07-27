@@ -146,6 +146,7 @@ GbaSession::~GbaSession() {
 void GbaSession::connect(std::string host, int port, Listener l) {
     listener = std::move(l);
     stop.store(false);
+    suppressDisconnectedCallback.store(false);
     thread = std::thread(&GbaSession::threadMain, this, std::move(host), port);
 }
 
@@ -155,6 +156,7 @@ void GbaSession::sendInput(uint16_t keyMask) {
 }
 
 void GbaSession::disconnect() {
+    suppressDisconnectedCallback.store(true);
     stop.store(true);
     if (thread.joinable()) {
         thread.join();
@@ -168,7 +170,7 @@ void GbaSession::threadMain(std::string host, int port) {
             close(sockfd);
             sockfd = -1;
         }
-        if (listener.onDisconnected) {
+        if (listener.onDisconnected && !suppressDisconnectedCallback.load()) {
             listener.onDisconnected("Verbindung/Handshake fehlgeschlagen");
         }
         return;
@@ -178,7 +180,13 @@ void GbaSession::threadMain(std::string host, int port) {
         listener.onConnected();
     }
 
-    std::vector<uint8_t> video_out;
+    // inflate_buf is scratch space for finlink_inflate_raw()'s output,
+    // whose content depends on hdr.format (raw RGB565, or a palette +
+    // per-pixel indices, see finlink/protocol.h) -- rgb565_out is always
+    // final width*height RGB565 pixels, decoded from that via
+    // finlink_decode_video_frame().
+    std::vector<uint8_t> inflate_buf;
+    std::vector<uint8_t> rgb565_out;
     uint8_t chunk[4096];
 
     while (!stop.load()) {
@@ -216,13 +224,23 @@ void GbaSession::threadMain(std::string host, int port) {
                 if (type == FINLINK_MSG_VIDEO && listener.onVideoFrame) {
                     finlink_video_header hdr;
                     if (finlink_parse_video_header(frame.payload, frame.payload_size, &hdr) == FINLINK_OK) {
-                        size_t needed = static_cast<size_t>(hdr.width) * hdr.height * 2;
-                        video_out.resize(needed);
-                        size_t out_size = 0;
-                        if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, video_out.data(),
-                                                 video_out.size(), &out_size) == FINLINK_INFLATE_OK &&
-                            out_size == needed) {
-                            listener.onVideoFrame(hdr.width, hdr.height, video_out);
+                        // rgb565_out is the PERSISTENT framebuffer: resizing
+                        // it to the same size every frame (width/height
+                        // don't change mid-stream) is a no-op that leaves
+                        // its content alone, which is exactly what a
+                        // FINLINK_VIDEO_FORMAT_TILES frame needs -- it only
+                        // patches the tiles it lists, every other pixel must
+                        // keep whatever the previous frame decoded there.
+                        size_t framebuffer_size = static_cast<size_t>(hdr.width) * hdr.height * 2;
+                        inflate_buf.resize(finlink_video_max_inflated_size(hdr.width, hdr.height));
+                        rgb565_out.resize(framebuffer_size);
+                        size_t inflated_size = 0;
+                        if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, inflate_buf.data(),
+                                                 inflate_buf.size(), &inflated_size) == FINLINK_INFLATE_OK &&
+                            finlink_decode_video_frame(hdr.format, inflate_buf.data(), inflated_size, hdr.width,
+                                                        hdr.height, rgb565_out.data(),
+                                                        rgb565_out.size()) == FINLINK_OK) {
+                            listener.onVideoFrame(hdr.width, hdr.height, rgb565_out);
                         }
                     }
                 } else if (type == FINLINK_MSG_AUDIO && listener.onAudioFrame) {
@@ -263,7 +281,7 @@ void GbaSession::threadMain(std::string host, int port) {
 
     close(sockfd);
     sockfd = -1;
-    if (listener.onDisconnected) {
+    if (listener.onDisconnected && !suppressDisconnectedCallback.load()) {
         listener.onDisconnected("Verbindung getrennt");
     }
 }

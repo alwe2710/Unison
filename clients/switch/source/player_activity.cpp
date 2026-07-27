@@ -27,9 +27,22 @@ brls::View *PlayerActivity::createContentView() {
     root->setWidthPercentage(100);
     root->setHeightPercentage(100);
 
+    // Without a focusable view somewhere in this tree, pushActivity()'s
+    // Application::giveFocus(activity->getDefaultFocus()) call finds
+    // nothing (Box::getDefaultFocus() returns nullptr when no descendant
+    // is focusable) and giveFocus() leaves currentFocus untouched -- so
+    // every button/dpad press kept going to whatever was still focused in
+    // MenuActivity underneath, including its "B = back" AppletFrame
+    // action, and its highlight box kept getting drawn on top of the
+    // video (Application::frame() draws currentFocus's highlight globally,
+    // regardless of which activity is actually on top). setHideHighlight
+    // suppresses the highlight box borealis would otherwise draw around
+    // this now-focused, screen-filling root.
+    root->setFocusable(true);
+    root->setHideHighlight(true);
+
     videoView = new VideoView();
     videoView->setBilinearFilter(prefs.bilinearVideoFilter);
-    videoView->setOnScreenControlsEnabled(prefs.onScreenControlsEnabled);
     root->addView(videoView);
 
     statusLabel = new brls::Label();
@@ -77,6 +90,19 @@ brls::View *PlayerActivity::createContentView() {
             .onDisconnected =
                 [this](std::string reason) {
                     brls::sync([this, reason]() {
+                        // The session thread calls onDisconnected
+                        // unconditionally whenever it exits, including the
+                        // clean, intentional case (disconnect() from our
+                        // own destructor, itself triggered by the ZL+ZR
+                        // hold-to-exit popActivity()) -- `exiting` is set
+                        // synchronously right when that starts, so by the
+                        // time this fires (well after the pop, since it's
+                        // the destructor that calls disconnect()), it
+                        // reliably tells intentional exits apart from a
+                        // real dropped connection.
+                        if (exiting) {
+                            return;
+                        }
                         bool wasConnected = connected;
                         connected = false;
                         if (wasConnected) {
@@ -100,12 +126,11 @@ void PlayerActivity::showDisconnectDialog(const std::string &reason) {
 }
 
 void PlayerActivity::sendCombinedInput() {
-    uint16_t touchMask = videoView ? videoView->getTouchMask() : 0;
-    session.sendInput(touchMask | physicalMask);
+    session.sendInput(physicalMask);
 }
 
 void PlayerActivity::onFrameTick() {
-    if (!connected) {
+    if (!connected || exiting) {
         return;
     }
 
@@ -114,12 +139,7 @@ void PlayerActivity::onFrameTick() {
 
     uint16_t newPhysicalMask = 0;
     for (const auto &button : GBA_BUTTONS) {
-        int bound = prefs.keyBinding(button.prefKey);
-        int controller = bound == Prefs::kNoOverride ? static_cast<int>(button.defaultController) : bound;
-        if (controller == Prefs::kExplicitlyUnbound) {
-            continue;
-        }
-        if (controller >= 0 && controller < brls::_BUTTON_MAX && state.buttons[controller]) {
+        if (state.buttons[button.defaultController]) {
             newPhysicalMask |= button.bit;
         }
     }
@@ -136,7 +156,16 @@ void PlayerActivity::onFrameTick() {
     if (state.buttons[brls::BUTTON_LT] && state.buttons[brls::BUTTON_RT]) {
         exitHoldSeconds += dt;
         if (exitHoldSeconds >= kExitHoldSeconds) {
-            brls::Application::popActivity();
+            exiting = true;
+            // popActivity() mutates the activity/view tree (hides this
+            // activity, eventually erases+frees it) -- calling it directly
+            // from here is calling it mid-frame, from inside the very
+            // draw() pass that's currently iterating that same tree.
+            // brls::sync() defers it to Threading::performSyncTasks()'s
+            // dedicated, safe point in the main loop instead, same as
+            // every other place in this app that mutates views outside of
+            // a normal click handler.
+            brls::sync([]() { brls::Application::popActivity(); });
         }
     } else {
         exitHoldSeconds = 0.0f;

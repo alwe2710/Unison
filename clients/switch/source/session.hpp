@@ -39,11 +39,20 @@ class GbaSession {
     // jni_bridge.c's maybe_send_input()).
     void sendInput(uint16_t keyMask);
 
+    // Callers must not touch anything the Listener's callbacks captured
+    // (e.g. `this` of the object that called connect()) once this returns
+    // -- it joins the thread, but a queued brls::sync() from
+    // onDisconnected could otherwise still run later against a
+    // now-dangling capture. To prevent that, disconnect() suppresses the
+    // final onDisconnected call entirely: it only ever fires for a drop
+    // this session didn't ask for, matching
+    // clients/android/.../jni_bridge.c's comment on the same tradeoff.
     void disconnect();
 
   private:
     std::thread thread;
     std::atomic<bool> stop { false };
+    std::atomic<bool> suppressDisconnectedCallback { false };
     std::atomic<uint16_t> pendingKeymask { 0 };
     std::atomic<bool> inputDirty { false };
     int sockfd = -1;

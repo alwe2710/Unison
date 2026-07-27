@@ -61,6 +61,14 @@ void VideoTex::upload() {
     frameDirty = false;
 }
 
+void VideoTex::reset() {
+    std::lock_guard<std::mutex> lock(frameMutex);
+    frameWidth = 0;
+    frameHeight = 0;
+    frameDirty = false;
+    pendingRgb565.clear();
+}
+
 void VideoTex::drawFitted(float x, float y, float w, float h) const {
     if (!texInited || frameWidth == 0 || frameHeight == 0) {
         return;

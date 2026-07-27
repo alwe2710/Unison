@@ -41,7 +41,12 @@ std::optional<std::string> httpGet(const std::string &host, int port, const std:
     }
     if (rc < 0) {
         struct pollfd pfd = { .fd = fd, .events = POLLOUT, .revents = 0 };
-        if (poll(&pfd, 1, timeoutMs) <= 0 || !(pfd.revents & POLLOUT)) {
+        // Only bail out on an actual timeout (poll() returning 0). Once it
+        // returns at all, SO_ERROR is the authoritative way to tell success
+        // from failure -- requiring POLLOUT specifically in revents is
+        // pickier than it needs to be, and 3DS's soc:u connect-completion
+        // notification isn't guaranteed to look exactly like glibc's.
+        if (poll(&pfd, 1, timeoutMs) <= 0) {
             close(fd);
             return std::nullopt;
         }

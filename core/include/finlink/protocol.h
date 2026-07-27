@@ -21,8 +21,9 @@ typedef enum {
 
 typedef enum {
     FINLINK_OK = 0,
-    FINLINK_ERR_TOO_SHORT = -1,   /* buffer smaller than the message's fixed header */
-    FINLINK_ERR_UNKNOWN_TYPE = -2 /* leading byte isn't a known finlink_msg_type */
+    FINLINK_ERR_TOO_SHORT = -1,     /* buffer/decompressed data smaller than expected */
+    FINLINK_ERR_UNKNOWN_TYPE = -2,  /* leading byte isn't a known finlink_msg_type */
+    FINLINK_ERR_UNKNOWN_FORMAT = -3 /* video_header.format isn't a known finlink_video_format */
 } finlink_result;
 
 /* Bit positions within the type=2 input keyBitmask, per docs/protocol.md. */
@@ -39,12 +40,34 @@ typedef enum {
     FINLINK_KEY_L = 1 << 9
 } finlink_key;
 
+/* Bitmask selected per-frame by the server (whichever is cheapest for that
+ * frame) describing the decompressed block's layout -- see
+ * finlink_decode_video_frame(). All four combinations must be handled. */
+typedef enum {
+    /* Pixels are palette indices (1 byte each) preceded by a palette,
+     * instead of raw u16le RGB565. */
+    FINLINK_VIDEO_FORMAT_INDEXED = 1 << 0,
+    /* Only the 8x8 tiles that actually changed since the last frame the
+     * server sent are included, preceded by a list of which tiles those
+     * are -- finlink_decode_video_frame() patches just those tiles into
+     * the caller's existing framebuffer rather than overwriting all of
+     * it. Unset means a full frame (every pixel included), which is also
+     * always what the first frame after connecting is -- there's no
+     * previous frame yet for the server to diff against, and it doubles
+     * as the keyframe clients need to have painted something onto their
+     * framebuffer before trusting a tile patch. */
+    FINLINK_VIDEO_FORMAT_TILES = 1 << 1
+} finlink_video_format;
+
 /* Video header (type=1). compressed_data points into the caller's buffer
- * (no copy) and is raw-deflate compressed RGB565, width*height*2 bytes once
- * inflated. Decompress with finlink_inflate_raw(). */
+ * (no copy) and is a raw-deflate compressed block whose content depends on
+ * `format` -- see finlink_video_format. Decompress with
+ * finlink_inflate_raw() (size it with finlink_video_max_inflated_size()),
+ * then decode with finlink_decode_video_frame(). */
 typedef struct {
     uint32_t width;
     uint32_t height;
+    uint8_t format; /* finlink_video_format bits, OR'd together */
     const uint8_t *compressed_data;
     size_t compressed_size;
 } finlink_video_header;
@@ -66,6 +89,32 @@ finlink_result finlink_peek_type(const uint8_t *data, size_t size, finlink_msg_t
 
 /* Parses a type=1 message. `data` must start at the type byte. */
 finlink_result finlink_parse_video_header(const uint8_t *data, size_t size, finlink_video_header *out);
+
+/* Upper bound on finlink_inflate_raw()'s output size for a video message of
+ * this width/height, across all four finlink_video_format combinations --
+ * use this to size the buffer passed to finlink_inflate_raw(), not
+ * width*height*2 (only exactly right for a full non-indexed frame; a
+ * worst-case TILES frame needs slightly more, for the per-tile index
+ * list). */
+size_t finlink_video_max_inflated_size(uint32_t width, uint32_t height);
+
+/* Decodes the finlink_inflate_raw() output of a video message's
+ * compressed_data (format-dependent, see finlink_video_format) into
+ * framebuffer_rgb565: width*height u16le RGB565 pixels, row-major.
+ *
+ * framebuffer_rgb565 is the caller's PERSISTENT framebuffer, not a
+ * scratch/output-only buffer -- it must be preserved between calls for
+ * the same stream (must have room for width*height*2 bytes, same
+ * width/height every call). If format has FINLINK_VIDEO_FORMAT_TILES set,
+ * only the pixels belonging to the changed tiles are overwritten; every
+ * other pixel keeps whatever finlink_decode_video_frame() last wrote
+ * there. Without that bit, the whole framebuffer is overwritten (this is
+ * always true for the first frame after connecting, which the caller
+ * should treat as the point its framebuffer becomes valid to display --
+ * see docs/protocol.md). */
+finlink_result finlink_decode_video_frame(uint8_t format, const uint8_t *inflated, size_t inflated_size,
+                                           uint32_t width, uint32_t height, uint8_t *framebuffer_rgb565,
+                                           size_t framebuffer_capacity);
 
 /* Parses a type=3 message. `data` must start at the type byte. */
 finlink_result finlink_parse_audio_frame(const uint8_t *data, size_t size, finlink_audio_frame *out);

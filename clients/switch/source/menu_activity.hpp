@@ -1,6 +1,10 @@
 #pragma once
 
+#include <array>
+
 #include <borealis.hpp>
+
+#include "progress_bar.hpp"
 
 // Landing screen (Menu/Settings/Player, same three-screen structure as
 // clients/android/.../MenuActivity.kt): manual host entry + P1-P4 picker
@@ -8,16 +12,32 @@
 // local subnet for a host answering on the lobby port). Picking a free P
 // slot pushes PlayerActivity; the settings row pushes SettingsActivity.
 // Neither owns any GbaSession -- that's entirely PlayerActivity's job.
+//
+// The P1-P4 buttons and discovered-host rows are all pre-created (as
+// GONE) in createContentView() and only ever have their text/visibility/
+// click action mutated afterwards -- never constructed via addView() at
+// runtime. That's a deliberate workaround, not just style: constructing
+// and adding brand new views to an already-laid-out, already-rendered
+// tree (i.e. exactly what happens the moment "Verbinden"/"Netzwerk
+// durchsuchen" finishes) reproducibly crashed inside the Switch's Mesa/
+// OpenGL driver (see the commit this comment was introduced in for the
+// crash report/backtrace).
 class MenuActivity : public brls::Activity {
   public:
     brls::View *createContentView() override;
 
   private:
+    static constexpr int kPlayerSlotCount = 4;
+    static constexpr int kMaxDiscoveredRows = 8;
+
     brls::InputCell *hostInput = nullptr;
     brls::Box *slotRow = nullptr;
+    std::array<brls::Button *, kPlayerSlotCount> slotButtons {};
     brls::Label *statusLabel = nullptr;
     brls::Label *discoveryStatusLabel = nullptr;
+    ProgressBar *discoveryProgress = nullptr;
     brls::Box *discoveredList = nullptr;
+    std::array<brls::DetailCell *, kMaxDiscoveredRows> discoveredCells {};
 
     std::string lastSearchedHost;
     bool searching = false;
