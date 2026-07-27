@@ -2,31 +2,33 @@
  *
  * Scope is deliberately minimal (see ../README.md and
  * ../../docs/nds-feasibility.md): the NDS's 802.11b WiFi hardware is
- * capped at 1-2 Mbit/s, well under what the wire protocol's audio stream
- * alone needs at its default sample rate, so before building a real UI
- * (menu, settings, GBA button overlay like the other three clients) this
- * just connects to a real finlink server, decodes whatever it receives
- * with the same core/ used everywhere else, and reports the actually
- * observed throughput/frame rate on real hardware -- the theoretical
- * numbers in nds-feasibility.md were never verified against a real
- * console. No audio playback (received but only counted, not queued to
- * any sound channel) -- unlike input, this is genuinely orthogonal to
- * the bandwidth question this build exists to answer, since the client
- * has no way to avoid receiving audio bytes over the wire either way
- * (see docs/protocol.md: no server-side mechanism to opt out). GBA
- * button input *is* now sent (see buildGbaKeyMask()/sendGbaInput()) --
- * negligible outbound bandwidth, and worth having for actually trying
- * the stream rather than just watching it.
+ * capped at 1-2 Mbit/s, so before building a real UI (menu, settings, GBA
+ * button overlay like the other three clients) this just connects to a
+ * real finlink server, decodes whatever it receives with the same core/
+ * used everywhere else, and reports the actually observed throughput/
+ * frame rate on real hardware -- the theoretical numbers in
+ * nds-feasibility.md were never verified against a real console. Audio
+ * playback (see audioStreamRequest()/g_audioRing) requests mono explicitly
+ * (ackReq.max_channels = 1 in performAppHandshake()) specifically to keep
+ * its share of that same tight budget down. GBA button input is also sent
+ * (see buildGbaKeyMask()/sendGbaInput()) -- negligible outbound bandwidth,
+ * and worth having for actually trying the stream rather than just
+ * watching it.
  *
  * ARM9 side only: WiFi (Wifi_InitDefault() + stock BSD sockets, same API
- * as devkitPro's own examples/nds/dswifi/httpget) and all the
- * protocol/video/console logic below. The ARM7 side (../arm7/) is an
- * unmodified copy of devkitPro's templates/combined "default ARM7 core",
- * whose wlmgrStartServer() is what this file's dswifi9 calls actually
- * talk to -- see ../README.md for why this needs a real second ELF
- * rather than ds_rules' built-in default-ARM7 shortcut. */
+ * as devkitPro's own examples/nds/dswifi/httpget), audio playback
+ * (maxmod9.h's streaming API, examples/nds/audio/maxmod/streaming/ is the
+ * reference this follows), and all the protocol/video/console logic
+ * below. The ARM7 side (../arm7/) is an unmodified copy of devkitPro's
+ * templates/combined "default ARM7 core", whose wlmgrStartServer() is
+ * what this file's dswifi9 calls actually talk to, and whose
+ * mmInstall() call (already present in that same unmodified file) is
+ * what makes the maxmod9 calls below work with zero ARM7-side changes --
+ * see ../README.md for why this needs a real second ELF rather than
+ * ds_rules' built-in default-ARM7 shortcut. */
 #include <nds.h>
 #include <dswifi9.h>
+#include <maxmod9.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <netinet/in.h>
@@ -97,6 +99,67 @@ static bool g_prefBottomScreen = false;
  * horizontally and leaves only a small letterbox top/bottom, rather than
  * stretching to fill both axes independently. See blitFrame(). */
 static bool g_prefAspectScale = false;
+
+/* GBA/mGBA's actual native audio rate (matches Dolphin fork's
+ * GBAStreamHost's own m_audio_sample_rate default, GBAStreamHost.h) --
+ * fixed at maxmod stream-open time (main()), not per-session, since
+ * GBAStreamHandshake.cpp's NegotiateAudio() never downsamples (rate always
+ * stays native, see its own comment), so every session's audio.sample_rate
+ * is this same constant anyway. */
+#define AUDIO_SAMPLE_RATE 32768
+
+/* ~0.5s of mono 16-bit audio at AUDIO_SAMPLE_RATE -- a jitter buffer
+ * against this link's bursty delivery (see RECV_BUF_CAP's own comment),
+ * not a lot of RAM on a 4MB console. Written by the network receive loop
+ * in runSession() as FINLINK_MSG_AUDIO frames arrive, read by
+ * audioStreamRequest() (maxmod's pull callback, invoked from
+ * mmStreamUpdate() -- called once per tick from the *same* thread as the
+ * network loop, so unlike g_recvBuf there's no real concurrency here
+ * despite two "sides" touching this buffer, and no locking is needed. */
+#define AUDIO_RING_SAMPLES (AUDIO_SAMPLE_RATE / 2)
+static int16_t g_audioRing[AUDIO_RING_SAMPLES];
+static size_t g_audioWritePos = 0;
+static size_t g_audioReadPos = 0;
+static size_t g_audioAvailable = 0; /* samples currently buffered, <= AUDIO_RING_SAMPLES */
+
+/* Drops leftover buffered audio from a previous session -- called at the
+ * start of each new runSession() so stale samples from before a
+ * reconnect can't play at the start of a new one. */
+static void audioRingReset(void) {
+    g_audioWritePos = 0;
+    g_audioReadPos = 0;
+    g_audioAvailable = 0;
+}
+
+static void audioRingPush(const uint8_t *samplesS16le, size_t sampleCount) {
+    for (size_t i = 0; i < sampleCount; i++) {
+        if (g_audioAvailable >= AUDIO_RING_SAMPLES) {
+            break; /* overflow: drop the tail rather than overwrite not-yet-played samples */
+        }
+        g_audioRing[g_audioWritePos] = finlink_read_s16le(samplesS16le + i * 2);
+        g_audioWritePos = (g_audioWritePos + 1) % AUDIO_RING_SAMPLES;
+        g_audioAvailable++;
+    }
+}
+
+/* maxmod's pull callback (mm_stream.callback, maxmod9.h) -- must always
+ * fill exactly `length` samples. Pads with silence on underrun (network
+ * hasn't delivered enough yet) rather than replaying stale samples or
+ * leaving the destination buffer uninitialized. */
+static mm_word audioStreamRequest(mm_word length, mm_addr dest, mm_stream_formats format) {
+    (void)format; /* always MM_STREAM_16BIT_MONO here, see main()'s mmStreamOpen() call */
+    int16_t *out = (int16_t *)dest;
+    size_t take = (length < g_audioAvailable) ? length : g_audioAvailable;
+    for (size_t i = 0; i < take; i++) {
+        out[i] = g_audioRing[g_audioReadPos];
+        g_audioReadPos = (g_audioReadPos + 1) % AUDIO_RING_SAMPLES;
+    }
+    for (size_t i = take; i < length; i++) {
+        out[i] = 0;
+    }
+    g_audioAvailable -= take;
+    return length;
+}
 
 static void recvBufConsume(size_t n) {
     memmove(g_recvBuf, g_recvBuf + n, g_recvLen - n);
@@ -385,13 +448,16 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
         ackReq.max_width = hello.video.width > 0 ? hello.video.width : GBA_W;
         ackReq.max_height = hello.video.height > 0 ? hello.video.height : GBA_H;
         ackReq.max_fps = hello.video.fps > 0 ? hello.video.fps : 60.0;
-        /* No audio playback here regardless of what the server offers (see
-         * this file's top comment) -- still requesting it anyway would
-         * make the server send audio frames this client has to receive
-         * and discard either way (docs/protocol.md: no opt-out
-         * mechanism), so wants_audio=0 at least keeps this client's own
-         * *request* honest about what it actually uses. */
-        ackReq.wants_audio = 0;
+        /* Mono explicitly (not hello.audio.channels, typically stereo) --
+         * this link is the tight resource (see this file's top comment),
+         * and GBAStreamHost.cpp's NegotiateAudio() honors max_channels via
+         * its existing stereo->mono downmix. max_sample_rate is sent for
+         * protocol completeness even though NegotiateAudio() never
+         * actually downsamples (see AUDIO_SAMPLE_RATE's own comment). */
+        ackReq.wants_audio = 1;
+        ackReq.max_sample_rate = hello.has_audio && hello.audio.sample_rate > 0 ? hello.audio.sample_rate
+                                                                                 : AUDIO_SAMPLE_RATE;
+        ackReq.max_channels = 1;
 
         char ackJson[256];
         size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
@@ -560,6 +626,7 @@ static void runSession(const char *hostIn, int portIn) {
      * clear, for the very first session) doesn't leave stale border pixels
      * from the other mode's differently-sized draw region. */
     memset(VRAM_A, 0, 256 * 192 * 2);
+    audioRingReset();
 
     consoleClear();
     iprintf("Verbunden. X+Y halten zum Beenden.\n\n");
@@ -591,6 +658,11 @@ static void runSession(const char *hostIn, int portIn) {
 
     for (;;) {
         swiWaitForVBlank();
+        /* Manual-mode maxmod stream (main()'s mmStreamOpen() call) --
+         * pulls from g_audioRing via audioStreamRequest() as needed, same
+         * once-per-tick call site as examples/nds/audio/maxmod/streaming's
+         * own reference loop. */
+        mmStreamUpdate();
         scanKeys();
         int heldKeys = keysHeld();
         if ((heldKeys & (KEY_X | KEY_Y)) == (KEY_X | KEY_Y)) {
@@ -698,22 +770,17 @@ static void runSession(const char *hostIn, int portIn) {
                             }
                         }
                     } else if (type == FINLINK_MSG_AUDIO) {
-                        /* Experiment (see conversation): skip parsing
-                         * entirely to test whether video throughput
-                         * improves without it. It doesn't change how many
-                         * bytes must arrive over WiFi before this frame is
-                         * even recognized as complete
-                         * (finlink_ws_parse_frame() above already required
-                         * the whole thing in g_recvBuf), so this is
-                         * expected to make no difference -- audio's bytes
-                         * still occupy the link and this buffer either
-                         * way. Kept deliberately minimal (no stats at all)
-                         * rather than restructured to discard-while-
-                         * streaming, which would actually reduce buffer
-                         * pressure but needs peeking at a frame header
-                         * before it's fully arrived -- core/'s
-                         * finlink_ws_parse_frame() doesn't expose that
-                         * today. */
+                        finlink_audio_frame audioFrame;
+                        if (finlink_parse_audio_frame(frame.payload, frame.payload_size, &audioFrame) ==
+                            FINLINK_OK) {
+                            window.audioFrames++;
+                            window.audioBytes += (unsigned)frame.payload_size;
+                            /* Mono was requested (performAppHandshake()), so
+                             * sample_count here is already mono sample
+                             * count, matching g_audioRing 1:1 -- no
+                             * downmixing needed client-side. */
+                            audioRingPush(audioFrame.samples, audioFrame.sample_count);
+                        }
                     }
                 }
 
@@ -874,6 +941,26 @@ int main(void) {
 
     consoleDemoInit();
     keyboardDemoInit()->OnKeyPressed = onKeyboardKeyPressed; /* see promptForIp() */
+
+    /* No soundbank (no mod/sample playback, only the raw PCM stream below)
+     * -- same "unusual setup" as examples/nds/audio/maxmod/streaming's own
+     * reference. Opened once here, for the app's whole lifetime: the
+     * ring buffer just plays silence between sessions (audioRingReset()
+     * clears it at the start of each new one), so there's no need to
+     * open/close per connection. */
+    mm_ds_system mmSys;
+    memset(&mmSys, 0, sizeof(mmSys));
+    mmInit(&mmSys);
+
+    mm_stream mmAudioStream;
+    memset(&mmAudioStream, 0, sizeof(mmAudioStream));
+    mmAudioStream.sampling_rate = AUDIO_SAMPLE_RATE;
+    mmAudioStream.buffer_length = AUDIO_SAMPLE_RATE / 10; /* ~100ms hardware buffer */
+    mmAudioStream.callback = audioStreamRequest;
+    mmAudioStream.format = MM_STREAM_16BIT_MONO;
+    mmAudioStream.manual = true; /* pulled explicitly via mmStreamUpdate(), see runSession()'s tick loop */
+    mmStreamOpen(&mmAudioStream);
+
     iprintf("finlink NDS - Machbarkeitstest\n\n");
     iprintf("Verbinde WLAN (WFC)...\n");
 

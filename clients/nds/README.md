@@ -27,10 +27,14 @@ abzuschätzen.
 - Zeigt das Video direkt (Hauptbildschirm, `MODE_FB0`, zentriert 240×160 in
   256×192) und läuft laufende Durchsatz-/Framerate-Statistik auf dem
   Unterbildschirm mit (Konsolen-Text).
-- **Kein Audio-Playback** (nur mitgezählt, nicht auf einen Soundkanal gelegt) —
-  für die Bandbreitenfrage nicht nötig, und der Client könnte den
-  Audio-Empfang ohnehin nicht abbestellen (`docs/protocol.md`: kein
-  Server-Mechanismus dafür), also ändert Playback am Bandbreitenbedarf nichts.
+- **Audio-Playback** über maxmod9 (`mmStreamOpen()`, manueller Modus, siehe
+  `main()`/`audioStreamRequest()` in
+  [`arm9/source/main.c`](arm9/source/main.c)) — nutzt einen bereits im
+  unveränderten ARM7-Core enthaltenen `mmInstall()`-Aufruf, keine
+  ARM7-Änderung nötig. Fordert im Handshake explizit Mono an
+  (`max_channels = 1`), um die knappe Bandbreite zu schonen; Samplerate
+  bleibt serverseitig immer nativ (kein Downsampling, siehe
+  `docs/protocol.md`).
 - **GBA-Tasten werden gesendet** (D-Pad/A/B/L/R/Select/Start, 1:1 wie beim
   echten GBA — `buildGbaKeyMask()`/`sendGbaInput()` in
   [`arm9/source/main.c`](arm9/source/main.c)). **X+Y gemeinsam ~0,6s halten**
