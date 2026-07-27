@@ -270,6 +270,14 @@ er nicht bedienen kann — z. B. Versions-Fehlschlag ohne Wartezeit):
 programmatische Verhalten auswerten, z. B. um bei `slot_unavailable` automatisch
 die aktualisierte `slots`-Liste erneut anzufragen statt komplett abzubrechen).
 
+Der Server schließt die Verbindung direkt nach dem Senden von
+`handshake_error` (kein separates Close-Frame, siehe
+[WebSocket-Transport](#websocket-transport-rfc6455-und-binär-framing)) — es gibt
+keinen Mechanismus, auf derselben Verbindung mit einem neuen `hello_ack` erneut
+zu antworten. „Automatisch erneut anfragen" bedeutet also: eine neue
+WebSocket-Verbindung zum selben Handshake-Endpunkt öffnen und dort einen neuen
+`hello`/`hello_ack`-Austausch beginnen, nicht denselben Socket weiterbenutzen.
+
 `slot_unavailable` ist ein normaler, erwartbarer Fall (Race zwischen zwei
 Clients, die denselben freien Slot zwischen `hello` und `hello_ack` wählen) — kein
 Bug, keine Ausnahmesituation, die Client-UI sollte das entsprechend undramatisch
