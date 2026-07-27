@@ -45,8 +45,8 @@ Teile je nach Zielplattform grundverschieden sind:
 | Verzeichnis | Zielplattform | Toolchain | Status |
 |---|---|---|---|
 | [`clients/android/`](clients/android/) | Android-App | Android SDK/NDK | rohe Demo (verbinden, Video, Audio, Input) |
-| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS Homebrew | devkitARM / libctru | noch nicht begonnen |
-| [`clients/switch/`](clients/switch/) | Nintendo Switch Homebrew | devkitA64 / libnx | noch nicht begonnen |
+| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS Homebrew | devkitARM / libctru | funktionsfähig (verbinden, Video, Audio, Input, Discovery) |
+| [`clients/switch/`](clients/switch/) | Nintendo Switch Homebrew | devkitA64 / libnx | funktionsfähig (verbinden, Video, Audio, Input, Discovery) |
 | [`clients/nds/`](clients/nds/) | Nintendo DS Homebrew | devkitARM / libnds | **zurückgestellt**, siehe [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
 
 Gemeinsames Logo für alle Clients: [`assets/logo/`](assets/logo/).

@@ -62,7 +62,15 @@ LZ77-Kompression — kein Fall von Vollqualitäts-Streaming über NDS-WLAN gefun
 1. **Kein/kaum Audio** (z. B. 8 kHz mono ≈ 128 kbit/s) + reduzierte Framerate
    (Schätzung: einstellige fps-Bereich, abhängig von tatsächlicher Kompression).
 2. **Serverseitige Protokollerweiterung** um Qualitäts-/Framerate-Verhandlung
-   (Änderung am `dolphin-gba-stream`-Fork, außerhalb dieses Repos).
+   (Änderung am `dolphin-gba-stream`-Fork, außerhalb dieses Repos). Seit
+   `protocol_version = 2` existiert dieser Mechanismus bereits generisch im
+   Handshake (siehe [`protocol.md`](./protocol.md#verbindungsaufbau-handshake),
+   Abschnitt zu `video_limits`/`audio_limits` und Downscaling) — für NDS aktuell
+   nur insofern relevant, als `NDS_BOTTOM_SCREEN` dort als `stream_type` bereits
+   reserviert ist. Ob ein NDS-Client die damit mögliche Framerate-/Auflösungs-
+   Reduktion tatsächlich bis in den machbaren Bereich bringt, ist weiterhin offen
+   und hängt zusätzlich von Option 1 (kein/kaum Audio) ab, da `NDS_BOTTOM_SCREEN`
+   ohnehin ohne Audioübertragung spezifiziert ist.
 3. NDS **nicht** als Live-Stream-Client, sondern reduzierter Anwendungsfall
    (z. B. nur Status-Anzeige/Lobby via `/status`, kein Video/Audio).
 

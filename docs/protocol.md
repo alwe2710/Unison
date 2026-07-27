@@ -2,14 +2,279 @@
 
 Single Source of Truth für das WebSocket-Protokoll, gegen das alle Clients in diesem
 Repo implementieren. Server-Referenzimplementierung: `GBAStreamHost` /
-`GBAStreamLobby` im `dolphin-gba-stream`-Fork (nicht Teil dieses Repos).
+`GBAStreamLobby` im `dolphin-gba-stream`-Fork (nicht Teil dieses Repos). Ab
+`protocol_version = 2` (siehe unten) beschreibt dieses Dokument zusätzlich
+Discovery-Beacon, Verbindungs-Handshake (inkl. Slot-Aushandlung) und
+Downscaling-Verhandlung — vorher gab es dafür keinen Mechanismus, siehe Git-Historie
+dieser Datei für den reinen `Video`/`Audio`/`Input`-Stand ohne Handshake.
 
 ## Endpunkte
 
 | Server | Port | Zweck |
 |---|---|---|
-| `GBAStreamLobby` | `6800` | Picker-Seite, referenzgezählter Singleton, unabhängig vom aktiven GC-Port |
-| `StreamHost` (× GC-Port) | `6801`–`6804` | Ein Slot pro GC-Port, der auf „GBA (Client-Stream)“ steht. Genau ein verbundener Client pro Port. |
+| `GBAStreamLobby` | `6800` (TCP) | Handshake-Einstiegspunkt (siehe unten). Referenzgezählter Singleton, unabhängig vom aktiven GC-Port. Ersetzt die frühere HTML-Picker-Seite. |
+| `StreamHost` (× GC-Port) | `6801`–`6804` (TCP) | Ein Slot pro GC-Port, der auf „GBA (Client-Stream)“ steht. Genau ein verbundener Client pro Port. Bei Stream-Typen mit nur einem Slot (siehe unten) wird dieser Bereich nicht benutzt — die Session bleibt auf `6800`. |
+| Discovery-Beacon | `6805` (UDP, Broadcast) | Periodische Server-Ankündigung, siehe [Discovery-Beacon](#discovery-beacon-udp). |
+
+> Bekannte Inkompatibilität: `GBAStreamLobby` beantwortet `GET /` auf Port 6800 vor
+> `protocol_version = 2` mit einer HTML-Seite (Status 200), was ältere
+> `discovery.cpp`-Implementierungen (3DS/Switch, Stand `clients/3ds`,
+> `clients/switch`) als `probeLobby()` nutzen. Nach dieser Änderung ist Port 6800
+> ein WebSocket-Upgrade-Endpunkt; ein simples `GET /` liefert keine HTML-Seite
+> mehr. Diese Clients müssen im Zuge der `core/`-Integration (siehe Repo-README)
+> ohnehin auf den neuen Handshake umgestellt werden — `probeLobby()` sollte dabei
+> durch einen Verbindungsversuch mit Handshake (oder durch alleiniges Vertrauen auf
+> den Discovery-Beacon) ersetzt werden.
+
+## Protokollversion
+
+`protocol_version` ist ein einfacher, monoton steigender Integer. Aktueller Wert:
+**2**. Kompatibilitätsregel: **exakte Übereinstimmung** — ein Client mit
+`protocol_version = 2` verbindet sich nur mit einem Server, der ebenfalls exakt `2`
+meldet, und umgekehrt. Kein Major/Minor-Schema; jede Protokolländerung, die dieses
+Dokument betrifft, erhöht den Wert um 1.
+
+`protocol_version` taucht an zwei Stellen auf:
+
+1. Im [Discovery-Beacon](#discovery-beacon-udp) — erlaubt es dem Client,
+   inkompatible Server bereits in der Serverliste zu markieren, bevor überhaupt
+   eine Verbindung versucht wird.
+2. In der `hello`-Nachricht des [Handshakes](#verbindungsaufbau-handshake) — letzte,
+   verbindliche Prüfung, falls ein Client ohne (oder mit ignoriertem) Beacon direkt
+   verbindet.
+
+Ein Client **muss** bei Versionsinkompatibilität den Verbindungsversuch abbrechen
+und eine für den Nutzer verständliche Fehlermeldung anzeigen, z. B.:
+
+> Server spricht Protokollversion 3, dieser Client unterstützt nur Version 2 —
+> bitte Client oder Server aktualisieren.
+
+Silent-Ignore, Absturz oder ein unklar hängender Zustand sind explizit falsches
+Verhalten. Das gilt auch für den Fall, dass gar keine `hello`-Nachricht innerhalb
+von 3000 ms nach WebSocket-Upgrade eintrifft (typischerweise ein Server, der den
+Handshake überhaupt nicht kennt, faktisch `protocol_version = 1`) — Client-seitig
+identisch als Versions-/Kompatibilitätsfehler behandeln, nur mit angepasstem Text
+(„Server unterstützt dieses Protokoll nicht“ statt einer konkreten Versionszahl).
+
+## Discovery-Beacon (UDP)
+
+Jeder Server sendet alle **2000 ms** ein UDP-Broadcast-Paket auf Port `6805`
+(Subnet-Broadcast bzw. `255.255.255.255`), JSON-kodiert, UTF-8, ein Paket pro
+Broadcast (kein Fragmentieren):
+
+```json
+{
+  "type": "finlink_beacon",
+  "protocol_version": 2,
+  "emulator_identifier": "Dolphin",
+  "game_title": "Pokémon Mystery Dungeon: Team Rot",
+  "stream_type": "GC_GBA_LINK",
+  "host": "192.168.1.42",
+  "handshake_port": 6800
+}
+```
+
+- `type`: fester String-Marker `"finlink_beacon"`, erlaubt günstiges Verwerfen von
+  UDP-Rauschen anderer Anwendungen auf demselben Port, bevor der Rest geparst wird.
+- `protocol_version`: siehe oben.
+- `emulator_identifier`: freier String, z. B. `"Dolphin"`, `"Azahar"` — nur zur
+  Anzeige, kein Enum (neue Emulatoren brauchen keine Protokolländerung).
+- `game_title`: aktuell laufender Spieltitel. **Nur für die Server-Suche/Liste
+  relevant**, bewusst kein Teil des Handshakes — ein Spielwechsel innerhalb einer
+  laufenden Session ist nicht vorgesehen, es gibt daher keinen Bedarf, dieses Feld
+  nach Verbindungsaufbau erneut zu übertragen oder zu aktualisieren.
+- `stream_type`: siehe [Stream-Typen](#stream-typen). Ein Server kündigt genau den
+  einen Typ an, den er in diesem Moment anbietet.
+- `host` / `handshake_port`: Zieladresse für den vollen Handshake nach Auswahl
+  durch den Nutzer. `handshake_port` ist bei allen aktuell bekannten Stream-Typen
+  `6800`, wird aber explizit übertragen statt hart angenommen, für spätere
+  Flexibilität.
+
+Client-seitiges Verhalten: eingehende Beacons nach `(host, handshake_port)` in einer
+Liste sammeln/aktualisieren; ein Eintrag ohne neuen Beacon für **>6000 ms** (drei
+verpasste Intervalle) gilt als verschwunden und wird aus der Liste entfernt. Ein
+Eintrag mit abweichender `protocol_version` wird weiterhin angezeigt (Transparenz:
+der Server ist ja da), aber als inkompatibel markiert und nicht auswählbar — siehe
+[Protokollversion](#protokollversion).
+
+Diese Logik gehört plattformunabhängig in `core/` (nicht in eine einzelne
+Client-Shell), analog zur bestehenden Websocket-/Protokoll-Logik dort.
+
+Bekannt und bewusst zurückgestellt: der Beacon ist unauthentifiziert, ein anderes
+Gerät im selben LAN könnte theoretisch falsche Werte senden (Spoofing). Für den
+privaten Einsatz im eigenen Netz vorerst kein Muss, siehe Backlog im Projektauftrag.
+
+## Stream-Typen
+
+Erweiterbares Enum, als String übertragen (nicht als Zahl/Bitmaske) — ein
+unbekannter String lässt sich clientseitig eindeutig als „kenne ich nicht“
+behandeln, ohne mit einer ungültigen Zahlen-Kombination verwechselt zu werden:
+
+| `stream_type` | Bedeutung | Slots | Audio |
+|---|---|---|---|
+| `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja |
+| `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen | 1 | nein |
+| `NDS_BOTTOM_SCREEN` | *reserviert, noch nicht implementiert* — zukünftiger NDS-Bottom-Screen-Stream | 1 | nein |
+
+Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`) lassen das
+`audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die Audio-Verhandlung in
+`hello_ack` entfällt vollständig — es gibt in diesem Fall zu keinem Zeitpunkt eine
+`type=3`-Audio-Message auf der Verbindung.
+
+## Verbindungsaufbau: Handshake
+
+Vor dem ersten `Video`/`Audio`/`Input`-Binärframe (siehe unten) tauschen Server und
+Client vier mögliche JSON-Textnachrichten (WebSocket-Opcode `0x1`, nicht `0x2`) aus.
+Framing-Regeln (unmaskierte Server-Frames, maskierte Client-Frames, keine
+Fragmentierung, siehe [WebSocket-Transport](#websocket-transport-rfc6455-und-binär-framing))
+gelten identisch für Text- wie Binärframes. Jede Nachricht ist ein einzelnes
+JSON-Objekt mit Pflichtfeld `"message"` als Diskriminator.
+
+### Ablauf
+
+```
+Client                                    Server (Port 6800, GC_GBA_LINK-Beispiel)
+  |--- WebSocket-Upgrade (RFC6455) ------->|
+  |<-- hello -------------------------------|
+  |--- hello_ack --------------------------->|
+  |<-- session_ready { redirect: 6801 } ----|      (nur bei Stream-Typen mit >1 Slot)
+  (WS-Verbindung schließt; neue Verbindung zu Port 6801)
+  |--- WebSocket-Upgrade (RFC6455) ------->|
+  |<-- hello -------------------------------|
+  |--- hello_ack --------------------------->|
+  |<-- session_ready (ohne redirect) -------|
+  |<== ab hier: Video (1) / Audio (3), Input (2) wie gewohnt ==>|
+```
+
+Bei Stream-Typen mit genau einem Slot (`N3DS_BOTTOM_SCREEN`, künftig
+`NDS_BOTTOM_SCREEN`) entfällt der Redirect-Schritt: `session_ready` kommt bereits
+auf der Port-6800-Verbindung ohne `redirect`-Feld, und genau diese Verbindung trägt
+danach auch den Stream — es gibt für diese Typen keine Verwendung von 6801–6804.
+
+### `hello` (Server → Client)
+
+Erste Nachricht, direkt nach dem WebSocket-Upgrade, unaufgefordert vom Server
+gesendet:
+
+```json
+{
+  "message": "hello",
+  "protocol_version": 2,
+  "stream_type": "GC_GBA_LINK",
+  "slots": [
+    { "index": 0, "label": "P1", "occupied": false },
+    { "index": 1, "label": "P2", "occupied": true },
+    { "index": 2, "label": "P3", "occupied": false },
+    { "index": 3, "label": "P4", "occupied": false }
+  ],
+  "video": { "width": 240, "height": 160, "pixel_format": "rgb565", "fps": 59.7275 },
+  "audio": { "sample_rate": 32768, "channels": 2 },
+  "input_encoding": "gba_buttons"
+}
+```
+
+- `slots`: bei `GC_GBA_LINK` die vier GC-Ports. Bei Ein-Slot-Typen ein Array mit
+  genau einem Eintrag (`index: 0`) — dieselbe Nachrichtenform bleibt so über alle
+  Stream-Typen einheitlich, auch wenn die Auswahl dort trivial ist.
+- `video` / `audio`: **native** Parameter, wie sie der Emulator-Kern tatsächlich
+  produziert, unabhängig davon, was der Client nachher anfordert. `audio` fehlt
+  (oder ist `null`) bei Stream-Typen ohne Audioübertragung.
+- `input_encoding`: Name des Input-Encodings, das dieser Stream-Typ auf dieser
+  Verbindung erwartet (`type=2`-Messages, siehe unten). `"gba_buttons"` ist das
+  bestehende `u16le`-Bitmask-Format, unverändert. Weitere Encodings (z. B. für
+  Touch-Input bei `N3DS_BOTTOM_SCREEN`) werden erst spezifiziert, wenn der
+  jeweilige Stream-Typ implementiert wird — bewusst offengelassen, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen--offene-fragen).
+
+### `hello_ack` (Client → Server)
+
+Antwort des Clients:
+
+```json
+{
+  "message": "hello_ack",
+  "protocol_version": 2,
+  "requested_slot": 0,
+  "video_limits": { "max_width": 240, "max_height": 160, "max_fps": 60, "max_bitrate_kbps": null },
+  "audio_limits": { "max_sample_rate": 32768, "max_channels": 2 }
+}
+```
+
+- `protocol_version`: die eigene, vom Client unterstützte Version — erlaubt dem
+  Server eine defensive Zweitprüfung (siehe [Protokollversion](#protokollversion));
+  primär prüft aber bereits der Client die `hello.protocol_version`, bevor er
+  überhaupt antwortet.
+- `requested_slot`: Index aus der `slots`-Liste des `hello`. Bei Ein-Slot-Typen
+  immer `0`.
+- `video_limits`: Obergrenzen, die der Client verkraftet. `max_bitrate_kbps` ist
+  optional (`null` = kein Limit bekannt/gewünscht) und dient dem Server nur als
+  grober Hinweis, wie aggressiv herunterskaliert werden sollte.
+- `audio_limits`: fehlt (oder `null`), wenn der Client keinen Ton möchte/kann,
+  **oder** wenn `hello.audio` bereits fehlte (Stream-Typ ohne Audio) — in dem Fall
+  gibt es hier nichts zu verhandeln.
+
+### `session_ready` (Server → Client)
+
+Bestätigung nach Abgleich von nativen Parametern gegen die Client-Limits — native
+Werte haben Priorität, sofern der Client sie laut `hello_ack` verkraftet, sonst
+skaliert der Server herunter:
+
+```json
+{
+  "message": "session_ready",
+  "slot": 0,
+  "video": { "width": 240, "height": 160, "fps": 59.7275 },
+  "audio": { "sample_rate": 32768, "channels": 2 }
+}
+```
+
+Optional zusätzlich `"redirect": { "host": "192.168.1.42", "port": 6801 }` — nur
+bei Stream-Typen mit mehr als einem Slot. Ist `redirect` gesetzt, trägt **diese**
+Verbindung keinerlei Video-/Audio-/Input-Frames; der Server schließt sie nach dem
+Senden. Der Client öffnet eine neue WebSocket-Verbindung zu `redirect.host:port`
+und durchläuft dort denselben `hello`/`hello_ack`/`session_ready`-Austausch erneut
+(mit denselben Limits/demselben `requested_slot`) — diesmal ohne `redirect` in der
+Antwort. Der zweite Durchlauf ist bewusst eine vollständige Wiederholung statt
+eines Tokens/einer Session-Übergabe: hält `GBAStreamHost` unabhängig von
+`GBAStreamLobby` (kein geteilter Reservierungszustand zwischen beiden Objekten
+nötig) und macht jede der beiden Verbindungen für sich genommen vollständig
+selbsterklärend.
+
+`audio` fehlt in `session_ready`, wenn es schon in `hello` fehlte.
+
+Nach einem `session_ready` ohne `redirect` beginnt der Server mit
+`Video`/`Audio`-Binärframes im (ggf. herunterskalierten) `width`/`height`/
+`sample_rate`/`channels`. Das bestehende Binärformat selbst (Frame-Header trägt
+`width`/`height` bereits pro Frame, siehe unten) ändert sich für Downscaling
+**nicht** — Downscaling ist rein eine serverseitige Entscheidung, in welcher
+Auflösung/Framerate/Samplerate encodiert wird, bevor die bestehende
+Header+Deflate-Pipeline greift.
+
+### `handshake_error` (Server → Client)
+
+Ersetzt `session_ready`, kann an dessen Stelle zu jedem Zeitpunkt nach `hello_ack`
+kommen (oder statt eines `hello`, falls der Server selbst schon vorab weiß, dass
+er nicht bedienen kann — z. B. Versions-Fehlschlag ohne Wartezeit):
+
+```json
+{
+  "message": "handshake_error",
+  "code": "slot_unavailable",
+  "detail": "Slot P2 wurde inzwischen von einem anderen Client belegt."
+}
+```
+
+`code` ∈ `version_mismatch`, `slot_unavailable`, `malformed_request` (erweiterbar).
+`detail` ist ein für Menschen lesbarer Text, den der Client direkt anzeigen darf
+(muss nicht selbst pro `code` übersetzen, sollte `code` aber zusätzlich fürs
+programmatische Verhalten auswerten, z. B. um bei `slot_unavailable` automatisch
+die aktualisierte `slots`-Liste erneut anzufragen statt komplett abzubrechen).
+
+`slot_unavailable` ist ein normaler, erwartbarer Fall (Race zwischen zwei
+Clients, die denselben freien Slot zwischen `hello` und `hello_ack` wählen) — kein
+Bug, keine Ausnahmesituation, die Client-UI sollte das entsprechend undramatisch
+behandeln (z. B. „Slot P2 ist inzwischen belegt, bitte anderen wählen“ statt einer
+generischen Fehlermeldung).
 
 ## WebSocket, binäre Frames
 
@@ -18,6 +283,12 @@ Repo implementieren. Server-Referenzimplementierung: `GBAStreamHost` /
 | Server → Client | `1` (Video) | `[u8 type=1][u32le width][u32le height][u8 format][raw-deflate-komprimierter Block]` |
 | Server → Client | `3` (Audio) | `[u8 type=3][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
 | Client → Server | `2` (Input) | `[u8 type=2][u16le keyBitmask]` |
+
+Diese Binärframes (Opcode `0x2`) treten ausschließlich **nach** einem erfolgreichen
+Handshake (`session_ready` ohne `redirect`, siehe oben) auf derselben Verbindung
+auf. Inhaltlich unverändert gegenüber der Vor-Handshake-Version des Protokolls;
+`width`/`height`/`sampleRate`/`channels` in den Headern spiegeln die in
+`session_ready` bestätigten (ggf. herunterskalierten) Werte.
 
 Bitreihenfolge Input-Bitmask (Bit 0 = LSB): `A, B, Select, Start, Right, Left, Up, Down, R, L`
 
@@ -72,7 +343,7 @@ Referenzimplementierung: [`../core/include/finlink/protocol.h`](../core/include/
 (`finlink_video_format`, `finlink_decode_video_frame`,
 `finlink_video_max_inflated_size`).
 
-## WebSocket-Handshake und -Framing
+## WebSocket-Transport (RFC6455) und Binär-Framing
 
 Serverseitig ist das WebSocket-Handling selbst (nicht nur das App-Layer-Protokoll
 oben) handgerollt (`GBAStreamHost::PerformHandshake`, `TryParseWebSocketFrame`,
@@ -82,16 +353,21 @@ Clients relevant, insbesondere auf Plattformen ohne eigenen WS-Client
 
 - Handshake ist Standard-RFC6455: `Sec-WebSocket-Key` → `SHA1(key + "258EAFA5-
   E914-47DA-95CA-C5AB0DC85B11")` → Base64 → `Sec-WebSocket-Accept`, vom Client
-  zu verifizieren.
-- Server-Frames sind immer unmaskiert, `FIN=1`, Opcode `0x2` (Binary), 7/16/64-Bit
+  zu verifizieren. (Nicht zu verwechseln mit dem App-Layer-„Handshake“
+  aus [Verbindungsaufbau](#verbindungsaufbau-handshake) oben, der darauf aufbaut.)
+- Server-Frames sind immer unmaskiert, `FIN=1`, Opcode `0x2` (Binary) für
+  Video/Audio oder `0x1` (Text) für die Handshake-JSON-Nachrichten, 7/16/64-Bit
   Längenfeld je nach Payload-Größe.
-- Client-Frames müssen laut RFC **maskiert** gesendet werden.
+- Client-Frames müssen laut RFC **maskiert** gesendet werden, unabhängig vom
+  Opcode.
 - **Keine Fragmentierung** (`FIN=0` gilt als Protokollfehler, wird vom Server
   weder gesendet noch akzeptiert), **kein Ping/Pong**, **kein
   `permessage-deflate`** — die Deflate-Kompression passiert ausschließlich
   manuell auf dem Video-Payload (siehe oben), nicht auf WS-Ebene.
 - Server schickt beim Schließen keinen Close-Frame zurück; nach Senden/Empfangen
-  eines Close-Frames (`Opcode 0x8`) einfach die TCP-Verbindung schließen.
+  eines Close-Frames (`Opcode 0x8`) einfach die TCP-Verbindung schließen. Gilt
+  auch für den serverseitigen Verbindungsabbau nach einem `redirect` in
+  `session_ready`.
 
 Client-seitige Implementierung dieses Teils liegt in
 [`../core/include/finlink/websocket.h`](../core/include/finlink/websocket.h).
@@ -111,19 +387,34 @@ weiter anzeigen.
 { "occupied": true }
 ```
 
-Response hat CORS-Header gesetzt (dient der Lobby-Belegungsanzeige). Die Lobby
-(Port 6800) liefert auf jedem Pfad unbedingt dieselbe HTML-Seite aus — es gibt
-dort **keinen** gebündelten Status über alle vier Player-Ports. Ein eigener
-Picker (statt der eingebetteten HTML-Lobby) muss `/status` selbst einzeln auf
-6801–6804 pollen.
+Response hat CORS-Header gesetzt. Seit Einführung des Handshakes (`slots` in
+`hello`, siehe oben) ist dies **nicht mehr der primäre Weg**, um Slot-Belegung zu
+erfahren — der Handshake liefert dieselbe Information atomar als Teil der
+Verbindungsaufnahme und vermeidet damit das Race zwischen „Status pollen“ und
+„danach separat verbinden“. `/status` bleibt als sekundärer/diagnostischer
+Endpunkt bestehen, ist aber für neue Client-Implementierungen nicht mehr nötig.
+Die Lobby (Port 6800) liefert **keine** HTML mehr aus (siehe Hinweis unter
+[Endpunkte](#endpunkte)) und hat auch kein HTTP-Äquivalent von `/status` über alle
+vier Player-Ports hinweg — die `slots`-Liste im Handshake ersetzt das.
 
 ## Bekannte Einschränkungen / offene Fragen
 
-- Sample-Rate und Kanalzahl des Audio-Streams sind serverseitig konfigurierbar
-  (im Frame-Header übertragen), nicht fix — Clients müssen sie pro Stream auslesen,
-  nicht hart annehmen.
-- Video-Auflösung entspricht dem GBA-Screen (240×160), wird aber ebenfalls im
-  Frame-Header übertragen statt hart angenommen.
-- Kein eingebauter Mechanismus für Qualitäts-/Framerate-Verhandlung durch den
-  Client — der Server sendet, was der emulierte Kern produziert. Relevant für
-  bandbreitenschwache Targets, siehe [`nds-feasibility.md`](./nds-feasibility.md).
+- Touch-Input-Encoding für `N3DS_BOTTOM_SCREEN` (`input_encoding` ≠
+  `"gba_buttons"`) ist in dieser Revision **bewusst nicht spezifiziert** — wird
+  festgelegt, sobald die Azahar-Implementierung selbst ansteht, nicht vorab
+  spekulativ.
+- `NDS_BOTTOM_SCREEN` ist als `stream_type`-Wert reserviert, aber nirgends
+  implementiert. Kein Server sendet diesen Wert aktuell.
+- Der Discovery-Beacon ist unauthentifiziert (siehe
+  [Discovery-Beacon](#discovery-beacon-udp)) — Härtung dagegen ist bewusst
+  zurückgestellt.
+- Zwischen `hello` und `hello_ack` gibt es keine serverseitige Reservierung eines
+  Slots — zwei Clients können denselben freien Slot gleichzeitig anfordern; der
+  Verlierer bekommt `handshake_error` mit `code = "slot_unavailable"` und muss
+  selbst erneut wählen (siehe oben). Das ist erwartetes Verhalten, kein Bug.
+- Ob RGB565+raw-deflate für `N3DS_BOTTOM_SCREEN` (320×240, größer als GBA
+  240×160) unverändert taugt oder ein anderer Codec nötig ist, ist noch offen —
+  wird im Zuge der Azahar-Implementierung geklärt, nicht Teil dieser
+  Protokollrevision.
+- `probeLobby()`-artige Alt-Discovery über `GET /` auf Port 6800 funktioniert seit
+  dieser Revision nicht mehr (siehe Hinweis unter [Endpunkte](#endpunkte)).
