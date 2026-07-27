@@ -15,3 +15,9 @@ clients/android/*.iml
 clients/nds/arm7/*.elf
 clients/nds/arm9/*.elf
 clients/nds/*.nds
+
+# 3DS -- CIA build tools (fetched by cia/fetch_tools.sh, see clients/3ds/CMakeLists.txt)
+clients/3ds/cia/tools/
+
+# Switch -- NSP build tools (fetched/built by nsp/build_hacbrewpack.sh, see clients/switch/CMakeLists.txt)
+clients/switch/nsp/tools/

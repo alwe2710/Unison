@@ -63,3 +63,71 @@ add_custom_target(${PROJECT_NAME}.nro DEPENDS ${PROJECT_NAME}
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_RESOURCES} ${CMAKE_BINARY_DIR}/resources
     COMMAND ${NX_ELF2NRO_EXE} ${PROJECT_NAME}.elf ${PROJECT_NAME}.nro --icon=${PROJECT_ICON} --nacp=${PROJECT_NAME}.nacp --romfsdir=${CMAKE_BINARY_DIR}/resources
 )
+
+# NSP (CFW-installable format), off by default -- see nsp/README.md for
+# why this needs SWITCH_KEYS_FILE explicitly pointed at your own keyset
+# rather than anything this repo bundles or fetches. hacbrewpack itself
+# (the packer, no key material) is fetched and built from source on first
+# build by nsp/build_hacbrewpack.sh -- see that script's own comment for
+# why source rather than a prebuilt binary, unlike this project's other
+# fetched tools.
+option(BUILD_SWITCH_NSP "Also build a CFW-installable .nsp (needs -DSWITCH_KEYS_FILE=/path/to/prod.keys)" OFF)
+if (BUILD_SWITCH_NSP)
+    if (NOT SWITCH_KEYS_FILE)
+        message(FATAL_ERROR "BUILD_SWITCH_NSP needs -DSWITCH_KEYS_FILE=/path/to/your/prod.keys -- see clients/switch/nsp/README.md.")
+    endif ()
+    if (NOT EXISTS ${SWITCH_KEYS_FILE})
+        message(FATAL_ERROR "SWITCH_KEYS_FILE (${SWITCH_KEYS_FILE}) does not exist.")
+    endif ()
+
+    set(NSP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nsp)
+    set(NSP_TOOLS_DIR ${NSP_DIR}/tools)
+    set(NSP_STAGE_DIR ${CMAKE_BINARY_DIR}/nsp_stage)
+
+    configure_file(${NSP_DIR}/npdm.json.in ${CMAKE_BINARY_DIR}/${PROJECT_NAME}_npdm.json @ONLY)
+
+    add_custom_command(
+        OUTPUT ${NSP_TOOLS_DIR}/hacbrewpack
+        COMMAND ${NSP_DIR}/build_hacbrewpack.sh ${NSP_TOOLS_DIR}
+        COMMENT "Fetching/building hacbrewpack"
+    )
+
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.nso
+        COMMAND ${NX_ELF2NSO_EXE} ${PROJECT_NAME}.elf ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.nso
+        DEPENDS ${PROJECT_NAME}
+        COMMENT "Building NSO"
+    )
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.npdm
+        COMMAND ${NX_NPDMTOOL_EXE} ${CMAKE_BINARY_DIR}/${PROJECT_NAME}_npdm.json ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.npdm
+        DEPENDS ${CMAKE_BINARY_DIR}/${PROJECT_NAME}_npdm.json
+        COMMENT "Building NPDM"
+    )
+
+    # hacbrewpack's expected input layout (README.md: exefs/{main,main.npdm},
+    # control/control.nacp, control/icon_AmericanEnglish.dat -- the latter
+    # is just PROJECT_ICON renamed, per that same README).
+    add_custom_command(
+        OUTPUT ${NSP_STAGE_DIR}/.stamp
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${NSP_STAGE_DIR}/exefs ${NSP_STAGE_DIR}/control
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.nso ${NSP_STAGE_DIR}/exefs/main
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.npdm ${NSP_STAGE_DIR}/exefs/main.npdm
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.nacp ${NSP_STAGE_DIR}/control/control.nacp
+        COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_ICON} ${NSP_STAGE_DIR}/control/icon_AmericanEnglish.dat
+        COMMAND ${CMAKE_COMMAND} -E touch ${NSP_STAGE_DIR}/.stamp
+        DEPENDS ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.nso ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.npdm ${PROJECT_NAME}.nro
+        COMMENT "Staging NSP input layout"
+    )
+
+    add_custom_target(${PROJECT_NAME}_nsp ALL
+        COMMAND ${NSP_TOOLS_DIR}/hacbrewpack
+            --keyset ${SWITCH_KEYS_FILE}
+            --exefsdir ${NSP_STAGE_DIR}/exefs
+            --controldir ${NSP_STAGE_DIR}/control
+            --nologo
+            --nspdir ${CMAKE_BINARY_DIR}/nsp_out
+        DEPENDS ${NSP_TOOLS_DIR}/hacbrewpack ${NSP_STAGE_DIR}/.stamp
+        COMMENT "Packing ${PROJECT_NAME}.nsp"
+    )
+endif ()
