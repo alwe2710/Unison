@@ -214,3 +214,24 @@ size_t finlink_build_input_frame(uint16_t key_bitmask, uint8_t out_buf[FINLINK_I
     finlink_write_u16le(out_buf + 1, key_bitmask);
     return FINLINK_INPUT_FRAME_SIZE;
 }
+
+size_t finlink_build_touch_frame(const finlink_touch_state *touch, uint8_t out_buf[FINLINK_TOUCH_FRAME_SIZE]) {
+    out_buf[0] = FINLINK_MSG_INPUT;
+    out_buf[1] = touch->pressed ? 1 : 0;
+    finlink_write_u16le(out_buf + 2, touch->pressed ? touch->x : 0);
+    finlink_write_u16le(out_buf + 4, touch->pressed ? touch->y : 0);
+    return FINLINK_TOUCH_FRAME_SIZE;
+}
+
+finlink_result finlink_parse_touch_frame(const uint8_t *data, size_t size, finlink_touch_state *out) {
+    if (size < FINLINK_TOUCH_FRAME_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_INPUT) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+    out->pressed = data[1] != 0;
+    out->x = finlink_read_u16le(data + 2);
+    out->y = finlink_read_u16le(data + 4);
+    return FINLINK_OK;
+}

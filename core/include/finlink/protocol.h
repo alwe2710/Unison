@@ -83,6 +83,26 @@ typedef struct {
 
 #define FINLINK_INPUT_FRAME_SIZE 3
 
+/* Touch state for input_encoding "n3ds_touch" (docs/protocol.md,
+ * N3DS_BOTTOM_SCREEN) -- a client->server type=2 message, same message
+ * type as the GBA key bitmask above but a different payload shape,
+ * disambiguated by hello.input_encoding rather than a separate
+ * finlink_msg_type (the receiver already knows which shape to expect from
+ * the handshake before any type=2 message can arrive). x/y are in the
+ * bottom screen's own native pixel coordinates (0..320, 0..240) --
+ * whatever screen-to-touch-coordinate mapping a touch-capable client uses
+ * to get there is entirely its own concern, this is just the wire value.
+ * x/y are meaningless (and should be sent as 0, ignored by the receiver)
+ * whenever pressed is 0: a release carries no meaningful position, it's
+ * simply "stop touching", not "touch stopped at (x,y)". */
+typedef struct {
+    int pressed; /* 0 = released, nonzero = touching at (x, y) */
+    uint16_t x;
+    uint16_t y;
+} finlink_touch_state;
+
+#define FINLINK_TOUCH_FRAME_SIZE 6
+
 /* Reads the leading type byte of a server->client message without consuming
  * the rest. `size` must be >= 1. */
 finlink_result finlink_peek_type(const uint8_t *data, size_t size, finlink_msg_type *out_type);
@@ -122,6 +142,16 @@ finlink_result finlink_parse_audio_frame(const uint8_t *data, size_t size, finli
 /* Writes a type=2 message into out_buf (must have room for
  * FINLINK_INPUT_FRAME_SIZE bytes). Returns the number of bytes written. */
 size_t finlink_build_input_frame(uint16_t key_bitmask, uint8_t out_buf[FINLINK_INPUT_FRAME_SIZE]);
+
+/* Writes a type=2 "n3ds_touch"-encoding message into out_buf (must have
+ * room for FINLINK_TOUCH_FRAME_SIZE bytes). Returns the number of bytes
+ * written. */
+size_t finlink_build_touch_frame(const finlink_touch_state *touch, uint8_t out_buf[FINLINK_TOUCH_FRAME_SIZE]);
+
+/* Parses a type=2 "n3ds_touch"-encoding message. `data` must start at the
+ * type byte. Only valid to call when hello.input_encoding was
+ * "n3ds_touch" -- see finlink_touch_state's own comment. */
+finlink_result finlink_parse_touch_frame(const uint8_t *data, size_t size, finlink_touch_state *out);
 
 #ifdef __cplusplus
 }

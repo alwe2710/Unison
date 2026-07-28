@@ -219,6 +219,46 @@ static void test_build_input_frame(void) {
     CHECK(finlink_read_u16le(buf + 1) == mask);
 }
 
+static void test_touch_frame_pressed(void) {
+    uint8_t buf[FINLINK_TOUCH_FRAME_SIZE];
+    finlink_touch_state touch;
+    touch.pressed = 1;
+    touch.x = 160;
+    touch.y = 120;
+
+    CHECK(finlink_build_touch_frame(&touch, buf) == FINLINK_TOUCH_FRAME_SIZE);
+    CHECK(buf[0] == FINLINK_MSG_INPUT);
+    CHECK(buf[1] == 1);
+    CHECK(finlink_read_u16le(buf + 2) == 160);
+    CHECK(finlink_read_u16le(buf + 4) == 120);
+
+    finlink_touch_state parsed;
+    CHECK(finlink_parse_touch_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.pressed != 0);
+    CHECK(parsed.x == 160);
+    CHECK(parsed.y == 120);
+}
+
+static void test_touch_frame_released(void) {
+    /* A release must always encode x/y as 0 regardless of what the caller
+     * passes in, per finlink_touch_state's own comment -- a release has no
+     * meaningful position. */
+    uint8_t buf[FINLINK_TOUCH_FRAME_SIZE];
+    finlink_touch_state touch;
+    touch.pressed = 0;
+    touch.x = 999;
+    touch.y = 999;
+
+    CHECK(finlink_build_touch_frame(&touch, buf) == FINLINK_TOUCH_FRAME_SIZE);
+    CHECK(buf[1] == 0);
+    CHECK(finlink_read_u16le(buf + 2) == 0);
+    CHECK(finlink_read_u16le(buf + 4) == 0);
+
+    finlink_touch_state parsed;
+    CHECK(finlink_parse_touch_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.pressed == 0);
+}
+
 int main(void) {
     test_peek_type();
     test_video_header();
@@ -229,6 +269,8 @@ int main(void) {
     test_decode_video_frame_tiles_indexed();
     test_audio_frame();
     test_build_input_frame();
+    test_touch_frame_pressed();
+    test_touch_frame_released();
     printf("protocol: all tests passed\n");
     return 0;
 }

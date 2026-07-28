@@ -192,10 +192,9 @@ gesendet:
   (oder ist `null`) bei Stream-Typen ohne Audioübertragung.
 - `input_encoding`: Name des Input-Encodings, das dieser Stream-Typ auf dieser
   Verbindung erwartet (`type=2`-Messages, siehe unten). `"gba_buttons"` ist das
-  bestehende `u16le`-Bitmask-Format, unverändert. Weitere Encodings (z. B. für
-  Touch-Input bei `N3DS_BOTTOM_SCREEN`) werden erst spezifiziert, wenn der
-  jeweilige Stream-Typ implementiert wird — bewusst offengelassen, siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen--offene-fragen).
+  bestehende `u16le`-Bitmask-Format, unverändert; `"n3ds_touch"` (für
+  `N3DS_BOTTOM_SCREEN`) ist Touch-Position + Press-Status — siehe
+  [WebSocket, binäre Frames](#websocket-binäre-frames).
 
 ### `hello_ack` (Client → Server)
 
@@ -301,7 +300,8 @@ generischen Fehlermeldung).
 |---|---|---|
 | Server → Client | `1` (Video) | `[u8 type=1][u32le width][u32le height][u8 format][raw-deflate-komprimierter Block]` |
 | Server → Client | `3` (Audio) | `[u8 type=3][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
-| Client → Server | `2` (Input) | `[u8 type=2][u16le keyBitmask]` |
+| Client → Server | `2` (Input, `input_encoding = "gba_buttons"`) | `[u8 type=2][u16le keyBitmask]` |
+| Client → Server | `2` (Input, `input_encoding = "n3ds_touch"`) | `[u8 type=2][u8 pressed][u16le x][u16le y]` |
 
 Diese Binärframes (Opcode `0x2`) treten ausschließlich **nach** einem erfolgreichen
 Handshake (`session_ready` ohne `redirect`, siehe oben) auf derselben Verbindung
@@ -309,7 +309,20 @@ auf. Inhaltlich unverändert gegenüber der Vor-Handshake-Version des Protokolls
 `width`/`height`/`sampleRate`/`channels` in den Headern spiegeln die in
 `session_ready` bestätigten (ggf. herunterskalierten) Werte.
 
-Bitreihenfolge Input-Bitmask (Bit 0 = LSB): `A, B, Select, Start, Right, Left, Up, Down, R, L`
+Beide `type=2`-Formen teilen sich denselben Nachrichtentyp — welche Form auf
+einer Verbindung gilt, legt `hello.input_encoding` einmalig beim Handshake fest
+(siehe oben), nicht ein zusätzliches Unterscheidungsbyte im Frame selbst.
+
+Bitreihenfolge Input-Bitmask (Bit 0 = LSB, `"gba_buttons"`): `A, B, Select, Start, Right, Left, Up, Down, R, L`
+
+`"n3ds_touch"` (für `N3DS_BOTTOM_SCREEN`): `x`/`y` sind Pixel-Koordinaten im
+nativen Bottom-Screen-Raster (`0..320`, `0..240`) — wie ein Client von seiner
+eigenen Eingabe (Touch, Maus, Stick, ...) auf diesen Bereich abbildet, ist
+allein seine Sache. `pressed = 0` bedeutet **loslassen**; `x`/`y` sind dabei
+bedeutungslos und müssen `0` sein — ein Loslassen hat keine sinnvolle Position,
+es ist schlicht „nicht mehr berühren", nicht „Berührung endete bei (x,y)".
+Ein Drag wird als Folge von `pressed = 1`-Frames mit aktualisierten `x`/`y`
+übertragen, kein eigener Nachrichtentyp dafür nötig.
 
 Alle Mehrbyte-Felder sind Little-Endian.
 
@@ -420,10 +433,6 @@ Mechanismus für die nativen Clients — die nutzen den UDP-Beacon.
 
 ## Bekannte Einschränkungen / offene Fragen
 
-- Touch-Input-Encoding für `N3DS_BOTTOM_SCREEN` (`input_encoding` ≠
-  `"gba_buttons"`) ist in dieser Revision **bewusst nicht spezifiziert** — wird
-  festgelegt, sobald die Azahar-Implementierung selbst ansteht, nicht vorab
-  spekulativ.
 - `NDS_BOTTOM_SCREEN` ist als `stream_type`-Wert reserviert, aber nirgends
   implementiert. Kein Server sendet diesen Wert aktuell.
 - Der Discovery-Beacon ist unauthentifiziert (siehe
