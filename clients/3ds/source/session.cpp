@@ -254,11 +254,18 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         }
         streamType = hello.stream_type;
 
-        // This app always dials a specific already-chosen player port (see
-        // main.cpp's P1-P4 picker), never the lobby port -- so the slot
-        // being asked about is simply "the one this connection is on".
+        // GC_GBA_LINK is the one stream type this app ever dials a specific
+        // already-chosen player port for (see main.cpp's P1-P4 picker) --
+        // there, the slot being asked about is simply "the one this
+        // connection is on". Every other stream type is single-client, and
+        // -- unlike the switch/android clients -- main.cpp doesn't currently
+        // have a discovered-entry direct-connect path that would ever dial
+        // straight to a handshake_port here, so this branch is unreachable
+        // today; kept correct anyway so it isn't a landmine for whoever adds
+        // that (see the switch/android fix for what happens without it: a
+        // garbage out-of-range slot, rejected outright by the server).
         finlink_hello_ack_request ackReq {};
-        ackReq.requested_slot = *port - kPlayerBasePort;
+        ackReq.requested_slot = streamType == "GC_GBA_LINK" ? *port - kPlayerBasePort : 0;
         ackReq.max_width = hello.video.width > 0 ? hello.video.width : 240;
         ackReq.max_height = hello.video.height > 0 ? hello.video.height : 160;
         ackReq.max_fps = hello.video.fps > 0 ? hello.video.fps : 60.0;

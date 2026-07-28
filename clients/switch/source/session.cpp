@@ -242,11 +242,19 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
                                 " -- bitte Client oder Server aktualisieren" };
         }
 
-        // This app always dials a specific already-chosen player port (see
-        // menu_activity.cpp's P1-P4 picker), never the lobby port -- so the
-        // slot being asked about is simply "the one this connection is on".
+        // GC_GBA_LINK is the one stream type this app ever dials a specific
+        // already-chosen player port for (see menu_activity.cpp's P1-P4
+        // picker) -- there, the slot being asked about is simply "the one
+        // this connection is on". Every other stream type is single-client
+        // and connects straight to the beacon's handshakePort instead
+        // (menu_activity.cpp's discovered-entry tap) -- that port has
+        // nothing to do with player-port numbering, so the same subtraction
+        // there produced a garbage out-of-range slot, which the server
+        // rejected outright, dropping the connection before any video frame
+        // could ever arrive.
         finlink_hello_ack_request ackReq {};
-        ackReq.requested_slot = *port - kPlayerBasePort;
+        ackReq.requested_slot =
+            std::strcmp(hello.stream_type, "GC_GBA_LINK") == 0 ? *port - kPlayerBasePort : 0;
         ackReq.max_width = hello.video.width > 0 ? hello.video.width : 240;
         ackReq.max_height = hello.video.height > 0 ? hello.video.height : 160;
         ackReq.max_fps = hello.video.fps > 0 ? hello.video.fps : 60.0;
