@@ -1,5 +1,6 @@
 #include "discovery.hpp"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
@@ -11,11 +12,14 @@
 
 #include <3ds.h>
 
+#include "finlink/discovery.h"
+#include "finlink/handshake.h"
+
 namespace {
 
 // Minimal blocking-with-timeout HTTP/1.0 GET, identical to
 // clients/switch/source/discovery.cpp's -- not a general-purpose HTTP
-// client, just enough for this protocol's two tiny lobby endpoints.
+// client, just enough for this protocol's /status endpoint.
 std::optional<std::string> httpGet(const std::string &host, int port, const std::string &path, int timeoutMs) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -93,7 +97,7 @@ std::optional<std::string> httpGet(const std::string &host, int port, const std:
     }
     size_t headerEnd = response.find("\r\n\r\n");
     if (headerEnd == std::string::npos) {
-        return response.substr(space); // status line only, no body -- fine for probeLobby
+        return response.substr(space); // status line only, no body
     }
     return response.substr(headerEnd + 4);
 }
@@ -113,32 +117,6 @@ uint32_t getLocalIp() {
 
 namespace discovery {
 
-std::vector<std::string> localSubnetHosts() {
-    std::vector<std::string> hosts;
-
-    uint32_t raw = getLocalIp();
-    if (raw == 0) {
-        return hosts;
-    }
-
-    // There's no equivalent of Switch's nifmGetCurrentIpConfigInfo() to
-    // query the real subnet mask here, so this assumes the near-universal
-    // home-network /24 rather than not offering discovery at all.
-    uint32_t ip = ntohl(raw);
-    uint32_t network = ip & 0xFFFFFF00u; // /24
-
-    hosts.reserve(254);
-    for (uint32_t offset = 1; offset <= 254; offset++) {
-        uint32_t hostIp = htonl(network + offset);
-        char buf[INET_ADDRSTRLEN];
-        struct in_addr in;
-        in.s_addr = hostIp;
-        inet_ntop(AF_INET, &in, buf, sizeof(buf));
-        hosts.emplace_back(buf);
-    }
-    return hosts;
-}
-
 std::string localIpString() {
     uint32_t raw = getLocalIp();
     if (raw == 0) {
@@ -151,10 +129,6 @@ std::string localIpString() {
     return std::string(buf);
 }
 
-bool probeLobby(const std::string &ip, int timeoutMs) {
-    return httpGet(ip, 6800, "/", timeoutMs).has_value();
-}
-
 std::optional<bool> fetchOccupied(const std::string &host, int port, int timeoutMs) {
     auto body = httpGet(host, port, "/status", timeoutMs);
     if (!body) {
@@ -165,6 +139,107 @@ std::optional<bool> fetchOccupied(const std::string &host, int port, int timeout
         return true;
     }
     return false;
+}
+
+BeaconListener::~BeaconListener() {
+    stop();
+}
+
+void BeaconListener::start() {
+    if (thread.joinable()) {
+        return; // already running
+    }
+    stopFlag.store(false);
+    thread = std::thread(&BeaconListener::threadMain, this);
+}
+
+void BeaconListener::stop() {
+    stopFlag.store(true);
+    if (thread.joinable()) {
+        thread.join();
+    }
+}
+
+std::vector<DiscoveredServer> BeaconListener::snapshot() {
+    std::lock_guard<std::mutex> lock(mutex);
+    std::vector<DiscoveredServer> out;
+    out.reserve(entries.size());
+    for (const auto &e : entries) {
+        out.push_back(e.server);
+    }
+    return out;
+}
+
+void BeaconListener::threadMain() {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(FINLINK_BEACON_PORT);
+    addr.sin_addr.s_addr = INADDR_ANY;
+    if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+        close(fd);
+        return;
+    }
+
+    uint8_t buf[1024];
+    // 500ms poll bound so stopFlag and stale-entry pruning are both checked
+    // regularly even with no beacons arriving at all -- not tied to
+    // FINLINK_BEACON_STALE_MS, just needs to be comfortably shorter than it.
+    while (!stopFlag.load()) {
+        struct pollfd pfd = { fd, POLLIN, 0 };
+        if (poll(&pfd, 1, 500) > 0 && (pfd.revents & POLLIN)) {
+            struct sockaddr_in from;
+            socklen_t fromLen = sizeof(from);
+            ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &fromLen);
+            if (n > 0) {
+                finlink_beacon beacon;
+                if (finlink_parse_beacon(buf, static_cast<size_t>(n), &beacon)) {
+                    DiscoveredServer server;
+                    server.host = beacon.host;
+                    server.emulatorIdentifier = beacon.emulator_identifier;
+                    server.gameTitle = beacon.game_title;
+                    server.streamType = beacon.stream_type;
+                    server.protocolVersion = beacon.protocol_version;
+                    server.handshakePort = beacon.handshake_port;
+                    server.compatible = (beacon.protocol_version == FINLINK_PROTOCOL_VERSION);
+
+                    std::lock_guard<std::mutex> lock(mutex);
+                    auto now = std::chrono::steady_clock::now();
+                    bool updated = false;
+                    for (auto &e : entries) {
+                        if (e.server.host == server.host) {
+                            e.server = server;
+                            e.lastSeen = now;
+                            updated = true;
+                            break;
+                        }
+                    }
+                    if (!updated) {
+                        entries.push_back(Entry { server, now });
+                    }
+                }
+            }
+        }
+
+        std::lock_guard<std::mutex> lock(mutex);
+        auto now = std::chrono::steady_clock::now();
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                      [now](const Entry &e) {
+                                          return std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                     now - e.lastSeen)
+                                                     .count() > FINLINK_BEACON_STALE_MS;
+                                      }),
+                      entries.end());
+    }
+
+    close(fd);
 }
 
 } // namespace discovery

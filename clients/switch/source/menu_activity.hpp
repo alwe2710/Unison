@@ -4,7 +4,7 @@
 
 #include <borealis.hpp>
 
-#include "progress_bar.hpp"
+#include "discovery.hpp"
 
 // Landing screen (Menu/Settings/Player, same three-screen structure as
 // clients/android/.../MenuActivity.kt): manual host entry + P1-P4 picker
@@ -24,6 +24,8 @@
 // crash report/backtrace).
 class MenuActivity : public brls::Activity {
   public:
+    ~MenuActivity() override;
+
     brls::View *createContentView() override;
 
   private:
@@ -35,15 +37,23 @@ class MenuActivity : public brls::Activity {
     std::array<brls::Button *, kPlayerSlotCount> slotButtons {};
     brls::Label *statusLabel = nullptr;
     brls::Label *discoveryStatusLabel = nullptr;
-    ProgressBar *discoveryProgress = nullptr;
     brls::Box *discoveredList = nullptr;
     std::array<brls::DetailCell *, kMaxDiscoveredRows> discoveredCells {};
 
     std::string lastSearchedHost;
     bool searching = false;
-    bool discovering = false;
 
+    // Started in createContentView(), stopped in the destructor -- unlike
+    // the old subnet-sweep startDiscovery() this replaced, there's no
+    // manual "search" trigger: a server announces itself via UDP beacon
+    // roughly every 2s on its own (docs/protocol.md), so this just needs
+    // to keep listening for as long as the activity is alive. Its
+    // heartbeat callback (see discovery.hpp) refreshes discoveredCells via
+    // brls::sync(), same pre-existing-GONE-views mutation pattern as
+    // runSearch()'s slotButtons update below.
+    discovery::BeaconListener beaconListener;
+
+    void refreshDiscoveredCells();
     void runSearch(const std::string &host);
-    void startDiscovery();
     void launchPlayer(const std::string &host, int port);
 };

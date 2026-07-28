@@ -16,20 +16,14 @@ dieser Datei für den reinen `Video`/`Audio`/`Input`-Stand ohne Handshake.
 | `StreamHost` (× GC-Port) | `6801`–`6804` (TCP) | Ein Slot pro GC-Port, der auf „GBA (Client-Stream)“ steht. Genau ein verbundener Client pro Port. Bei Stream-Typen mit nur einem Slot (siehe unten) wird dieser Bereich nicht benutzt — die Session bleibt auf `6800`. |
 | Discovery-Beacon | `6805` (UDP, Broadcast) | Periodische Server-Ankündigung, siehe [Discovery-Beacon](#discovery-beacon-udp). |
 
-> Teilweise entschärfte Inkompatibilität: `GBAStreamLobby` unterscheidet seit
-> `protocol_version = 2` zwischen einem plain `GET /` (liefert wieder eine
-> HTML-Seite, Status 200 — inzwischen der WASM-basierte, auf `core/`
-> umgestellte Web-Client statt der alten eingebetteten Picker-Seite) und
-> einem WebSocket-Upgrade-Request (löst den Handshake unten aus). Ältere
-> `discovery.cpp`-Implementierungen (3DS/Switch, Stand `clients/3ds`,
-> `clients/switch`), deren `probeLobby()` schlicht `GET /` auf 200 prüft,
-> funktionieren dadurch auf dieser Erkennungsebene wieder — sie sprechen
-> aber weiterhin **nicht** den eigentlichen App-Handshake auf den
-> Player-Ports (6801–6804), da diese beiden Clients selbst noch nicht auf
-> `core/`s Handshake-Unterstützung umgestellt sind (anders als Android, das
-> das bereits ist, und der Web-Client, siehe oben). Ein Verbindungsversuch
-> über sie schlägt daher weiterhin fehl, nur nicht mehr schon bei der
-> Discovery selbst.
+> `GBAStreamLobby` unterscheidet seit `protocol_version = 2` zwischen einem
+> plain `GET /` (liefert eine HTML-Seite, Status 200 — der WASM-basierte, auf
+> `core/` umgestellte Web-Client) und einem WebSocket-Upgrade-Request (löst
+> den Handshake unten aus). Alle fünf Clients (Android, 3DS, Switch, NDS/DSi,
+> Web) sprechen inzwischen den vollen App-Handshake auf den Player-Ports
+> (6801–6804) und nutzen den [UDP-Discovery-Beacon](#discovery-beacon-udp)
+> zum Finden eines Servers — die früheren `probeLobby()`/Subnetz-Sweep-
+> Implementierungen auf 3DS/Switch/NDS sind vollständig ersetzt.
 
 ## Protokollversion
 
@@ -418,9 +412,11 @@ erfahren — der Handshake liefert dieselbe Information atomar als Teil der
 Verbindungsaufnahme und vermeidet damit das Race zwischen „Status pollen“ und
 „danach separat verbinden“. `/status` bleibt als sekundärer/diagnostischer
 Endpunkt bestehen, ist aber für neue Client-Implementierungen nicht mehr nötig.
-Die Lobby (Port 6800) liefert **keine** HTML mehr aus (siehe Hinweis unter
-[Endpunkte](#endpunkte)) und hat auch kein HTTP-Äquivalent von `/status` über alle
-vier Player-Ports hinweg — die `slots`-Liste im Handshake ersetzt das.
+Die Lobby (Port 6800) hat kein HTTP-Äquivalent von `/status` über alle vier
+Player-Ports hinweg — die `slots`-Liste im Handshake ersetzt das. Ein plain
+`GET /` dort liefert weiterhin HTML aus (siehe Hinweis unter
+[Endpunkte](#endpunkte)), aber das ist der Web-Client, kein Discovery-
+Mechanismus für die nativen Clients — die nutzen den UDP-Beacon.
 
 ## Bekannte Einschränkungen / offene Fragen
 
@@ -441,8 +437,3 @@ vier Player-Ports hinweg — die `slots`-Liste im Handshake ersetzt das.
   240×160) unverändert taugt oder ein anderer Codec nötig ist, ist noch offen —
   wird im Zuge der Azahar-Implementierung geklärt, nicht Teil dieser
   Protokollrevision.
-- `clients/3ds` und `clients/switch` sprechen den App-Handshake dieser
-  Revision noch nicht (nur Android und der Web-Client tun das bisher) —
-  `probeLobby()`-artige Alt-Discovery über `GET /` findet den Server zwar
-  wieder (siehe Hinweis unter [Endpunkte](#endpunkte)), ein tatsächlicher
-  Verbindungsversuch über diese beiden Clients schlägt aber weiterhin fehl.

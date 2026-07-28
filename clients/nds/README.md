@@ -11,17 +11,17 @@ abzuschätzen.
 ## Umfang
 
 - Verbindet per WLAN (`Wifi_InitDefault(WFC_CONNECT)`, nutzt die auf der Konsole
-  hinterlegten WFC-Zugangsdaten aus den Systemeinstellungen), sucht danach
-  automatisch im lokalen /24-Subnetz nach einer finlink-Lobby (HTTP GET `/`
-  auf Port 6800, wie bei `clients/3ds`/`clients/switch`s Discovery -- siehe
-  [`arm9/source/discovery.c`](arm9/source/discovery.c)), und geht dann per
-  Slot-Wahl (A/B/X/Y = Slot 1-4) zu einem `StreamHost`-Port. Findet die Suche
-  nichts (Server noch nicht gestartet, anderes Subnetz, ...) oder wird sie
-  mit START übersprungen, fragt ein On-Screen-Keyboard
-  (`nds/arm9/keyboard.h`, wie bei den anderen drei Clients' Software-
-  Tastatur für die Host-Eingabe) nach der IP; SELECT im Slot-Menü stößt die
-  Suche erneut an, R fragt die IP direkt neu ab. Keine Persistenz über
-  Neustarts hinweg -- genau wie bei den anderen drei Clients.
+  hinterlegten WFC-Zugangsdaten aus den Systemeinstellungen), zeigt danach
+  laufend die Server an, die sich per UDP-Discovery-Beacon melden (Port 6805,
+  `docs/protocol.md` "Discovery-Beacon (UDP)" -- siehe
+  [`arm9/source/beacon_discovery.c`](arm9/source/beacon_discovery.c)), und
+  geht nach Server-Wahl (A/B/X/Y) per Slot-Wahl (ebenfalls A/B/X/Y = Slot 1-4)
+  zu einem `StreamHost`-Port. Meldet sich (noch) kein Server, fragt ein
+  On-Screen-Keyboard (`nds/arm9/keyboard.h`, wie bei den anderen drei
+  Clients' Software-Tastatur für die Host-Eingabe) nach der IP; SELECT im
+  Slot-Menü geht zurück zur Server-Liste, R fragt die IP direkt neu ab.
+  Keine Persistenz über Neustarts hinweg -- genau wie bei den anderen drei
+  Clients.
 - Dekodiert Video **und** Audio mit demselben `core/` wie alle anderen Clients
   (WS-Handshake/Framing, Deflate, TILES/INDEXED-Formate).
 - Zeigt das Video direkt (Hauptbildschirm, `MODE_FB0`, zentriert 240×160 in
@@ -47,8 +47,8 @@ abzuschätzen.
 ## Server-IP konfigurieren
 
 Kein Compile-Time-`#define` mehr nötig — die automatische Discovery (siehe
-"Umfang" oben) findet den Server im selben Subnetz von selbst, und wenn
-nicht, fragt ein On-Screen-Keyboard danach (`promptForIp()` in
+"Umfang" oben) zeigt Server an, die sich selbst per UDP-Beacon melden, und wenn
+keiner erscheint, fragt ein On-Screen-Keyboard danach (`promptForIp()` in
 [`arm9/source/main.c`](arm9/source/main.c)). Muss eine literale
 IPv4-Adresse sein, kein Hostname — der Client nutzt bewusst `inet_addr()`
 statt `gethostbyname()`, um keinen DNS-Roundtrip über WFC zu brauchen; eine
@@ -93,13 +93,6 @@ umgeht das und ist zusätzlich der von devkitPro selbst dokumentierte Weg.)
 
 ## Bekannte Einschränkungen
 
-- Die Subnetz-Suche (`arm9/source/discovery.c`) macht nicht-blockierendes
-  `connect()` gefolgt von wiederholten `send()`-Versuchen (EAGAIN/
-  EWOULDBLOCK = noch nicht verbunden, echter Fehler = Host tot), weil
-  `libnds`/`dswifi` kein `select()`/`poll()` und (getestet auf echter
-  Hardware) kein brauchbares `getsockopt(SO_ERROR)` hat -- eine erste
-  Version verließ sich darauf, fand aber auf echter Hardware nie einen
-  Server, weil jeder Slot einfach bis zum Timeout in "verbindet noch" hing.
 - Nur GBA-Auflösung 240×160 unterstützt (hart codiert für statische
   Puffergrößen statt malloc/realloc, siehe Kommentare in `main.c`) — ein
   Frame mit abweichender Auflösung wird als Fehler gezählt, nicht

@@ -46,7 +46,7 @@ starten.
 
 - [x] Toolchain-Bootstrap + borealis-Integration verifiziert (Smoke-Test:
       kompiliert, linkt, erzeugt eine lauffähige `.nro`).
-- [x] Menu (Host-Eingabe, LAN-Discovery via `nifm`, Settings-Link)
+- [x] Menu (Host-Eingabe, UDP-Discovery-Beacon-Listener, Settings-Link)
 - [x] Settings (On-Screen-Controls-Toggle, Video-Filter-Toggle, Key-Bindings
       per Controller-Taste)
 - [x] Player (Fullscreen Video via NanoVG-Image, Audio via `audout`,

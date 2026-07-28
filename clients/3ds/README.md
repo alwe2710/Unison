@@ -20,9 +20,11 @@ On-Screen-Touch-Overlay des Switch-Clients (`clients/switch/source/video_view.cp
   `clients/switch/source/session.cpp` (portables C++, nur die RNG-Quelle
   unterscheidet sich: `rand()` statt `randomGet()`, da devkitARM dieselbe
   fehlende `getentropy()`-Anbindung hat wie devkitA64).
-- **`source/discovery.{hpp,cpp}`** -- LAN-Discovery + `/status`-Polling.
-  Nutzt `gethostid()` für die eigene IP und nimmt (mangels einer
-  Subnetzmasken-Abfrage wie Switchs `nifm`) ein `/24`-Subnetz an.
+- **`source/discovery.{hpp,cpp}`** -- UDP-Discovery-Beacon-Listener
+  (`BeaconListener`, Port 6805, siehe `docs/protocol.md`
+  "Discovery-Beacon (UDP)") auf einem eigenen Hintergrund-Thread, plus
+  `/status`-Polling für die Slot-Belegung nach Server-Wahl. `gethostid()`
+  liefert nur noch die eigene IP für die Diagnose-Anzeige.
 - **`source/video_tex.{hpp,cpp}`** -- GBA-Video als citro3d-Textur.
   RGB565 wird direkt hochgeladen (keine RGBA8-Konvertierung wie beim
   NanoVG-Pfad des Switch-Clients -- GPU_RGB565 entspricht exakt dem

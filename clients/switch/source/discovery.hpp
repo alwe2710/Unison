@@ -1,28 +1,68 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // LAN discovery + lobby status polling, mirroring
-// clients/android/.../MenuActivity.kt's two ways of finding a host. Both
-// functions are blocking and meant to be called from a background thread,
-// same as the Android client calls them off the UI thread.
+// clients/3ds/source/discovery.hpp.
 namespace discovery {
-
-// Host addresses (excluding network/broadcast) on this console's local
-// IPv4 subnet, or empty if the subnet is implausibly large (a misdetected
-// huge mask would otherwise mean scanning millions of hosts) or nifm
-// couldn't report one.
-std::vector<std::string> localSubnetHosts();
-
-// GET / on port 6800 (the lobby port -- Dolphin doesn't advertise itself
-// over mDNS/UPnP/SSDP, so this is a plain sweep, not a real discovery
-// protocol). true if something answered with HTTP 200.
-bool probeLobby(const std::string &ip, int timeoutMs = 400);
 
 // GET /status on host:port (one of the four player ports, 6801-6804).
 // nullopt = unreachable; otherwise the "occupied" field from the JSON body.
 std::optional<bool> fetchOccupied(const std::string &host, int port, int timeoutMs = 1500);
+
+// One server currently announcing itself via UDP beacon (finlink/discovery.h,
+// docs/protocol.md "Discovery-Beacon (UDP)").
+struct DiscoveredServer {
+    std::string host;
+    std::string emulatorIdentifier;
+    std::string gameTitle;
+    std::string streamType;
+    int protocolVersion = 0;
+    int handshakePort = 0;
+    // protocolVersion == FINLINK_PROTOCOL_VERSION (exact match, per
+    // docs/protocol.md) -- callers should grey out/refuse to connect to an
+    // incompatible entry rather than hide it, so an old/new server is at
+    // least visible instead of silently absent.
+    bool compatible = false;
+};
+
+// Listens for finlink UDP discovery beacons on a background thread for as
+// long as start()/stop() bracket it, mirroring GbaSession's thread-owning
+// style. onUpdate (optional) is invoked from that background thread on a
+// ~1s heartbeat -- borealis's own UI mutation model needs every update
+// pushed via brls::sync() onto pre-existing views rather than polled once
+// per frame the way clients/3ds does it (see menu_activity.hpp's own
+// comment on why views are never constructed at runtime here), so the
+// caller is expected to brls::sync([this]{ ...call snapshot()... }) inside
+// this callback rather than polling snapshot() from a render loop.
+class BeaconListener {
+  public:
+    ~BeaconListener();
+
+    void start(std::function<void()> onUpdate = nullptr);
+    void stop();
+    std::vector<DiscoveredServer> snapshot();
+
+  private:
+    struct Entry {
+        DiscoveredServer server;
+        std::chrono::steady_clock::time_point lastSeen;
+    };
+
+    std::thread thread;
+    std::atomic<bool> stopFlag { false };
+    std::mutex mutex;
+    std::vector<Entry> entries;
+    std::function<void()> onUpdate;
+
+    void threadMain();
+};
 
 } // namespace discovery

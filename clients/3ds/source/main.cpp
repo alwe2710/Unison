@@ -70,10 +70,6 @@ struct MenuState {
     std::array<std::optional<bool>, kPlayerSlotCount> slotOccupied {};
     bool pickerVisible = false;
     std::string lastSearchedHost;
-
-    bool discovering = false;
-    std::string discoveryStatusText;
-    std::vector<std::string> discoveredHosts;
 };
 
 void runSearch(MenuState *menu, std::string host) {
@@ -123,57 +119,6 @@ void runSearch(MenuState *menu, std::string host) {
     }).detach();
 }
 
-void startDiscovery(MenuState *menu) {
-    {
-        std::lock_guard<std::mutex> lock(menu->mutex);
-        if (menu->discovering) {
-            return;
-        }
-        menu->discovering = true;
-        menu->discoveredHosts.clear();
-        menu->discoveryStatusText = "Suche laeuft...";
-    }
-
-    std::thread([menu]() {
-        auto hosts = discovery::localSubnetHosts();
-        if (hosts.empty()) {
-            std::lock_guard<std::mutex> lock(menu->mutex);
-            menu->discovering = false;
-            menu->discoveryStatusText = "Kein lokales Netzwerk gefunden.";
-            return;
-        }
-
-        // Probing all 254 hosts one at a time (up to 400ms each) would
-        // take up to ~100 seconds -- split the range across a handful of
-        // worker threads instead. 8 rather than Android's 32: the 3DS's
-        // CPU/RAM are much more limited.
-        constexpr int kWorkers = 8;
-        std::atomic<size_t> nextIndex { 0 };
-        std::vector<std::thread> workers;
-        for (int w = 0; w < kWorkers; w++) {
-            workers.emplace_back([&hosts, &nextIndex, menu]() {
-                for (;;) {
-                    size_t i = nextIndex.fetch_add(1);
-                    if (i >= hosts.size()) {
-                        break;
-                    }
-                    if (discovery::probeLobby(hosts[i])) {
-                        std::lock_guard<std::mutex> lock(menu->mutex);
-                        menu->discoveredHosts.push_back(hosts[i]);
-                    }
-                }
-            });
-        }
-        for (auto &t : workers) {
-            t.join();
-        }
-
-        std::lock_guard<std::mutex> lock(menu->mutex);
-        menu->discovering = false;
-        menu->discoveryStatusText =
-            menu->discoveredHosts.empty() ? "Nichts gefunden." : "Suche abgeschlossen.";
-    }).detach();
-}
 
 // Blocking software-keyboard prompt for the host IP -- must be called
 // outside C3D_FrameBegin/End, the applet draws its own frames while up.
@@ -194,15 +139,15 @@ std::string promptForHost(const std::string &initial) {
 
 void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu, BottomScreenState *screenState,
                      GbaSession *session, VideoTex *videoTex, AudioPlayer *audio, std::atomic<bool> *connected,
-                     std::string *connectedHost, std::string *connectedStreamType) {
+                     std::string *connectedHost, std::string *connectedStreamType,
+                     discovery::BeaconListener *beaconListener) {
     // Snapshot under a short lock, then draw/hit-test from local copies --
     // promptForHost() below blocks for as long as the user is typing, and
-    // runSearch()/startDiscovery() spawn threads that take menu->mutex
-    // themselves, so the lock can't be held across any of those calls.
-    std::string hostText, statusText, discoveryStatusText, lastSearchedHost;
-    bool searching, pickerVisible, discovering;
+    // runSearch() spawns a thread that takes menu->mutex itself, so the
+    // lock can't be held across either.
+    std::string hostText, statusText, lastSearchedHost;
+    bool searching, pickerVisible;
     std::array<std::optional<bool>, kPlayerSlotCount> slotOccupied;
-    std::vector<std::string> discoveredHosts;
     {
         std::lock_guard<std::mutex> lock(menu->mutex);
         hostText = menu->hostText;
@@ -211,10 +156,10 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
         slotOccupied = menu->slotOccupied;
         pickerVisible = menu->pickerVisible;
         lastSearchedHost = menu->lastSearchedHost;
-        discovering = menu->discovering;
-        discoveryStatusText = menu->discoveryStatusText;
-        discoveredHosts = menu->discoveredHosts;
     }
+    // BeaconListener has its own internal locking (see discovery.hpp) --
+    // no need to route this through menu->mutex too.
+    std::vector<discovery::DiscoveredServer> discoveredServers = beaconListener->snapshot();
 
     ui::Rect hostRect { 8, 8, 240, 28 };
     ui::drawRect(hostRect, ui::kColorButtonDisabled);
@@ -290,31 +235,37 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     std::string netLine = myIp.empty() ? "Kein Netzwerk" : ("IP: " + myIp);
     ui::drawText(textBuf, netLine.c_str(), 190, 74, 0.38f, myIp.empty() ? ui::kColorButtonHeld : ui::kColorTextDim);
 
-    ui::Rect discRect { 8, 96, 304, 24 };
-    if (ui::button(textBuf, touch, discRect, "Netzwerk durchsuchen", !discovering)) {
-        startDiscovery(menu);
-    }
-    ui::drawText(textBuf, discoveryStatusText.c_str(), 8, 124, 0.42f, ui::kColorTextDim);
+    // No manual "search" trigger -- a server announces itself via UDP
+    // beacon roughly every 2s on its own (docs/protocol.md), so
+    // BeaconListener (running continuously in the background, started/
+    // stopped alongside socInit()/socExit() in main()) always has whatever
+    // it's heard lately.
+    ui::drawText(textBuf, discoveredServers.empty() ? "Suche nach Servern..." : "Gefundene Server:", 8, 100, 0.42f,
+                 ui::kColorTextDim);
 
     int shown = 0;
-    for (const auto &ip : discoveredHosts) {
+    for (const auto &srv : discoveredServers) {
         if (shown >= 3) {
             break;
         }
-        ui::Rect r { 8, 140.0f + shown * 20.0f, 304, 18 };
-        if (ui::button(textBuf, touch, r, ip.c_str())) {
+        ui::Rect r { 8, 118.0f + shown * 22.0f, 304, 20 };
+        std::string label = srv.gameTitle.empty() ? srv.host : srv.gameTitle;
+        if (!srv.compatible) {
+            label += " (inkompatibel)";
+        }
+        if (ui::button(textBuf, touch, r, label.c_str(), srv.compatible)) {
             {
                 std::lock_guard<std::mutex> lock(menu->mutex);
-                menu->hostText = ip;
+                menu->hostText = srv.host;
             }
-            runSearch(menu, ip);
+            runSearch(menu, srv.host);
         }
         shown++;
     }
-    if (static_cast<int>(discoveredHosts.size()) > shown) {
+    if (static_cast<int>(discoveredServers.size()) > shown) {
         char more[32];
-        snprintf(more, sizeof(more), "+%d weitere", static_cast<int>(discoveredHosts.size()) - shown);
-        ui::drawText(textBuf, more, 8, 200, 0.4f, ui::kColorTextDim);
+        snprintf(more, sizeof(more), "+%d weitere", static_cast<int>(discoveredServers.size()) - shown);
+        ui::drawText(textBuf, more, 8, 118.0f + shown * 22.0f, 0.4f, ui::kColorTextDim);
     }
 
     ui::Rect settingsRect { 8, 210, 304, 24 };
@@ -371,6 +322,9 @@ int main(int argc, char *argv[]) {
     if (socBuf) {
         socInit(socBuf, kSocBufferSize);
     }
+
+    discovery::BeaconListener beaconListener;
+    beaconListener.start();
 
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
@@ -474,7 +428,7 @@ int main(int argc, char *argv[]) {
             session.sendInput(physicalMask);
         } else if (screenState == BottomScreenState::MENU) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
-                           &connectedHost, &connectedStreamType);
+                           &connectedHost, &connectedStreamType, &beaconListener);
         } else {
             drawSettingsScreen(textBuf, touch, &prefs, &videoTex, &screenState);
         }
@@ -483,6 +437,7 @@ int main(int argc, char *argv[]) {
     }
 
     session.disconnect();
+    beaconListener.stop();
     C2D_TextBufDelete(textBuf);
     C2D_Fini();
     C3D_Fini();

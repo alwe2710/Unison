@@ -1,8 +1,6 @@
 #include "menu_activity.hpp"
 
 #include <algorithm>
-#include <atomic>
-#include <memory>
 
 #include "discovery.hpp"
 #include "player_activity.hpp"
@@ -12,17 +10,6 @@
 namespace {
 
 constexpr int kPlayerBasePort = 6801;
-
-// Shared state for startDiscovery()'s worker pool -- kept alive by the
-// shared_ptr each worker lambda captures for as long as any of them are
-// still running.
-struct DiscoveryState {
-    std::vector<std::string> hosts;
-    std::atomic<size_t> nextIndex { 0 };
-    std::atomic<int> nextRow { 0 };
-    std::atomic<int> completed { 0 };
-    std::atomic<int> workersRemaining { 0 };
-};
 
 void addDivider(brls::Box *parent) {
     auto *rect = new brls::Rectangle(nvgRGBA(255, 255, 255, 40));
@@ -86,22 +73,8 @@ brls::View *MenuActivity::createContentView() {
 
     addDivider(column);
 
-    auto *discoverCell = new brls::DetailCell();
-    discoverCell->setText("Netzwerk durchsuchen");
-    discoverCell->registerClickAction([this](brls::View *) {
-        startDiscovery();
-        return true;
-    });
-    column->addView(discoverCell);
-
-    discoveryProgress = new ProgressBar();
-    discoveryProgress->setVisibility(brls::Visibility::GONE);
-    discoveryProgress->setMarginTop(8);
-    column->addView(discoveryProgress);
-
     discoveryStatusLabel = new brls::Label();
-    discoveryStatusLabel->setText("");
-    discoveryStatusLabel->setMarginTop(4);
+    discoveryStatusLabel->setText("Suche nach Servern...");
     column->addView(discoveryStatusLabel);
 
     discoveredList = new brls::Box();
@@ -131,7 +104,51 @@ brls::View *MenuActivity::createContentView() {
 
     auto *frame = new brls::AppletFrame(scroll);
     frame->setTitle("finlink");
+
+    beaconListener.start([this]() { brls::sync([this]() { refreshDiscoveredCells(); }); });
+
     return frame;
+}
+
+MenuActivity::~MenuActivity() {
+    beaconListener.stop();
+}
+
+void MenuActivity::refreshDiscoveredCells() {
+    auto servers = beaconListener.snapshot();
+    int shown = std::min(static_cast<int>(servers.size()), kMaxDiscoveredRows);
+    for (int i = 0; i < kMaxDiscoveredRows; i++) {
+        auto *cell = discoveredCells[i];
+        if (i >= shown) {
+            cell->setVisibility(brls::Visibility::GONE);
+            continue;
+        }
+        const auto &srv = servers[i];
+        std::string label = srv.gameTitle.empty() ? srv.host : srv.gameTitle;
+        if (!srv.compatible) {
+            label += " (inkompatibel)";
+        }
+        cell->setText(label);
+        cell->setVisibility(brls::Visibility::VISIBLE);
+        // DetailCell has no enabled/disabled visual state the way Button
+        // does (see this file's own top comment on BUTTONSTYLE_PRIMARY) --
+        // an incompatible entry stays tappable, but connecting to it would
+        // just fail the app-level handshake on a protocol_version mismatch
+        // anyway, so this short-circuits that round trip with the same
+        // message instead.
+        bool compatible = srv.compatible;
+        std::string host = srv.host;
+        cell->registerClickAction([this, host, compatible](brls::View *) {
+            if (!compatible) {
+                statusLabel->setText("Inkompatible Protokollversion.");
+                return true;
+            }
+            hostInput->setValue(host);
+            runSearch(host);
+            return true;
+        });
+    }
+    discoveryStatusLabel->setText(servers.empty() ? "Suche nach Servern..." : "Gefundene Server:");
 }
 
 void MenuActivity::runSearch(const std::string &host) {
@@ -174,81 +191,6 @@ void MenuActivity::runSearch(const std::string &host) {
 
             statusLabel->setText(anyFree ? "Freien Slot wählen." : "Kein freier Slot auf diesem Host.");
         });
-    });
-}
-
-void MenuActivity::startDiscovery() {
-    if (discovering) {
-        return;
-    }
-    discovering = true;
-    for (auto *cell : discoveredCells) {
-        cell->setVisibility(brls::Visibility::GONE);
-    }
-    discoveryProgress->setProgress(0.0f);
-    discoveryProgress->setVisibility(brls::Visibility::VISIBLE);
-    discoveryStatusLabel->setText("Suche läuft...");
-
-    thread_utils::spawnDetached([this]() {
-        auto hosts = discovery::localSubnetHosts();
-        if (hosts.empty()) {
-            brls::sync([this]() {
-                discovering = false;
-                discoveryProgress->setVisibility(brls::Visibility::GONE);
-                discoveryStatusLabel->setText("Kein lokales Netzwerk gefunden.");
-            });
-            return;
-        }
-
-        // Probing all (up to 254) hosts one at a time would take far too
-        // long -- split the range across a handful of worker threads
-        // instead, same as clients/3ds/source/main.cpp's startDiscovery().
-        constexpr int kWorkers = 8;
-        auto state = std::make_shared<DiscoveryState>();
-        state->hosts = std::move(hosts);
-        state->workersRemaining = kWorkers;
-        auto total = static_cast<float>(state->hosts.size());
-
-        for (int w = 0; w < kWorkers; w++) {
-            thread_utils::spawnDetached([this, state, total]() {
-                for (;;) {
-                    size_t i = state->nextIndex.fetch_add(1);
-                    if (i >= state->hosts.size()) {
-                        break;
-                    }
-                    const std::string &ip = state->hosts[i];
-                    if (discovery::probeLobby(ip)) {
-                        int row = state->nextRow.fetch_add(1);
-                        if (row < kMaxDiscoveredRows) {
-                            brls::sync([this, ip, row]() {
-                                auto *cell = discoveredCells[row];
-                                cell->setText(ip);
-                                cell->setVisibility(brls::Visibility::VISIBLE);
-                                cell->registerClickAction([this, ip](brls::View *) {
-                                    hostInput->setValue(ip);
-                                    runSearch(ip);
-                                    return true;
-                                });
-                            });
-                        }
-                    }
-
-                    int done = state->completed.fetch_add(1) + 1;
-                    brls::sync([this, done, total]() {
-                        discoveryProgress->setProgress(static_cast<float>(done) / total);
-                    });
-                }
-
-                if (state->workersRemaining.fetch_sub(1) == 1) {
-                    int shown = std::min(state->nextRow.load(), kMaxDiscoveredRows);
-                    brls::sync([this, shown]() {
-                        discovering = false;
-                        discoveryProgress->setVisibility(brls::Visibility::GONE);
-                        discoveryStatusLabel->setText(shown == 0 ? "Nichts gefunden." : "Suche abgeschlossen.");
-                    });
-                }
-            });
-        }
     });
 }
 

@@ -40,7 +40,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include "subnet_discovery.h"
+#include "beacon_discovery.h"
 #include "finlink/endian.h"
 #include "finlink/handshake.h"
 #include "finlink/inflate.h"
@@ -821,10 +821,11 @@ disconnected:
  * other clients validate the format beyond non-empty either -- an
  * invalid address here just fails to connect the same way an unreachable
  * one does, so this doesn't add format checking either. */
-/* outIp must be a 16-byte buffer (matching serverIp at both call sites in
- * main()) -- 15 chars is enough for the longest dotted-decimal IPv4
- * address plus a NUL, and the width limit below matches that exactly so
- * there's no separate truncating copy to get wrong. */
+/* outIp must be at least 16 bytes (serverIp at both call sites in main()
+ * is FINLINK_BEACON_HOST_LEN, comfortably larger) -- 15 chars is enough
+ * for the longest dotted-decimal IPv4 address plus a NUL, and the width
+ * limit below matches that exactly so there's no separate truncating copy
+ * to get wrong. */
 /* Echoes typed keys to the console -- without this, the keyboard itself
  * is visible but nothing shows what's actually been typed so far, per a
  * real-hardware report of typing the IP blind. Same approach as
@@ -894,44 +895,71 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     }
 }
 
-/* Runs the non-blocking subnet scan (discovery.h/.c) to completion or
- * until the user presses START to skip it, showing progress on-screen.
- * Returns true and fills *outIp (dotted-decimal) if a lobby was found;
- * false otherwise (caller prompts for the IP manually, see main()). */
-static bool runDiscovery(uint32_t ownIpRaw, char *outIp, size_t outIpCap) {
+/* Redraws only the live server-list region (rows 5..5+BEACON_MAX_SERVERS)
+ * of serverSelectMenu()'s screen -- called once per tick, not the whole
+ * screen, since that's the only part that ever changes while it's shown
+ * (a beacon arriving/going stale), matching this file's existing
+ * ANSI-cursor-positioned partial-update convention (e.g. runSession()'s
+ * own stats lines) instead of a full consoleClear() 60 times/sec. */
+static void drawServerList(const BeaconScan *scan) {
+    static const char *labels[BEACON_MAX_SERVERS] = { "A", "B", "X", "Y" };
+    int shown = 0;
+    for (int i = 0; i < BEACON_MAX_SERVERS; i++) {
+        iprintf("\x1b[%d;0H", 5 + i);
+        if (scan->servers[i].inUse) {
+            const finlink_beacon *b = &scan->servers[i].beacon;
+            iprintf(" %s = %s%s                              \n", labels[i],
+                     b->game_title[0] ? b->game_title : b->host,
+                     scan->servers[i].compatible ? "" : " (inkompatibel)");
+            shown++;
+        } else {
+            iprintf("                                              \n");
+        }
+    }
+    iprintf("\x1b[%d;0H%s", 5 + BEACON_MAX_SERVERS,
+             shown == 0 ? "(Suche laeuft...)                  \n" : "                                    \n");
+}
+
+/* Live UDP-beacon server picker (beacon_discovery.h/.c), replacing the old
+ * subnet-sweep runDiscovery() now that a server announces itself
+ * periodically instead of needing to be found by probing every host on
+ * the /24 (docs/protocol.md "Discovery-Beacon (UDP)"). *scan must already
+ * be running (beaconScan_start(), called once in main() -- this only
+ * ticks/displays it, so re-entering this screen from slotSelectMenu()'s
+ * SELECT doesn't lose anything already heard). Returns 0-3 for the chosen
+ * (compatible) server, -1 to quit the app, -3 to enter the IP manually --
+ * same convention as slotSelectMenu() below, whose R/START already mean
+ * exactly that. outHost must be at least FINLINK_BEACON_HOST_LEN bytes. */
+static int serverSelectMenu(BeaconScan *scan, const char *ownIp, char *outHost, size_t outHostCap) {
     consoleClear();
     iprintf("finlink NDS - Machbarkeitstest\n\n");
-    iprintf("Suche Server im lokalen Netz (Port 6800)...\n");
-    iprintf("START = ueberspringen (IP manuell eingeben)\n\n");
-
-    DiscoveryScan scan;
-    discovery_start(&scan, ownIpRaw);
-    if (scan.hostCount == 0) {
-        return false;
-    }
+    iprintf("Eigene IP: %s\n\n", ownIp);
+    iprintf("Gefundene Server:\n");
+    drawServerList(scan);
+    iprintf("\x1b[%d;0H R = IP manuell eingeben\n START = Beenden\n", 6 + BEACON_MAX_SERVERS);
 
     for (;;) {
         swiWaitForVBlank();
+        beaconScan_tick(scan);
+        drawServerList(scan);
         scanKeys();
-        if (keysDown() & KEY_START) {
-            discovery_abort(&scan);
-            return false;
-        }
-        bool finished = discovery_tick(&scan);
-        iprintf("\x1b[3;0H%d/%d geprueft...   \n", scan.doneCount, scan.hostCount);
-        if (finished) {
-            break;
-        }
-    }
+        int keys = keysDown();
 
-    if (!scan.found) {
-        return false;
+        static const int keyBits[BEACON_MAX_SERVERS] = { KEY_A, KEY_B, KEY_X, KEY_Y };
+        for (int i = 0; i < BEACON_MAX_SERVERS; i++) {
+            if ((keys & keyBits[i]) && scan->servers[i].inUse && scan->servers[i].compatible) {
+                strncpy(outHost, scan->servers[i].beacon.host, outHostCap - 1);
+                outHost[outHostCap - 1] = '\0';
+                return i;
+            }
+        }
+        if (keys & KEY_R) {
+            return -3;
+        }
+        if (keys & KEY_START) {
+            return -1;
+        }
     }
-    struct in_addr in;
-    in.s_addr = scan.foundIp;
-    strncpy(outIp, inet_ntoa(in), outIpCap - 1);
-    outIp[outIpCap - 1] = '\0';
-    return true;
 }
 
 int main(void) {
@@ -980,9 +1008,15 @@ int main(void) {
     strncpy(ownIp, inet_ntoa(ip), sizeof(ownIp) - 1);
     ownIp[sizeof(ownIp) - 1] = '\0';
 
-    char serverIp[16];
+    /* Started once here (not per-menu-visit) so beacons already heard
+     * aren't lost/re-waited-for each time the user returns to
+     * serverSelectMenu() via slotSelectMenu()'s SELECT. */
+    BeaconScan beaconScan;
+    beaconScan_start(&beaconScan);
+
+    char serverIp[FINLINK_BEACON_HOST_LEN];
     serverIp[0] = '\0';
-    bool autoDiscovered = runDiscovery(ownIpRaw, serverIp, sizeof(serverIp));
+    bool autoDiscovered = serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp)) >= 0;
     if (!autoDiscovered) {
         promptForIp(serverIp);
     }
@@ -990,7 +1024,7 @@ int main(void) {
     for (;;) {
         int slot = slotSelectMenu(ownIp, serverIp, autoDiscovered);
         if (slot == -2) {
-            autoDiscovered = runDiscovery(ownIpRaw, serverIp, sizeof(serverIp));
+            autoDiscovered = serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp)) >= 0;
             if (!autoDiscovered) {
                 promptForIp(serverIp);
             }
@@ -1013,5 +1047,6 @@ int main(void) {
         lcdMainOnTop();
     }
 
+    beaconScan_stop(&beaconScan);
     return 0;
 }
