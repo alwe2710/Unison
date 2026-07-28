@@ -6,11 +6,14 @@ option(FINLINK_BUILD_TESTS "Build finlink_core unit tests" ON)
 add_library(finlink_core STATIC
     src/protocol.c
     src/inflate.c
+    src/deflate.c
     src/websocket.c
     src/json.c
     src/handshake.c
     src/discovery.c
     third_party/miniz/miniz_tinfl.c
+    third_party/miniz/miniz_tdef.c
+    third_party/miniz/miniz_crc32.c
     third_party/teeny-sha1/teeny-sha1.c
 )
 
