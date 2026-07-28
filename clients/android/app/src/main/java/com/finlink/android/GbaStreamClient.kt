@@ -9,7 +9,18 @@ package com.finlink.android
 class GbaStreamClient(private val listener: Listener) {
 
     interface Listener {
-        fun onConnected()
+        // isTouch/hasButtons reflect the server's own hello.input_encoding
+        // ("n3ds_touch_and_buttons" vs "n3ds_touch" vs "gba_buttons", see
+        // jni_bridge.c's perform_app_handshake), not a client-side guess
+        // from the discovery beacon -- authoritative even for manual host
+        // entry (which has no beacon to read a stream_type from beforehand)
+        // and across a redirect hop landing on a different stream type than
+        // the one first dialed. hasButtons is only ever true alongside
+        // isTouch (there's no buttons-without-touch encoding); it's false
+        // for "n3ds_touch" servers that don't accept remote buttons/circle
+        // pad yet (Cemu, melonDS, as of this comment), true only for
+        // "n3ds_touch_and_buttons" (Azahar's N3DS_BOTTOM_SCREEN).
+        fun onConnected(isTouch: Boolean, hasButtons: Boolean)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
         fun onDisconnected(reason: String)
@@ -23,10 +34,40 @@ class GbaStreamClient(private val listener: Listener) {
         nativeHandle = nativeConnect(host, port, listener)
     }
 
-    /** Cheap: just records the latest key state, the native session loop sends it. */
+    /** Cheap: just records the latest key state, the native session loop sends it.
+     * Only meaningful for a gba_buttons session (Listener.onConnected(isTouch = false)). */
     fun sendInput(keyMask: Int) {
         val handle = nativeHandle
         if (handle != 0L) nativeSendInput(handle, keyMask)
+    }
+
+    /** Touch counterpart to sendInput -- only meaningful for a touch session
+     * (Listener.onConnected(isTouch = true)). x/y are in the current video
+     * frame's own native pixel coordinates (see PlayerActivity's touch
+     * overlay for the tap-position mapping); ignored by the receiver
+     * whenever pressed is false (finlink_touch_state's own convention,
+     * protocol.h), so any value is fine there -- 0 is simplest. */
+    fun sendTouch(pressed: Boolean, x: Int, y: Int) {
+        val handle = nativeHandle
+        if (handle != 0L) nativeSendTouch(handle, pressed, x, y)
+    }
+
+    /** Combined counterpart to sendTouch -- only meaningful for a session
+     * where Listener.onConnected reported hasButtons = true. buttons is an
+     * OR of the BUTTON_* constants below; leftX/leftY is the circle pad or,
+     * on a two-stick console, the left stick (-32768..32767 per axis, 0
+     * centered); rightX/rightY is always 0 from a caller with only one
+     * stick to report. touchPressed/touchX/touchY follow sendTouch's own
+     * convention (x/y ignored by the receiver whenever touchPressed is
+     * false). */
+    fun sendExtendedInput(
+        touchPressed: Boolean, touchX: Int, touchY: Int,
+        buttons: Int, leftX: Int, leftY: Int, rightX: Int = 0, rightY: Int = 0
+    ) {
+        val handle = nativeHandle
+        if (handle != 0L) {
+            nativeSendExtendedInput(handle, touchPressed, touchX, touchY, buttons, leftX, leftY, rightX, rightY)
+        }
     }
 
     fun disconnect() {
@@ -39,6 +80,11 @@ class GbaStreamClient(private val listener: Listener) {
 
     private external fun nativeConnect(host: String, port: Int, listener: Listener): Long
     private external fun nativeSendInput(handle: Long, keyMask: Int)
+    private external fun nativeSendTouch(handle: Long, pressed: Boolean, x: Int, y: Int)
+    private external fun nativeSendExtendedInput(
+        handle: Long, touchPressed: Boolean, touchX: Int, touchY: Int,
+        buttons: Int, leftX: Int, leftY: Int, rightX: Int, rightY: Int
+    )
     private external fun nativeDisconnect(handle: Long)
 
     companion object {
@@ -79,6 +125,27 @@ class GbaStreamClient(private val listener: Listener) {
         const val KEY_DOWN = 1 shl 7
         const val KEY_R = 1 shl 8
         const val KEY_L = 1 shl 9
+
+        // Mirrors finlink_button_bit in core/include/finlink/protocol.h --
+        // for sendExtendedInput's buttons parameter, not sendInput's
+        // keyMask (KEY_* above, an unrelated bit layout for gba_buttons).
+        // A given bit only means something to a server whose console
+        // actually has that button; see finlink_button_bit's own comment.
+        const val BUTTON_A = 1 shl 0
+        const val BUTTON_B = 1 shl 1
+        const val BUTTON_X = 1 shl 2
+        const val BUTTON_Y = 1 shl 3
+        const val BUTTON_L = 1 shl 4
+        const val BUTTON_R = 1 shl 5
+        const val BUTTON_ZL = 1 shl 6
+        const val BUTTON_ZR = 1 shl 7
+        const val BUTTON_SELECT = 1 shl 8 // aka Minus (Wii U)
+        const val BUTTON_START = 1 shl 9  // aka Plus (Wii U)
+        const val BUTTON_UP = 1 shl 10
+        const val BUTTON_DOWN = 1 shl 11
+        const val BUTTON_LEFT = 1 shl 12
+        const val BUTTON_RIGHT = 1 shl 13
+        const val BUTTON_HOME = 1 shl 14
 
         init {
             System.loadLibrary("finlink_android")

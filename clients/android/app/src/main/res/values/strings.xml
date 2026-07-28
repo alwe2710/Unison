@@ -23,6 +23,9 @@
     <string name="settings_clear">Löschen</string>
     <string name="settings_unbound">nicht belegt</string>
     <string name="settings_press_key">Taste drücken…</string>
+    <string name="key_bindings_standard_section">Standard-Tasten</string>
+    <string name="key_bindings_extended_section">Erweiterte Tasten</string>
+    <string name="key_bindings_extended_hint">Nur für einzelne Emulatoren nötig (z. B. Cemu): Analog-Stick, ZL, ZR.</string>
 
     <string name="discovery_title">Netzwerk-Suche</string>
     <string name="discovery_start">Server suchen</string>

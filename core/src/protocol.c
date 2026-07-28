@@ -235,3 +235,36 @@ finlink_result finlink_parse_touch_frame(const uint8_t *data, size_t size, finli
     out->y = finlink_read_u16le(data + 4);
     return FINLINK_OK;
 }
+
+size_t finlink_build_extended_input_frame(const finlink_extended_input *input,
+                                           uint8_t out_buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE]) {
+    out_buf[0] = FINLINK_MSG_INPUT;
+    out_buf[1] = input->pressed ? 1 : 0;
+    finlink_write_u16le(out_buf + 2, input->pressed ? input->touch_x : 0);
+    finlink_write_u16le(out_buf + 4, input->pressed ? input->touch_y : 0);
+    finlink_write_u32le(out_buf + 6, input->buttons);
+    finlink_write_u16le(out_buf + 10, (uint16_t)input->left_x);
+    finlink_write_u16le(out_buf + 12, (uint16_t)input->left_y);
+    finlink_write_u16le(out_buf + 14, (uint16_t)input->right_x);
+    finlink_write_u16le(out_buf + 16, (uint16_t)input->right_y);
+    return FINLINK_EXTENDED_INPUT_FRAME_SIZE;
+}
+
+finlink_result finlink_parse_extended_input_frame(const uint8_t *data, size_t size,
+                                                   finlink_extended_input *out) {
+    if (size < FINLINK_EXTENDED_INPUT_FRAME_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_INPUT) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+    out->pressed = data[1] != 0;
+    out->touch_x = finlink_read_u16le(data + 2);
+    out->touch_y = finlink_read_u16le(data + 4);
+    out->buttons = finlink_read_u32le(data + 6);
+    out->left_x = finlink_read_s16le(data + 10);
+    out->left_y = finlink_read_s16le(data + 12);
+    out->right_x = finlink_read_s16le(data + 14);
+    out->right_y = finlink_read_s16le(data + 16);
+    return FINLINK_OK;
+}

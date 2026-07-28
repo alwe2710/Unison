@@ -76,6 +76,28 @@ typedef struct {
     atomic_bool stop;
     atomic_int pending_keymask;
     atomic_bool input_dirty;
+    // Touch counterpart to pending_keymask/input_dirty above, used instead
+    // of it whenever the handshake settled on touch_input (see
+    // app_handshake_result) -- both pairs always exist on every session
+    // since which one the Kotlin side ever actually calls (sendInput vs
+    // sendTouch) is what determines which one carries real data; the other
+    // just never gets marked dirty.
+    atomic_int pending_touch_x;
+    atomic_int pending_touch_y;
+    atomic_bool pending_touch_pressed;
+    atomic_bool touch_dirty;
+    // Set once from app_handshake_result.extended_input right after a
+    // successful handshake, read by maybe_send_touch() to pick which frame
+    // shape/builder to use -- see that function's own comment. Buttons and
+    // stick state below are meaningless (left at their init-time zero, only
+    // ever written by nativeSendExtendedInput) on a plain touch_input
+    // session that isn't also extended_input.
+    atomic_bool extended_input;
+    atomic_int pending_buttons;
+    atomic_int pending_left_x;
+    atomic_int pending_left_y;
+    atomic_int pending_right_x;
+    atomic_int pending_right_y;
 } finlink_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -272,6 +294,21 @@ static bool receive_one_ws_frame(finlink_session *s, byte_buf *buf, finlink_ws_f
 typedef struct {
     bool ok;
     char reason[160];
+    // Which client->server input shape to use for this session -- derived
+    // from the server's own hello.input_encoding (protocol.h), not guessed
+    // client-side, since manual host entry has no beacon to read a
+    // stream_type from beforehand and a redirect hop can in principle land
+    // on a different stream type than the one first dialed. true for either
+    // touch encoding below, false for "gba_buttons".
+    bool touch_input;
+    // Distinguishes the two touch encodings once touch_input is true:
+    // "n3ds_touch_and_buttons" (buttons + circle pad/analog sticks
+    // remotely controllable too, not just touch -- currently only Azahar's
+    // N3DS_BOTTOM_SCREEN advertises this) vs. the older, narrower
+    // "n3ds_touch" (touch only, buttons/circle-pad stay local -- still
+    // what Cemu/melonDS advertise until they get the same treatment).
+    // Meaningless when touch_input is false.
+    bool extended_input;
 } app_handshake_result;
 
 // App-level handshake (finlink/handshake.h, docs/protocol.md
@@ -317,15 +354,27 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
                      hello.protocol_version, FINLINK_PROTOCOL_VERSION);
             return result;
         }
+        result.extended_input = strcmp(hello.input_encoding, "n3ds_touch_and_buttons") == 0;
+        result.touch_input =
+            result.extended_input || strcmp(hello.input_encoding, "n3ds_touch") == 0;
 
-        // This app always dials a specific already-chosen player port (see
-        // GbaStreamClient.PLAYER_BASE_PORT), never the lobby port -- so the
-        // slot being asked about is simply "the one this connection is on",
-        // derived the same way the server itself assigns device_number to
-        // player ports (GBA_STREAM_PLAYER_BASE_PORT + device_number).
         finlink_hello_ack_request ack_req;
         memset(&ack_req, 0, sizeof(ack_req));
-        ack_req.requested_slot = s->port - FINLINK_GBA_LINK_PLAYER_BASE_PORT;
+        // GC_GBA_LINK is the one stream type this app ever dials a specific
+        // already-chosen player port for (see GbaStreamClient.PLAYER_BASE_PORT
+        // / MenuActivity's picker) -- there, the slot being asked about is
+        // simply "the one this connection is on", derived the same way the
+        // server itself assigns device_number to player ports
+        // (GBA_STREAM_PLAYER_BASE_PORT + device_number). Every other stream
+        // type is single-client and connects straight to the beacon's
+        // handshake_port instead (MenuActivity, discovered-entry tap) -- that
+        // port has nothing to do with player-port numbering, so the same
+        // subtraction there produced a garbage out-of-range slot (e.g. 9 for
+        // Azahar's default port 6810), which the server rejected outright,
+        // dropping the connection before any video frame could ever arrive.
+        ack_req.requested_slot = strcmp(hello.stream_type, "GC_GBA_LINK") == 0
+                                      ? s->port - FINLINK_GBA_LINK_PLAYER_BASE_PORT
+                                      : 0;
         // Generous/native limits throughout: a phone has no trouble with a
         // 240x160 GBA stream at native rate, so there's never a reason for
         // this client to ask the server to downscale.
@@ -538,6 +587,58 @@ static void maybe_send_input(finlink_session *s) {
     }
 }
 
+// Touch counterpart to maybe_send_input() above -- same "only on change,
+// polled once per loop iteration" reasoning applies. Never called for a
+// gba_buttons session since PlayerActivity only ever calls sendTouch() in
+// touch mode, so touch_dirty simply never gets set there.
+static void maybe_send_touch(finlink_session *s) {
+    if (!atomic_exchange(&s->touch_dirty, false)) {
+        return;
+    }
+
+    const bool pressed = atomic_load(&s->pending_touch_pressed);
+    // x/y (and, for an extended session, buttons/sticks) are meaningless on
+    // release for touch specifically (finlink_touch_state's own comment,
+    // protocol.h) -- pending_touch_x/y are left at whatever they last held
+    // rather than reset on release, so reading them unconditionally would
+    // be fine, but zeroing them out here actually honors the wire
+    // convention rather than sending stale coordinates the receiver is
+    // supposed to ignore. Buttons/sticks are NOT gated on touch's pressed
+    // state the same way -- e.g. holding a button with no finger on the
+    // touch area at all is a real, valid, independent input -- so those are
+    // always read from whatever nativeSendExtendedInput last set.
+    uint8_t payload[FINLINK_EXTENDED_INPUT_FRAME_SIZE];
+    size_t payload_len;
+    if (atomic_load(&s->extended_input)) {
+        finlink_extended_input input;
+        input.pressed = pressed ? 1 : 0;
+        input.touch_x = pressed ? (uint16_t)atomic_load(&s->pending_touch_x) : 0;
+        input.touch_y = pressed ? (uint16_t)atomic_load(&s->pending_touch_y) : 0;
+        input.buttons = (uint32_t)atomic_load(&s->pending_buttons);
+        input.left_x = (int16_t)atomic_load(&s->pending_left_x);
+        input.left_y = (int16_t)atomic_load(&s->pending_left_y);
+        input.right_x = (int16_t)atomic_load(&s->pending_right_x);
+        input.right_y = (int16_t)atomic_load(&s->pending_right_y);
+        payload_len = finlink_build_extended_input_frame(&input, payload);
+    } else {
+        finlink_touch_state touch;
+        touch.pressed = pressed ? 1 : 0;
+        touch.x = pressed ? (uint16_t)atomic_load(&s->pending_touch_x) : 0;
+        touch.y = pressed ? (uint16_t)atomic_load(&s->pending_touch_y) : 0;
+        payload_len = finlink_build_touch_frame(&touch, payload);
+    }
+
+    uint8_t mask_key[4];
+    arc4random_buf(mask_key, sizeof(mask_key));
+
+    uint8_t frame_buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE + 10];
+    size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, payload_len,
+                                               mask_key, frame_buf, sizeof(frame_buf));
+    if (frame_len > 0) {
+        send_all(s->sockfd, frame_buf, frame_len, &s->stop);
+    }
+}
+
 static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video,
                               jmethodID on_audio, byte_buf *buf) {
     uint8_t chunk[4096];
@@ -594,6 +695,7 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
         }
 
         maybe_send_input(s);
+        maybe_send_touch(s);
     }
 
     free(inflate_out);
@@ -613,7 +715,7 @@ static void *client_thread_main(void *arg) {
     (*s->jvm)->AttachCurrentThread(s->jvm, &env, NULL);
 
     jclass listener_class = (*env)->GetObjectClass(env, s->listener);
-    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "()V");
+    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZ)V");
     jmethodID on_video = (*env)->GetMethodID(env, listener_class, "onVideoFrame", "(II[B)V");
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
     jmethodID on_disconnected =
@@ -640,7 +742,9 @@ static void *client_thread_main(void *arg) {
         return NULL;
     }
 
-    (*env)->CallVoidMethod(env, s->listener, on_connected);
+    atomic_store(&s->extended_input, hs.extended_input);
+    (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
+                            (jboolean)hs.extended_input);
     run_session_loop(env, s, on_video, on_audio, &buf);
     byte_buf_free(&buf);
 
@@ -674,6 +778,16 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     atomic_init(&s->stop, false);
     atomic_init(&s->pending_keymask, 0);
     atomic_init(&s->input_dirty, false);
+    atomic_init(&s->pending_touch_x, 0);
+    atomic_init(&s->pending_touch_y, 0);
+    atomic_init(&s->pending_touch_pressed, false);
+    atomic_init(&s->touch_dirty, false);
+    atomic_init(&s->extended_input, false);
+    atomic_init(&s->pending_buttons, 0);
+    atomic_init(&s->pending_left_x, 0);
+    atomic_init(&s->pending_left_y, 0);
+    atomic_init(&s->pending_right_x, 0);
+    atomic_init(&s->pending_right_y, 0);
 
     if (pthread_create(&s->thread, NULL, client_thread_main, s) != 0) {
         LOGE("pthread_create failed");
@@ -697,6 +811,51 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendInput(
     }
     atomic_store(&s->pending_keymask, (int)keymask);
     atomic_store(&s->input_dirty, true);
+}
+
+JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTouch(JNIEnv *env,
+                                                                                  jobject thiz,
+                                                                                  jlong handle,
+                                                                                  jboolean pressed,
+                                                                                  jint x, jint y) {
+    (void)env;
+    (void)thiz;
+    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    if (!s) {
+        return;
+    }
+    atomic_store(&s->pending_touch_pressed, (bool)pressed);
+    atomic_store(&s->pending_touch_x, (int)x);
+    atomic_store(&s->pending_touch_y, (int)y);
+    atomic_store(&s->touch_dirty, true);
+}
+
+// Extended counterpart to nativeSendTouch -- only meaningful on an
+// extended_input session (Listener.onConnected(isTouch = true,
+// hasButtons = true)); harmless no-op on any other session since
+// maybe_send_touch() only ever reads pending_buttons/pending_left_*/
+// pending_right_* when s->extended_input is set in the first place.
+// left_x/y is the circle pad or, on a two-stick console, the left stick;
+// right_x/y is always 0 from a caller with only one stick to report (see
+// finlink_extended_input's own comment, protocol.h).
+JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendExtendedInput(
+    JNIEnv *env, jobject thiz, jlong handle, jboolean touch_pressed, jint touch_x, jint touch_y,
+    jint buttons, jint left_x, jint left_y, jint right_x, jint right_y) {
+    (void)env;
+    (void)thiz;
+    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    if (!s) {
+        return;
+    }
+    atomic_store(&s->pending_touch_pressed, (bool)touch_pressed);
+    atomic_store(&s->pending_touch_x, (int)touch_x);
+    atomic_store(&s->pending_touch_y, (int)touch_y);
+    atomic_store(&s->pending_buttons, (int)buttons);
+    atomic_store(&s->pending_left_x, (int)left_x);
+    atomic_store(&s->pending_left_y, (int)left_y);
+    atomic_store(&s->pending_right_x, (int)right_x);
+    atomic_store(&s->pending_right_y, (int)right_y);
+    atomic_store(&s->touch_dirty, true);
 }
 
 JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect(JNIEnv *env,

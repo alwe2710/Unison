@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +46,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.window.Dialog
 import java.nio.ByteBuffer
 
@@ -75,13 +79,76 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var bilinearVideoFilter by mutableStateOf(false)
 
+    // Set from GbaStreamClient.Listener.onConnected(isTouch, hasButtons),
+    // i.e. from the server's own hello.input_encoding -- not known before
+    // that point, so both stay false (the GBA button overlay below) until
+    // then regardless of what kind of server was actually dialed. See
+    // TouchOverlay/ExtendedControlsOverlay for what each switches to.
+    private var touchMode by mutableStateOf(false)
+    private var hasButtonsMode by mutableStateOf(false)
+
     // Touch and physical-key input are tracked separately and OR'd together
     // when sent, so releasing one source doesn't clobber bits the other
     // source is still holding -- mirrors how the original web client merges
     // keyboard/touch/gamepad input (see docs/protocol.md's source notes).
+    // Only meaningful in gba_buttons mode (!touchMode) -- see extTouchX and
+    // friends below for touchMode's own, differently-shaped state.
     private var touchMask = 0
     private var physicalMask = 0
     private var keyCodeToBit: Map<Int, Int> = emptyMap()
+
+    // Extended-input (touchMode && hasButtonsMode) state: touch, buttons,
+    // and the circle pad/left stick all merge into ONE
+    // finlink_extended_input frame per change (GbaStreamClient.
+    // sendExtendedInput's own "one combined frame" design, unlike
+    // gba_buttons' always-separate touch/key messages), via
+    // sendCombinedExtendedInput() below -- so every source that changes any
+    // one of these needs to re-send all of them together, not just its own
+    // piece. Plain vars, not mutableStateOf: nothing here is read by a
+    // composable, only ever written by gesture callbacks and read back by
+    // this same function.
+    private var extTouchPressed = false
+    private var extTouchX = 0
+    private var extTouchY = 0
+    private var extButtons = 0 // on-screen ExtHoldButton contribution
+    private var extPhysicalButtons = 0 // physical key contribution, see KeyBindingsActivity
+    private var extStickDragX = 0 // VirtualStick's own (touch-drag) contribution
+    private var extStickDragY = 0
+    // Physical-key "digital stick" contribution -- held, each pushes the
+    // left stick to full deflection on that axis, same convention several
+    // other emulators offer as a keyboard alternative to a real analog
+    // input; combined with extStickDragX/Y (clamped addition) rather than
+    // one replacing the other, since both could technically be held at once
+    // even though in practice a user picks one input method or the other.
+    private var extKeyStickUp = false
+    private var extKeyStickDown = false
+    private var extKeyStickLeft = false
+    private var extKeyStickRight = false
+    private var extKeyCodeToButton: Map<Int, ExtButton> = emptyMap()
+    // Standard-Tasten bindings that double as a hasButtonsMode button too
+    // (ExtButtons.kt's GBA_PREFKEY_TO_EXT_BUTTON_BIT) -- see handleExtKey().
+    private var keyCodeToExtBitFromGba: Map<Int, Int> = emptyMap()
+
+    private fun sendCombinedExtendedInput() {
+        // Y sign matches VirtualStick's own convention (see its comment):
+        // positive = stick pushed up.
+        val keyStickX = when {
+            extKeyStickLeft == extKeyStickRight -> 0
+            extKeyStickLeft -> -32767
+            else -> 32767
+        }
+        val keyStickY = when {
+            extKeyStickUp == extKeyStickDown -> 0
+            extKeyStickUp -> 32767
+            else -> -32767
+        }
+        val leftX = (extStickDragX + keyStickX).coerceIn(-32768, 32767)
+        val leftY = (extStickDragY + keyStickY).coerceIn(-32768, 32767)
+        client?.sendExtendedInput(
+            extTouchPressed, extTouchX, extTouchY,
+            extButtons or extPhysicalButtons, leftX, leftY
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +161,8 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
         prefs = Prefs(this)
         keyCodeToBit = prefs.keyBindingsByKeyCode()
+        extKeyCodeToButton = prefs.extKeyBindingsByKeyCode()
+        keyCodeToExtBitFromGba = prefs.sharedExtButtonBitsByKeyCode()
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         bilinearVideoFilter = prefs.bilinearVideoFilter
 
@@ -127,6 +196,21 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                         filterQuality = if (bilinearVideoFilter) FilterQuality.Low else FilterQuality.None,
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    // Touch mode's only input method -- not gated on
+                    // onScreenControlsEnabled (that preference is about the
+                    // optional GBA button overlay below; a touch-based
+                    // stream has no other way to provide input at all, so
+                    // there's nothing to make optional here). Sized/aligned
+                    // to this exact Image via the shared Box, and mapped
+                    // through bitmap's own native pixel size -- always the
+                    // current frame's actual dimensions (320x240 for
+                    // N3DS_BOTTOM_SCREEN, 256x192 for NDS_BOTTOM_SCREEN,
+                    // 854x480 for WIIU_GAMEPAD, ...), so this needs no
+                    // per-stream-type table of its own.
+                    if (touchMode) {
+                        TouchOverlay(bitmap.width, bitmap.height, modifier = Modifier.fillMaxSize())
+                    }
                 }
 
                 // Only shown before the stream is actually up (connecting,
@@ -154,15 +238,15 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                 // them, D-pad bottom-left, A/B diagonal cluster bottom-right
                 // -- offset like the real GBA's button placement, not a
                 // plain row.
-                if (onScreenControlsEnabled) {
-                    HoldButton(
+                if (onScreenControlsEnabled && !touchMode) {
+                    GbaHoldButton(
                         "L", GbaStreamClient.KEY_L, shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(top = 16.dp, start = 16.dp)
                             .size(width = 64.dp, height = 40.dp)
                     )
-                    HoldButton(
+                    GbaHoldButton(
                         "R", GbaStreamClient.KEY_R, shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -174,12 +258,12 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                         modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        HoldButton(
+                        GbaHoldButton(
                             "Select", GbaStreamClient.KEY_SELECT,
                             shape = RoundedCornerShape(50),
                             modifier = Modifier.size(width = 64.dp, height = 28.dp)
                         )
-                        HoldButton(
+                        GbaHoldButton(
                             "Start", GbaStreamClient.KEY_START,
                             shape = RoundedCornerShape(50),
                             modifier = Modifier.size(width = 64.dp, height = 28.dp)
@@ -188,6 +272,55 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
                     DPad(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp))
                     ActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
+                }
+
+                // Buttons + circle pad for a hasButtonsMode session -- shown
+                // alongside TouchOverlay above (not instead of it), since
+                // these and touch are independent parts of one combined
+                // finlink_extended_input frame, not alternatives (see
+                // extTouchPressed's own comment). Same L/R/Select/Start
+                // layout as the gba_buttons overlay, via ExtHoldButton
+                // instead of GbaHoldButton; X/Y (a real 3DS button the GBA
+                // overlay has no equivalent for) added to the A/B cluster;
+                // the circle pad is a real analog stick (VirtualStick)
+                // rather than DPad's digital cross, matching what a 3DS
+                // circle pad actually is -- the D-pad's own four digital
+                // bits aren't exposed in this first pass, only the analog
+                // circle pad most games actually read.
+                if (touchMode && hasButtonsMode) {
+                    ExtHoldButton(
+                        "L", GbaStreamClient.BUTTON_L, shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = 16.dp, start = 16.dp)
+                            .size(width = 64.dp, height = 40.dp)
+                    )
+                    ExtHoldButton(
+                        "R", GbaStreamClient.BUTTON_R, shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 16.dp, end = 16.dp)
+                            .size(width = 64.dp, height = 40.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ExtHoldButton(
+                            "Select", GbaStreamClient.BUTTON_SELECT,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.size(width = 64.dp, height = 28.dp)
+                        )
+                        ExtHoldButton(
+                            "Start", GbaStreamClient.BUTTON_START,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.size(width = 64.dp, height = 28.dp)
+                        )
+                    }
+
+                    VirtualStick(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp))
+                    ExtActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
                 }
             }
 
@@ -230,6 +363,72 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
      * pointer whichever way it later moves (Compose tracks it by ID, not by
      * current position), so a slide off one button's bounds never reaches
      * the neighboring button's own, never-started gesture. */
+    /** The whole visible video area doubles as the touch surface: press,
+     * drag, and release all map 1:1 to finlink_touch_state's pressed/x/y
+     * (protocol.h) via sendMappedTouch() below. One continuous gesture like
+     * DPad's own -- a drag needs to keep reporting positions all the way to
+     * release, not just an initial tap. */
+    @Composable
+    private fun TouchOverlay(bitmapWidth: Int, bitmapHeight: Int, modifier: Modifier = Modifier) {
+        Box(
+            modifier = modifier
+                .pointerInput(bitmapWidth, bitmapHeight) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        sendMappedTouch(down.position, size, bitmapWidth, bitmapHeight)
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            sendMappedTouch(change.position, size, bitmapWidth, bitmapHeight)
+                            change.consume()
+                        }
+
+                        sendTouchState(pressed = false, x = 0, y = 0)
+                    }
+                }
+        )
+    }
+
+    /** Routes a touch update through sendTouch (plain "n3ds_touch" session)
+     * or sendCombinedExtendedInput (hasButtonsMode, which needs the current
+     * button/stick state resent alongside every touch change too, not just
+     * touch's own) -- see extTouchPressed and friends' own comment for why
+     * touch can't just be sent on its own once buttons are involved. */
+    private fun sendTouchState(pressed: Boolean, x: Int, y: Int) {
+        if (hasButtonsMode) {
+            extTouchPressed = pressed
+            extTouchX = x
+            extTouchY = y
+            sendCombinedExtendedInput()
+        } else {
+            client?.sendTouch(pressed, x, y)
+        }
+    }
+
+    /** Maps a tap position (in this Box's own pixel coordinates) through
+     * ContentScale.Fit's letterboxing math to the video bitmap's native
+     * pixel coordinates -- the same "centered, scaled to fit, aspect
+     * preserved" placement the Image displaying that same bitmap already
+     * uses right underneath this overlay, see PlayerScreen(). A tap that
+     * lands in the letterbox bars (mismatched container/content aspect
+     * ratio) clamps to the nearest edge rather than being dropped, so a
+     * drag that wanders there still tracks instead of going silent. */
+    private fun sendMappedTouch(position: Offset, containerSize: IntSize, bitmapWidth: Int, bitmapHeight: Int) {
+        val containerW = containerSize.width.toFloat()
+        val containerH = containerSize.height.toFloat()
+        if (containerW <= 0f || containerH <= 0f || bitmapWidth <= 0 || bitmapHeight <= 0) return
+
+        val scale = minOf(containerW / bitmapWidth, containerH / bitmapHeight)
+        val offsetX = (containerW - bitmapWidth * scale) / 2f
+        val offsetY = (containerH - bitmapHeight * scale) / 2f
+
+        val x = ((position.x - offsetX) / scale).toInt().coerceIn(0, bitmapWidth - 1)
+        val y = ((position.y - offsetY) / scale).toInt().coerceIn(0, bitmapHeight - 1)
+        sendTouchState(pressed = true, x = x, y = y)
+    }
+
     @Composable
     private fun DPad(modifier: Modifier = Modifier) {
         val segment = 56.dp
@@ -311,34 +510,122 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private fun ActionButtons(modifier: Modifier = Modifier) {
         val size = 72.dp
         Box(modifier = modifier.size(width = size * 2, height = size * 1.6f)) {
-            HoldButton(
+            GbaHoldButton(
                 "B", GbaStreamClient.KEY_B, shape = CircleShape,
                 modifier = Modifier.align(Alignment.BottomStart).size(size)
             )
-            HoldButton(
+            GbaHoldButton(
                 "A", GbaStreamClient.KEY_A, shape = CircleShape,
                 modifier = Modifier.align(Alignment.TopEnd).size(size)
             )
         }
     }
 
-    /** Plain Button/clickable() only fires on release-tap; a GBA button
-     * needs a real press/release pair (held = keeps sending the bit), hence
-     * detectTapGestures(onPress) + awaitRelease() instead. */
+    /** A/B/X/Y diamond (X top, Y left, A right, B bottom) -- the real 3DS
+     * face button layout, unlike ActionButtons' GBA-only A/B pair. */
     @Composable
-    private fun HoldButton(label: String, bit: Int, shape: Shape, modifier: Modifier = Modifier) {
+    private fun ExtActionButtons(modifier: Modifier = Modifier) {
+        val size = 64.dp
+        Box(modifier = modifier.size(size * 3)) {
+            ExtHoldButton(
+                "X", GbaStreamClient.BUTTON_X, shape = CircleShape,
+                modifier = Modifier.align(Alignment.TopCenter).size(size)
+            )
+            ExtHoldButton(
+                "Y", GbaStreamClient.BUTTON_Y, shape = CircleShape,
+                modifier = Modifier.align(Alignment.CenterStart).size(size)
+            )
+            ExtHoldButton(
+                "A", GbaStreamClient.BUTTON_A, shape = CircleShape,
+                modifier = Modifier.align(Alignment.CenterEnd).size(size)
+            )
+            ExtHoldButton(
+                "B", GbaStreamClient.BUTTON_B, shape = CircleShape,
+                modifier = Modifier.align(Alignment.BottomCenter).size(size)
+            )
+        }
+    }
+
+    /** Real analog stick for the circle pad (or, on a two-stick console, the
+     * left stick) -- drag from anywhere inside, position clamps to the
+     * outer circle's radius, releasing snaps back to (0, 0). Reports
+     * extLeftX/Y in the wire's -32768..32767 range via
+     * sendCombinedExtendedInput(), same "resend everything together"
+     * reasoning as sendTouchState/ExtHoldButton.
+     *
+     * Y sign is inverted (screen-down is positive, but "stick pushed up"
+     * should be a positive Y like a real circle pad) -- unverified against
+     * real hardware, flip this if it turns out backwards in practice. */
+    @Composable
+    private fun VirtualStick(modifier: Modifier = Modifier) {
+        val outerDiameter = 112.dp
+        var knobOffset by remember { mutableStateOf(Offset.Zero) }
+        Box(
+            modifier = modifier
+                .size(outerDiameter)
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f), CircleShape)
+                .pointerInput(Unit) {
+                    val radiusPx = outerDiameter.toPx() / 2f
+                    val center = Offset(radiusPx, radiusPx)
+
+                    fun report(position: Offset) {
+                        val delta = position - center
+                        val distance = delta.getDistance()
+                        val clamped = if (distance > radiusPx) delta * (radiusPx / distance) else delta
+                        knobOffset = clamped
+                        extStickDragX = (clamped.x / radiusPx * 32767f).toInt().coerceIn(-32767, 32767)
+                        extStickDragY = (-clamped.y / radiusPx * 32767f).toInt().coerceIn(-32767, 32767)
+                        sendCombinedExtendedInput()
+                    }
+
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        report(down.position)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            report(change.position)
+                            change.consume()
+                        }
+                        knobOffset = Offset.Zero
+                        extStickDragX = 0
+                        extStickDragY = 0
+                        sendCombinedExtendedInput()
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(knobOffset.x.toInt(), knobOffset.y.toInt()) }
+                    .size(outerDiameter / 2)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
+            )
+        }
+    }
+
+    /** Plain Button/clickable() only fires on release-tap; a held button
+     * needs a real press/release pair (held = keeps sending the bit), hence
+     * detectTapGestures(onPress) + awaitRelease() instead. onPress/onRelease
+     * rather than a hardcoded bit+touchMask write, so this same composable
+     * serves both gba_buttons' overlay (touchMask) and the extended-input
+     * overlay's (extButtons) -- see their respective call sites. */
+    @Composable
+    private fun HoldButton(
+        label: String, onPress: () -> Unit, onRelease: () -> Unit, shape: Shape,
+        modifier: Modifier = Modifier
+    ) {
         Box(
             modifier = modifier
                 .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f), shape)
-                .pointerInput(bit) {
+                .pointerInput(Unit) {
                     detectTapGestures(onPress = {
-                        touchMask = touchMask or bit
-                        sendCombinedInput()
+                        onPress()
                         try {
                             awaitRelease()
                         } finally {
-                            touchMask = touchMask and bit.inv()
-                            sendCombinedInput()
+                            onRelease()
                         }
                     })
                 },
@@ -346,6 +633,32 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         ) {
             Text(label, color = MaterialTheme.colorScheme.onSecondaryContainer)
         }
+    }
+
+    /** gba_buttons-mode HoldButton: writes bit into touchMask, exactly the
+     * previous hardcoded behavior, just expressed as onPress/onRelease now
+     * that HoldButton itself takes those instead. */
+    @Composable
+    private fun GbaHoldButton(label: String, bit: Int, shape: Shape, modifier: Modifier = Modifier) {
+        HoldButton(
+            label,
+            onPress = { touchMask = touchMask or bit; sendCombinedInput() },
+            onRelease = { touchMask = touchMask and bit.inv(); sendCombinedInput() },
+            shape, modifier
+        )
+    }
+
+    /** Extended-input-mode HoldButton: writes bit into extButtons and resends
+     * the whole combined frame (touch + buttons + stick), same reasoning as
+     * sendTouchState -- see extTouchPressed's own comment. */
+    @Composable
+    private fun ExtHoldButton(label: String, bit: Int, shape: Shape, modifier: Modifier = Modifier) {
+        HoldButton(
+            label,
+            onPress = { extButtons = extButtons or bit; sendCombinedExtendedInput() },
+            onRelease = { extButtons = extButtons and bit.inv(); sendCombinedExtendedInput() },
+            shape, modifier
+        )
     }
 
     @Suppress("DEPRECATION")
@@ -371,6 +684,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     // (e.g. volume/back keys keep working).
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (hasButtonsMode && handleExtKey(keyCode, pressed = true)) return true
         val bit = keyCodeToBit[keyCode] ?: return super.onKeyDown(keyCode, event)
         physicalMask = physicalMask or bit
         sendCombinedInput()
@@ -378,6 +692,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (hasButtonsMode && handleExtKey(keyCode, pressed = false)) return true
         val bit = keyCodeToBit[keyCode] ?: return super.onKeyUp(keyCode, event)
         physicalMask = physicalMask and bit.inv()
         sendCombinedInput()
@@ -388,11 +703,60 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         client?.sendInput(touchMask or physicalMask)
     }
 
+    /** Applies one physical-key press/release for a hasButtonsMode session,
+     * checking both binding sources: extKeyCodeToButton (X/Y/Home/ZL/ZR/
+     * stick, bound in KeyBindingsActivity's own "Erweiterte Tasten"
+     * section) and keyCodeToExtBitFromGba (A/B/L/R/Select/Start/Up/Down/
+     * Left/Right, reusing the Standard-Tasten binding instead of asking for
+     * it twice -- see ExtButtons.kt's GBA_PREFKEY_TO_EXT_BUTTON_BIT).
+     * Returns whether keyCode matched either, so the caller knows not to
+     * also fall through to the gba_buttons path below. */
+    private fun handleExtKey(keyCode: Int, pressed: Boolean): Boolean {
+        var handled = false
+        extKeyCodeToButton[keyCode]?.let { applyExtKey(it, pressed); handled = true }
+        keyCodeToExtBitFromGba[keyCode]?.let {
+            applyExtButtonBit(it, pressed)
+            sendCombinedExtendedInput()
+            handled = true
+        }
+        return handled
+    }
+
+    /** A BUTTON entry ORs/ANDs its bit into extPhysicalButtons exactly like
+     * ExtHoldButton's on-screen counterpart; a STICK_* entry just flips the
+     * corresponding held-direction flag, see sendCombinedExtendedInput's own
+     * digital-stick math. */
+    private fun applyExtKey(button: ExtButton, pressed: Boolean) {
+        when (button.kind) {
+            ExtInputKind.BUTTON -> applyExtButtonBit(button.bit, pressed)
+            ExtInputKind.STICK_UP -> extKeyStickUp = pressed
+            ExtInputKind.STICK_DOWN -> extKeyStickDown = pressed
+            ExtInputKind.STICK_LEFT -> extKeyStickLeft = pressed
+            ExtInputKind.STICK_RIGHT -> extKeyStickRight = pressed
+        }
+        sendCombinedExtendedInput()
+    }
+
+    private fun applyExtButtonBit(bit: Int, pressed: Boolean) {
+        extPhysicalButtons = if (pressed) extPhysicalButtons or bit else extPhysicalButtons and bit.inv()
+    }
+
     private fun connectTo(host: String, port: Int) {
         touchMask = 0
         physicalMask = 0
         connected = false
         disconnectedReason = null
+        touchMode = false
+        hasButtonsMode = false
+        extTouchPressed = false
+        extButtons = 0
+        extPhysicalButtons = 0
+        extStickDragX = 0
+        extStickDragY = 0
+        extKeyStickUp = false
+        extKeyStickDown = false
+        extKeyStickLeft = false
+        extKeyStickRight = false
         val c = GbaStreamClient(this)
         client = c
         statusText = getString(R.string.status_connecting)
@@ -416,8 +780,12 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     // before touching Compose state. onAudioFrame is the one exception --
     // writing to AudioTrack from a background thread is exactly what it's for.
 
-    override fun onConnected() {
-        runOnUiThread { connected = true }
+    override fun onConnected(isTouch: Boolean, hasButtons: Boolean) {
+        runOnUiThread {
+            connected = true
+            touchMode = isTouch
+            hasButtonsMode = hasButtons
+        }
     }
 
     override fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray) {

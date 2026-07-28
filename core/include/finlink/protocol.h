@@ -103,6 +103,78 @@ typedef struct {
 
 #define FINLINK_TOUCH_FRAME_SIZE 6
 
+/* Combined touch + buttons + analog sticks state for input_encoding
+ * "n3ds_touch_and_buttons" (docs/protocol.md) -- a client->server type=2
+ * message, for stream types whose server can accept full remote control
+ * input rather than only touch. Unlike "n3ds_touch" and "gba_buttons",
+ * which are each exactly one shape of data, this bundles all three input
+ * kinds into a single fixed frame, so the "one input_encoding == one
+ * message shape" rule those two already rely on still holds -- there's no
+ * second, differently-shaped type=2 message to disambiguate by size.
+ *
+ * touch/touch_x/touch_y: same semantics as finlink_touch_state (x/y
+ * meaningless, sent as 0, whenever pressed is 0).
+ *
+ * buttons: a generic superset bitmask (finlink_button_bit) covering every
+ * digital button any touch-capable stream type's server might accept
+ * remotely -- a given server only looks at the bits its own console
+ * actually has; a client with no such button to send simply never sets the
+ * corresponding bit, and a server with no such button to receive safely
+ * ignores it.
+ *
+ * left_x/left_y, right_x/right_y: analog stick state, signed range
+ * -32768..32767 per axis, (0, 0) centered/at rest. left is the 3DS circle
+ * pad, or on a console with two sticks (WIIU_GAMEPAD) its left stick;
+ * right is always (0, 0) on a console with at most one analog stick. */
+typedef struct {
+    int pressed;
+    uint16_t touch_x;
+    uint16_t touch_y;
+    uint32_t buttons;
+    int16_t left_x;
+    int16_t left_y;
+    int16_t right_x;
+    int16_t right_y;
+} finlink_extended_input;
+
+/* finlink_extended_input.buttons bit assignments -- a bit only means
+ * something to a server whose console actually has that button, see
+ * finlink_extended_input's own comment. Named after the button each bit
+ * most directly corresponds to across consoles (e.g. FINLINK_BUTTON_X/Y
+ * for a Wii U GamePad's X/Y face buttons, unused -- always clear -- for a
+ * 3DS, which has no X/Y-labeled equivalent remotely reachable here). */
+typedef enum {
+    FINLINK_BUTTON_A = 1u << 0,
+    FINLINK_BUTTON_B = 1u << 1,
+    FINLINK_BUTTON_X = 1u << 2,
+    FINLINK_BUTTON_Y = 1u << 3,
+    FINLINK_BUTTON_L = 1u << 4,
+    FINLINK_BUTTON_R = 1u << 5,
+    FINLINK_BUTTON_ZL = 1u << 6,
+    FINLINK_BUTTON_ZR = 1u << 7,
+    FINLINK_BUTTON_SELECT = 1u << 8, /* aka Minus (Wii U) */
+    FINLINK_BUTTON_START = 1u << 9,  /* aka Plus (Wii U) */
+    FINLINK_BUTTON_UP = 1u << 10,
+    FINLINK_BUTTON_DOWN = 1u << 11,
+    FINLINK_BUTTON_LEFT = 1u << 12,
+    FINLINK_BUTTON_RIGHT = 1u << 13,
+    FINLINK_BUTTON_HOME = 1u << 14,
+} finlink_button_bit;
+
+#define FINLINK_EXTENDED_INPUT_FRAME_SIZE 18
+
+/* Writes out_buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE] (the caller must have
+ * room for that many bytes). Returns the number of bytes written, always
+ * FINLINK_EXTENDED_INPUT_FRAME_SIZE -- same convention as
+ * finlink_build_touch_frame. */
+size_t finlink_build_extended_input_frame(const finlink_extended_input *input,
+                                           uint8_t out_buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE]);
+
+/* Only valid to call when hello.input_encoding was
+ * "n3ds_touch_and_buttons" -- see finlink_extended_input's own comment. */
+finlink_result finlink_parse_extended_input_frame(const uint8_t *data, size_t size,
+                                                   finlink_extended_input *out);
+
 /* Reads the leading type byte of a server->client message without consuming
  * the rest. `size` must be >= 1. */
 finlink_result finlink_peek_type(const uint8_t *data, size_t size, finlink_msg_type *out_type);
