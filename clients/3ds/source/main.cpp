@@ -70,6 +70,12 @@ struct MenuState {
     std::array<std::optional<bool>, kPlayerSlotCount> slotOccupied {};
     bool pickerVisible = false;
     std::string lastSearchedHost;
+    // Set by drawMenuScreen() on a host-field tap, consumed by main()'s loop
+    // right after C3D_FrameEnd() -- promptForHost() below is a blocking
+    // swkbd applet call that draws its own frames, which conflicts with an
+    // already-open C3D frame if called from inside drawMenuScreen() itself
+    // (main() calls it between C3D_FrameBegin/C3D_FrameEnd).
+    bool hostPromptRequested = false;
 };
 
 void runSearch(MenuState *menu, std::string host) {
@@ -166,9 +172,10 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     ui::drawText(textBuf, hostText.empty() ? "Host eingeben..." : hostText.c_str(), hostRect.x + 8, hostRect.y + 6,
                  0.5f, hostText.empty() ? ui::kColorTextDim : ui::kColorText);
     if (touch.tappedIn(hostRect)) {
-        std::string newHost = promptForHost(hostText);
+        // Deferred to main()'s loop, right after C3D_FrameEnd() -- see
+        // MenuState::hostPromptRequested.
         std::lock_guard<std::mutex> lock(menu->mutex);
-        menu->hostText = newHost;
+        menu->hostPromptRequested = true;
     }
 
     ui::Rect connectRect { 252, 8, 60, 28 };
@@ -434,6 +441,23 @@ int main(int argc, char *argv[]) {
         }
 
         C3D_FrameEnd(0);
+
+        // promptForHost() draws its own frames via the swkbd applet, so it
+        // must run here, outside C3D_FrameBegin/End, not from inside
+        // drawMenuScreen() where the tap that requests it is detected.
+        bool wantsHostPrompt;
+        std::string currentHostText;
+        {
+            std::lock_guard<std::mutex> lock(menu.mutex);
+            wantsHostPrompt = menu.hostPromptRequested;
+            menu.hostPromptRequested = false;
+            currentHostText = menu.hostText;
+        }
+        if (wantsHostPrompt) {
+            std::string newHost = promptForHost(currentHostText);
+            std::lock_guard<std::mutex> lock(menu.mutex);
+            menu.hostText = newHost;
+        }
     }
 
     session.disconnect();
