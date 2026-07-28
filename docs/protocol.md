@@ -114,7 +114,7 @@ behandeln, ohne mit einer ungültigen Zahlen-Kombination verwechselt zu werden:
 | `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja |
 | `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen (320×240) | 1 | nein |
 | `NDS_BOTTOM_SCREEN` | melonDS, Bottom Screen (256×192) | 1 | nein |
-| `WIIU_GAMEPAD` | *reserviert, noch nicht implementiert* — zukünftiger Cemu/Wii-U-GamePad-Stream | 1 | nein |
+| `WIIU_GAMEPAD` | Cemu, GamePad-Bildschirm (854×480) | 1 | nein |
 
 Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`, `WIIU_GAMEPAD`)
 lassen das `audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die
@@ -315,16 +315,17 @@ einer Verbindung gilt, legt `hello.input_encoding` einmalig beim Handshake fest
 
 Bitreihenfolge Input-Bitmask (Bit 0 = LSB, `"gba_buttons"`): `A, B, Select, Start, Right, Left, Up, Down, R, L`
 
-`"n3ds_touch"` (für alle Bottom-Screen-Stream-Typen mit Touch-Eingabe --
-aktuell `N3DS_BOTTOM_SCREEN` und `NDS_BOTTOM_SCREEN`, trotz des Namens nicht
-3DS-spezifisch): `x`/`y` sind Pixel-Koordinaten im nativen Bottom-Screen-Raster
-des jeweiligen Stream-Typs, wie in `hello.video`/`session_ready.video` als
-`width`/`height` deklariert (`320x240` bei `N3DS_BOTTOM_SCREEN`, `256x192` bei
-`NDS_BOTTOM_SCREEN`) — wie ein Client von seiner eigenen Eingabe (Touch, Maus,
-Stick, ...) auf diesen Bereich abbildet, ist allein seine Sache. Der
-Encoding-Name selbst bleibt `"n3ds_touch"` über beide Stream-Typen hinweg
-(keine Wire-Format-Änderung, nur diese Doku-Präzisierung -- ein neuer Name pro
-Stream-Typ hätte hier nur 100% identischen Code unter zwei Namen dupliziert).
+`"n3ds_touch"` (für alle Sekundärbildschirm-Stream-Typen mit Touch-Eingabe --
+aktuell `N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN` und `WIIU_GAMEPAD`, trotz
+des Namens nicht 3DS-spezifisch): `x`/`y` sind Pixel-Koordinaten im nativen
+Raster des jeweiligen Stream-Typs, wie in `hello.video`/`session_ready.video`
+als `width`/`height` deklariert (`320x240` bei `N3DS_BOTTOM_SCREEN`, `256x192`
+bei `NDS_BOTTOM_SCREEN`, `854x480` bei `WIIU_GAMEPAD`) — wie ein Client von
+seiner eigenen Eingabe (Touch, Maus, Stick, ...) auf diesen Bereich abbildet,
+ist allein seine Sache. Der Encoding-Name selbst bleibt `"n3ds_touch"` über
+alle diese Stream-Typen hinweg (keine Wire-Format-Änderung, nur diese
+Doku-Präzisierung -- ein neuer Name pro Stream-Typ hätte hier nur 100%
+identischen Code unter mehreren Namen dupliziert).
 `pressed = 0` bedeutet **loslassen**; `x`/`y` sind dabei bedeutungslos und
 müssen `0` sein — ein Loslassen hat keine sinnvolle Position, es ist schlicht
 „nicht mehr berühren", nicht „Berührung endete bei (x,y)". Ein Drag wird als
