@@ -11,6 +11,14 @@ namespace {
 
 constexpr int kPlayerBasePort = 6801;
 
+// The one stream type with a lobby port fanning out to separate per-slot
+// ports (see runSearch() below) -- every other stream type is single-client
+// and its beacon's handshakePort *is* the only port there is, so a
+// discovered entry for one of those connects to it directly instead of
+// running the GC_GBA_LINK-specific slot probe (which always reported every
+// slot unreachable for a server that was never Dolphin).
+constexpr const char *kStreamTypeGcGbaLink = "GC_GBA_LINK";
+
 void addDivider(brls::Box *parent) {
     auto *rect = new brls::Rectangle(nvgRGBA(255, 255, 255, 40));
     rect->setWidthPercentage(100);
@@ -138,13 +146,19 @@ void MenuActivity::refreshDiscoveredCells() {
         // message instead.
         bool compatible = srv.compatible;
         std::string host = srv.host;
-        cell->registerClickAction([this, host, compatible](brls::View *) {
+        std::string streamType = srv.streamType;
+        int handshakePort = srv.handshakePort;
+        cell->registerClickAction([this, host, compatible, streamType, handshakePort](brls::View *) {
             if (!compatible) {
                 statusLabel->setText("Inkompatible Protokollversion.");
                 return true;
             }
-            hostInput->setValue(host);
-            runSearch(host);
+            if (streamType == kStreamTypeGcGbaLink) {
+                hostInput->setValue(host);
+                runSearch(host);
+            } else {
+                launchPlayer(host, handshakePort);
+            }
             return true;
         });
     }

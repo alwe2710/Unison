@@ -57,23 +57,31 @@ private data class DiscoveredServer(
     val host: String,
     val emulatorIdentifier: String,
     val gameTitle: String,
+    val streamType: String,
+    val handshakePort: Int,
     val protocolVersion: Int,
     val compatible: Boolean
 )
 
 /**
  * Landing screen (three-page app: menu -> settings / player). Two ways to
- * find a host, both funnel into the same P1-P4 picker:
+ * find a host:
  *
- * 1. Manual host entry + "Suchen" (poll GET /status on all four player
- *    ports, docs/protocol.md).
- * 2. Discovery: scan the local subnet for a host answering on the lobby
- *    port (6800) -- Dolphin doesn't advertise itself (no mDNS/UPnP), so
- *    this is a plain sweep, not a real discovery protocol.
+ * 1. Manual host entry + "Suchen" -- always assumes GC_GBA_LINK (poll GET
+ *    /status on all four player ports, docs/protocol.md), since there's no
+ *    beacon to read a stream_type from for a host the user just typed in.
+ * 2. Discovery: listens for the UDP beacon every finlink server broadcasts
+ *    (docs/protocol.md, "Discovery-Beacon (UDP)"). Tapping a discovered
+ *    GC_GBA_LINK entry funnels into the same P1-P4 picker as manual entry;
+ *    every other stream type (N3DS_BOTTOM_SCREEN, NDS_BOTTOM_SCREEN,
+ *    WIIU_GAMEPAD, ...) is single-client, so it connects straight to the
+ *    beacon's handshake_port instead -- probing PLAYER_BASE_PORT+0..3
+ *    against a server that was never Dolphin doesn't find "free" or
+ *    "occupied" slots, just four unreachable ports.
  *
- * Picking a free P slot starts PlayerActivity; the settings button opens
- * SettingsActivity. Neither owns any GbaStreamClient/native state -- that's
- * entirely PlayerActivity's job.
+ * Picking a free P slot (or a direct-connect discovery entry) starts
+ * PlayerActivity; the settings button opens SettingsActivity. Neither owns
+ * any GbaStreamClient/native state -- that's entirely PlayerActivity's job.
  *
  * No fixed orientation (see AndroidManifest.xml): this is a form, not the
  * stream view, so it should follow however the device is actually held.
@@ -195,8 +203,12 @@ class MenuActivity : ComponentActivity() {
                                     TextButton(
                                         onClick = {
                                             if (server.compatible) {
-                                                hostText = server.host
-                                                runSearch(server.host)
+                                                if (server.streamType == GbaStreamClient.STREAM_TYPE_GC_GBA_LINK) {
+                                                    hostText = server.host
+                                                    runSearch(server.host)
+                                                } else {
+                                                    launchPlayer(server.host, server.handshakePort)
+                                                }
                                             }
                                         },
                                         enabled = server.compatible,
@@ -354,6 +366,8 @@ class MenuActivity : ComponentActivity() {
                         host = host,
                         emulatorIdentifier = json.optString("emulator_identifier", "?"),
                         gameTitle = json.optString("game_title", ""),
+                        streamType = json.optString("stream_type", ""),
+                        handshakePort = json.optInt("handshake_port", 0),
                         protocolVersion = protocolVersion,
                         compatible = protocolVersion == GbaStreamClient.PROTOCOL_VERSION
                     )

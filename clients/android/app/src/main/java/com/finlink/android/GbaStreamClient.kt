@@ -51,6 +51,16 @@ class GbaStreamClient(private val listener: Listener) {
         const val PLAYER_BASE_PORT = 6801
         const val PLAYER_SLOT_COUNT = 4
 
+        // The one stream type with a lobby port fanning out to separate
+        // per-slot ports (see the P1-P4 picker above) -- every other stream
+        // type (N3DS_BOTTOM_SCREEN, NDS_BOTTOM_SCREEN, WIIU_GAMEPAD, ...) is
+        // single-client and its beacon's handshake_port *is* the only port
+        // there is, so MenuActivity connects to it directly instead of
+        // running the GC_GBA_LINK-specific slot probe against it (which
+        // used to always report "alle Plätze belegt" for these -- ports
+        // 6801-6804 never existed on a server that isn't Dolphin).
+        const val STREAM_TYPE_GC_GBA_LINK = "GC_GBA_LINK"
+
         // Mirrors FINLINK_PROTOCOL_VERSION (core/include/finlink/handshake.h)
         // and FINLINK_BEACON_PORT (core/include/finlink/discovery.h) --
         // MenuActivity's discovery listener needs both before any native
