@@ -1110,6 +1110,17 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendMicAud
     const size_t new_bytes = (size_t)sample_count * sizeof(int16_t);
 
     pthread_mutex_lock(&s->pending_mic_audio_mutex);
+    // pending_mic_sample_rate is a single scalar tagging the *whole*
+    // buffer, but that buffer can span multiple calls to this function
+    // before maybe_send_mic_audio() drains it -- if the capture rate
+    // changed since the last call (only possible today via
+    // stopMicCapture()+startMicCapture() at a new rate, a narrow but real
+    // window), mixing the new chunk into bytes still tagged with the old
+    // rate would send a single frame whose header rate doesn't match part
+    // of its own payload. Drop the stale backlog instead of mislabeling it.
+    if (s->pending_mic_audio_len > 0 && s->pending_mic_sample_rate != (uint32_t)sample_rate) {
+        s->pending_mic_audio_len = 0;
+    }
     const size_t kMaxPendingBytes = 48000 * sizeof(int16_t) * 2; // ~2s at 48kHz mono
     if (s->pending_mic_audio_len + new_bytes > kMaxPendingBytes) {
         free(s->pending_mic_audio);

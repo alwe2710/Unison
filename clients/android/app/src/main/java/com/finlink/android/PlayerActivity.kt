@@ -1028,12 +1028,23 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
     private fun stopMicCapture() {
         micStopFlag = true
+        // Stop the record BEFORE joining -- AudioRecord.stop() is safe to
+        // call from a different thread than the one blocked in read(), and
+        // unblocks that read() promptly. Without this, join() has to wait
+        // for whatever's already in flight in the capture thread's blocking
+        // read() call to complete naturally (up to one buffer's worth,
+        // tens of ms) -- onMicEnable() runs synchronously on the native
+        // network thread that also drives video/audio/input polling, so
+        // that wait was a small but avoidable hitch on every mic-disable
+        // transition.
+        micRecord?.let {
+            if (it.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                it.stop()
+            }
+        }
         micThread?.join(500)
         micThread = null
-        micRecord?.apply {
-            stop()
-            release()
-        }
+        micRecord?.release()
         micRecord = null
     }
 
