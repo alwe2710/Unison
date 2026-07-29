@@ -109,17 +109,26 @@ Erweiterbares Enum, als String übertragen (nicht als Zahl/Bitmaske) — ein
 unbekannter String lässt sich clientseitig eindeutig als „kenne ich nicht“
 behandeln, ohne mit einer ungültigen Zahlen-Kombination verwechselt zu werden:
 
-| `stream_type` | Bedeutung | Slots | Audio |
-|---|---|---|---|
-| `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja |
-| `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen (320×240) | 1 | nein |
-| `NDS_BOTTOM_SCREEN` | melonDS, Bottom Screen (256×192) | 1 | nein |
-| `WIIU_GAMEPAD` | Cemu, GamePad-Bildschirm (854×480) | 1 | nein |
+| `stream_type` | Bedeutung | Slots | Audio | Mikrofon |
+|---|---|---|---|---|
+| `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja | nein |
+| `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen (320×240) | 1 | nein | ja |
+| `NDS_BOTTOM_SCREEN` | melonDS, Bottom Screen (256×192) | 1 | nein | nein |
+| `WIIU_GAMEPAD` | Cemu, GamePad-Bildschirm (854×480) | 1 | ja | nein |
 
-Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`, `WIIU_GAMEPAD`)
-lassen das `audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die
-Audio-Verhandlung in `hello_ack` entfällt vollständig — es gibt in diesem Fall zu
-keinem Zeitpunkt eine `type=3`-Audio-Message auf der Verbindung.
+Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`) lassen das
+`audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die Audio-Verhandlung in
+`hello_ack` entfällt vollständig — es gibt in diesem Fall zu keinem Zeitpunkt eine
+`type=3`-Audio-Message auf der Verbindung.
+
+Die „Mikrofon“-Spalte ist unabhängig von der „Audio“-Spalte und **nicht** Teil der
+`hello`/`hello_ack`/`session_ready`-Verhandlung — es gibt kein `hello`-Feld, das
+Mikrofon-Unterstützung ankündigt. Ein Server, der sie implementiert, sendet
+`type=6`-Nachrichten einfach, sobald das emulierte Mikrofon aktiv gebraucht wird
+(siehe „Mikrofon-Eingabe“ unter [WebSocket, binäre Frames](#websocket-binäre-frames));
+ein Client ohne Mikrofon-Implementierung ignoriert `type=6` unbehandelt und sendet
+nie ein `type=7` zurück, was für den Server gleichbedeutend mit „kein Mikrofon
+verfügbar“ ist — kein Fehlerzustand, kein Abbruch.
 
 ### Zielbildschirm auf Zweitbildschirm-Clients (3DS, DS/DSi)
 
@@ -192,8 +201,9 @@ gesendet:
   (oder ist `null`) bei Stream-Typen ohne Audioübertragung.
 - `input_encoding`: Name des Input-Encodings, das dieser Stream-Typ auf dieser
   Verbindung erwartet (`type=2`-Messages, siehe unten). `"gba_buttons"` ist das
-  bestehende `u16le`-Bitmask-Format, unverändert; `"n3ds_touch"` (für
-  `N3DS_BOTTOM_SCREEN`) ist Touch-Position + Press-Status — siehe
+  bestehende `u16le`-Bitmask-Format, unverändert; `"n3ds_touch"` ist Touch-Position
+  + Press-Status; `"n3ds_touch_and_buttons"` (`N3DS_BOTTOM_SCREEN`, `WIIU_GAMEPAD`)
+  bündelt zusätzlich Tasten und bis zu zwei Analogsticks in einem Frame — siehe
   [WebSocket, binäre Frames](#websocket-binäre-frames).
 
 ### `hello_ack` (Client → Server)
@@ -299,9 +309,14 @@ generischen Fehlermeldung).
 | Richtung | Typ | Format |
 |---|---|---|
 | Server → Client | `1` (Video) | `[u8 type=1][u32le width][u32le height][u8 format][raw-deflate-komprimierter Block]` |
-| Server → Client | `3` (Audio) | `[u8 type=3][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
 | Client → Server | `2` (Input, `input_encoding = "gba_buttons"`) | `[u8 type=2][u16le keyBitmask]` |
 | Client → Server | `2` (Input, `input_encoding = "n3ds_touch"`) | `[u8 type=2][u8 pressed][u16le x][u16le y]` |
+| Client → Server | `2` (Input, `input_encoding = "n3ds_touch_and_buttons"`) | `[u8 type=2][u8 pressed][u16le touchX][u16le touchY][u32le buttons][s16le leftX][s16le leftY][s16le rightX][s16le rightY]` |
+| Server → Client | `3` (Audio) | `[u8 type=3][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
+| Server → Client | `4` (Text-Input-Anfrage) | `[u8 type=4][u32le maxLength][u32le textLen][utf8 text]` |
+| Client → Server | `5` (Text-Input-Antwort) | `[u8 type=5][u8 confirmed][u32le textLen][utf8 text]` |
+| Server → Client | `6` (Mikrofon-Freigabe) | `[u8 type=6][u8 enabled][u32le sampleRate]` |
+| Client → Server | `7` (Mikrofon-Audio) | `[u8 type=7][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
 
 Diese Binärframes (Opcode `0x2`) treten ausschließlich **nach** einem erfolgreichen
 Handshake (`session_ready` ohne `redirect`, siehe oben) auf derselben Verbindung
@@ -309,7 +324,7 @@ auf. Inhaltlich unverändert gegenüber der Vor-Handshake-Version des Protokolls
 `width`/`height`/`sampleRate`/`channels` in den Headern spiegeln die in
 `session_ready` bestätigten (ggf. herunterskalierten) Werte.
 
-Beide `type=2`-Formen teilen sich denselben Nachrichtentyp — welche Form auf
+Alle drei `type=2`-Formen teilen sich denselben Nachrichtentyp — welche Form auf
 einer Verbindung gilt, legt `hello.input_encoding` einmalig beim Handshake fest
 (siehe oben), nicht ein zusätzliches Unterscheidungsbyte im Frame selbst.
 
@@ -331,6 +346,49 @@ müssen `0` sein — ein Loslassen hat keine sinnvolle Position, es ist schlicht
 „nicht mehr berühren", nicht „Berührung endete bei (x,y)". Ein Drag wird als
 Folge von `pressed = 1`-Frames mit aktualisierten `x`/`y` übertragen, kein
 eigener Nachrichtentyp dafür nötig.
+
+`"n3ds_touch_and_buttons"` (aktuell `N3DS_BOTTOM_SCREEN` und `WIIU_GAMEPAD`,
+trotz des Namens ebenfalls nicht 3DS-spezifisch) ist eine Obermenge von
+`"n3ds_touch"`: derselbe Touch-Teil (jetzt `touchX`/`touchY` genannt, identische
+`pressed = 0`-Semantik wie oben), zusätzlich Tasten und bis zu zwei Analogsticks
+in **einem** kombinierten Frame, statt mehrerer separater Nachrichtentypen. Ein
+Client sendet bei jeder Änderung eines beliebigen Teils (Touch, eine Taste, ein
+Stick) immer den kompletten Frame neu, nicht nur das geänderte Feld — der Server
+hat keinen Mechanismus, Teilupdates zusammenzuführen.
+
+- `buttons`: generische Bitmaske, Obermenge aller Tasten, die irgendein
+  touch-fähiger Stream-Typ entfernt entgegennehmen könnte. Ein Server wertet nur
+  die Bits aus, die seine eigene Konsole tatsächlich hat; ein Client ohne
+  entsprechende Taste setzt das Bit einfach nie, ein Server ohne diese Taste
+  ignoriert es gefahrlos:
+
+  | Bit | Wert | Bedeutung |
+  |---|---|---|
+  | 0 | `0x0001` | A |
+  | 1 | `0x0002` | B |
+  | 2 | `0x0004` | X |
+  | 3 | `0x0008` | Y |
+  | 4 | `0x0010` | L |
+  | 5 | `0x0020` | R |
+  | 6 | `0x0040` | ZL |
+  | 7 | `0x0080` | ZR |
+  | 8 | `0x0100` | Select (aka Minus bei Wii U) |
+  | 9 | `0x0200` | Start (aka Plus bei Wii U) |
+  | 10 | `0x0400` | Digital Up |
+  | 11 | `0x0800` | Digital Down |
+  | 12 | `0x1000` | Digital Left |
+  | 13 | `0x2000` | Digital Right |
+  | 14 | `0x4000` | Home |
+
+- `leftX`/`leftY`, `rightX`/`rightY`: Analogstick-Zustand, signed `-32768..32767`
+  pro Achse, `(0, 0)` = Ruhelage/zentriert. `left` ist der 3DS Circle Pad bzw.,
+  bei einer Konsole mit zwei Sticks (`WIIU_GAMEPAD`), deren linker Stick;
+  `right` ist bei einer Konsole mit höchstens einem Analogstick immer `(0, 0)`.
+
+Referenzimplementierung:
+[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
+(`finlink_extended_input`, `finlink_button_bit`,
+`finlink_build_extended_input_frame`, `finlink_parse_extended_input_frame`).
 
 Alle Mehrbyte-Felder sind Little-Endian.
 
@@ -382,6 +440,75 @@ Pixelfarbe: bei INDEXED `color = palette[index]`, danach wie gehabt
 Referenzimplementierung: [`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
 (`finlink_video_format`, `finlink_decode_video_frame`,
 `finlink_video_max_inflated_size`).
+
+### Text-Eingabe (Server → Client / Client → Server)
+
+Manche Emulator-Kerne zeigen bei Texteingabe (Speicherstand-Name,
+Freundescode, Suchbegriff, …) eine eigene, host-seitige Software-Tastatur
+als UI-Overlay über dem emulierten Framebuffer (z. B. Cemus `swkbd`) — die
+Video-Capture liest aber direkt aus dem emulierten Framebuffer/Scan-Buffer,
+nicht aus dem zusammengesetzten Fenster, bekommt dieses Overlay also nie zu
+sehen. `type=4`/`type=5` ersetzen das für den entfernten Client durch dessen
+eigene native Texteingabe.
+
+`type=4` (Text-Input-Anfrage, Server → Client):
+`[u8 type=4][u32le maxLength][u32le textLen][utf8 text]`
+
+- `maxLength`: maximale Zeichenzahl (nicht Bytes), `0` = keine
+  server-seitige Begrenzung.
+- `text`/`textLen`: bereits vorhandener/vorausgefüllter Text (oft leer),
+  UTF-8, **nicht** NUL-terminiert.
+
+Der Client zeigt darauf seine eigene native Texteingabe (System-Tastatur)
+mit `text` vorausgefüllt und `maxLength` als Zeichenlimit an.
+
+`type=5` (Text-Input-Antwort, Client → Server):
+`[u8 type=5][u8 confirmed][u32le textLen][utf8 text]`
+
+- `confirmed = 0`: Nutzer hat abgebrochen — `text`/`textLen` sind in diesem
+  Fall bedeutungslos (der Server behält seinen bisherigen Text unverändert
+  bei), ein Client sendet hier üblicherweise eine leere Zeichenkette.
+- `confirmed = 1`: Nutzer hat bestätigt, `text` ist der eingegebene Wert.
+
+Referenzimplementierung:
+[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
+(`finlink_text_input_request`, `finlink_text_input_response`).
+
+### Mikrofon-Eingabe (Server → Client / Client → Server)
+
+Lässt das emulierte Mikrofon einer Konsole (z. B. 3DS' `mic:u`-Service) vom
+echten Mikrofon des verbundenen Clients gespeist werden, statt von einem
+Host-Gerät. Nicht Teil der `hello`/`hello_ack`/`session_ready`-Verhandlung
+(siehe [Stream-Typen](#stream-typen)) — ein Server sendet `type=6` einfach,
+sobald er es braucht; ein Client ohne Mikrofon-Implementierung ignoriert es
+unbehandelt.
+
+`type=6` (Mikrofon-Freigabe, Server → Client):
+`[u8 type=6][u8 enabled][u32le sampleRate]`
+
+Bildet reale Mikrofon-Hardware nach: das physische Mikrofon ist nur aktiv,
+solange ein Spiel es eingeschaltet hat und aktiv sampelt — nicht durchgehend,
+nur weil eine Verbindung besteht. Ein Server sendet dies bei jeder Änderung
+dieses Zustands (ein **Level**-Signal, nicht Edge/Toggle — beliebig oft mit
+demselben Wert erneut sendbar, ohne dass sich für den Client etwas ändert).
+`sampleRate` ist bedeutungslos, wenn `enabled = 0`. Ein Client beginnt (bzw.
+beendet) daraufhin die Aufnahme vom eigenen Mikrofon, in `sampleRate` (keine
+client-seitige Umrechnung nötig — Android z. B. akzeptiert beliebige
+Sample-Raten direkt und resampled intern).
+
+`type=7` (Mikrofon-Audio, Client → Server):
+`[u8 type=7][u32le sampleRate][u8 channels][s16le PCM-Samples]`
+
+Identisches Byte-Layout wie `type=3` (Audio), nur umgekehrte Richtung —
+`type=3` ist immer Server → Client (Konsolen-/Lautsprecher-Audio), `type=7`
+immer Client → Server (Mikrofon-Eingabe). `channels` ist bei allen aktuell
+bekannten Mikrofon-Implementierungen immer `1` (mono) — jede Konsole mit
+Mikrofon-Eingang hier nimmt nur einen Kanal entgegen.
+
+Referenzimplementierung:
+[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
+(`finlink_mic_enable`, `finlink_build_mic_enable_frame`,
+`finlink_parse_mic_enable_frame`, `finlink_parse_mic_audio_frame`).
 
 ## WebSocket-Transport (RFC6455) und Binär-Framing
 
