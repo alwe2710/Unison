@@ -122,6 +122,12 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     // TouchOverlay/ExtendedControlsOverlay for what each switches to.
     private var touchMode by mutableStateOf(false)
     private var hasButtonsMode by mutableStateOf(false)
+    // Distinguishes melonDS's "touch_and_buttons" (buttons, no analog
+    // sticks -- the DS has none on real hardware) from Azahar's
+    // "n3ds_touch_and_buttons" (buttons AND circle pad/analog sticks).
+    // Only meaningful when hasButtonsMode is true; gates whether
+    // ExtDPad/VirtualStick/ZL/ZR are shown at all, see PlayerScreen().
+    private var hasSticksMode by mutableStateOf(false)
 
     // Touch and physical-key input are tracked separately and OR'd together
     // when sent, so releasing one source doesn't clobber bits the other
@@ -319,19 +325,19 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                     ActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
                 }
 
-                // Buttons + both sticks for a hasButtonsMode session -- shown
-                // alongside TouchOverlay above (not instead of it), since
-                // these and touch are independent parts of one combined
-                // finlink_extended_input frame, not alternatives (see
-                // extTouchPressed's own comment). Same L/R/Select/Start
-                // layout as the gba_buttons overlay, via ExtHoldButton
-                // instead of GbaHoldButton, with ZL/ZR added below L/R;
-                // X/Y (a real 3DS/Wii U button the GBA overlay has no
-                // equivalent for) added to the A/B cluster. Both sticks are
-                // real analog sticks (VirtualStick) rather than a digital
-                // cross -- the D-pad's own four digital bits aren't exposed
-                // in this first pass, only the two analog sticks most games
-                // actually read.
+                // Buttons for a hasButtonsMode session -- shown alongside
+                // TouchOverlay above (not instead of it), since these and
+                // touch are independent parts of one combined
+                // finlink_extended_input/finlink_touch_and_buttons frame,
+                // not alternatives (see extTouchPressed's own comment).
+                // Same L/R/Select/Start layout as the gba_buttons overlay,
+                // via ExtHoldButton instead of GbaHoldButton; X/Y (a real
+                // 3DS/Wii U/DS button the GBA overlay has no equivalent
+                // for) added to the A/B cluster. ZL/ZR and both sticks
+                // (real analog, VirtualStick, rather than a digital cross)
+                // only for hasSticksMode; otherwise (melonDS's DS session,
+                // no analog input on real hardware) ExtDPad below stands
+                // in for the missing left stick.
                 if (touchMode && hasButtonsMode) {
                     ExtHoldButton(
                         "L", GbaStreamClient.BUTTON_L, shape = RoundedCornerShape(8.dp),
@@ -341,24 +347,10 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                             .size(width = 64.dp, height = 40.dp)
                     )
                     ExtHoldButton(
-                        "ZL", GbaStreamClient.BUTTON_ZL, shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(top = 60.dp, start = 16.dp)
-                            .size(width = 64.dp, height = 40.dp)
-                    )
-                    ExtHoldButton(
                         "R", GbaStreamClient.BUTTON_R, shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 16.dp, end = 16.dp)
-                            .size(width = 64.dp, height = 40.dp)
-                    )
-                    ExtHoldButton(
-                        "ZR", GbaStreamClient.BUTTON_ZR, shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 60.dp, end = 16.dp)
                             .size(width = 64.dp, height = 40.dp)
                     )
 
@@ -378,21 +370,47 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                         )
                     }
 
-                    VirtualStick(
-                        modifier = Modifier.align(Alignment.BottomStart).padding(24.dp),
-                        onMove = { x, y -> extStickLDragX = x; extStickLDragY = y; sendCombinedExtendedInput() },
-                        onRelease = { extStickLDragX = 0; extStickLDragY = 0; sendCombinedExtendedInput() }
-                    )
-                    // Top-end, left of the R/ZR column rather than
-                    // CenterEnd -- centered vertically overlapped
-                    // ExtActionButtons' A/B/X/Y diamond down in the
-                    // BottomEnd corner.
-                    VirtualStick(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 96.dp),
-                        onMove = { x, y -> extStickRDragX = x; extStickRDragY = y; sendCombinedExtendedInput() },
-                        onRelease = { extStickRDragX = 0; extStickRDragY = 0; sendCombinedExtendedInput() }
-                    )
                     ExtActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
+
+                    // ZL/ZR and both analog sticks only exist on hardware
+                    // that actually has them (Azahar's N3DS_BOTTOM_SCREEN,
+                    // "n3ds_touch_and_buttons") -- melonDS's DS session
+                    // ("touch_and_buttons", hasSticksMode = false) gets a
+                    // D-pad instead below, since real DS hardware has
+                    // neither ZL/ZR nor any analog input at all.
+                    if (hasSticksMode) {
+                        ExtHoldButton(
+                            "ZL", GbaStreamClient.BUTTON_ZL, shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(top = 60.dp, start = 16.dp)
+                                .size(width = 64.dp, height = 40.dp)
+                        )
+                        ExtHoldButton(
+                            "ZR", GbaStreamClient.BUTTON_ZR, shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 60.dp, end = 16.dp)
+                                .size(width = 64.dp, height = 40.dp)
+                        )
+
+                        VirtualStick(
+                            modifier = Modifier.align(Alignment.BottomStart).padding(24.dp),
+                            onMove = { x, y -> extStickLDragX = x; extStickLDragY = y; sendCombinedExtendedInput() },
+                            onRelease = { extStickLDragX = 0; extStickLDragY = 0; sendCombinedExtendedInput() }
+                        )
+                        // Top-end, left of the R/ZR column rather than
+                        // CenterEnd -- centered vertically overlapped
+                        // ExtActionButtons' A/B/X/Y diamond down in the
+                        // BottomEnd corner.
+                        VirtualStick(
+                            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 96.dp),
+                            onMove = { x, y -> extStickRDragX = x; extStickRDragY = y; sendCombinedExtendedInput() },
+                            onRelease = { extStickRDragX = 0; extStickRDragY = 0; sendCombinedExtendedInput() }
+                        )
+                    } else {
+                        ExtDPad(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp))
+                    }
                 }
             }
 
@@ -627,6 +645,70 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
                         touchMask = touchMask and dpadMask.inv()
                         sendCombinedInput()
+                    }
+                }
+        ) {
+            DPadCell("▲", modifier = Modifier.align(Alignment.TopCenter).size(segment))
+            DPadCell("▼", modifier = Modifier.align(Alignment.BottomCenter).size(segment))
+            DPadCell("◀", modifier = Modifier.align(Alignment.CenterStart).size(segment))
+            DPadCell("▶", modifier = Modifier.align(Alignment.CenterEnd).size(segment))
+        }
+    }
+
+    /** DPad's counterpart for a hasButtonsMode-without-sticks session
+     * (melonDS's "touch_and_buttons" -- the DS has a D-pad but no analog
+     * stick at all, unlike Azahar's N3DS_BOTTOM_SCREEN which gets
+     * VirtualStick instead, see PlayerScreen()). Same 3x3-grid gesture as
+     * DPad, but writes into extButtons/sendCombinedExtendedInput() (the
+     * combined-frame state every other hasButtonsMode control already
+     * shares) instead of touchMask/sendCombinedInput(), since this is the
+     * shared touch_and_buttons/n3ds_touch_and_buttons wire path, not the
+     * separate gba_buttons one DPad serves. */
+    @Composable
+    private fun ExtDPad(modifier: Modifier = Modifier) {
+        val segment = 56.dp
+        val dpadMask = GbaStreamClient.BUTTON_UP or GbaStreamClient.BUTTON_DOWN or
+            GbaStreamClient.BUTTON_LEFT or GbaStreamClient.BUTTON_RIGHT
+
+        Box(
+            modifier = modifier
+                .size(segment * 3)
+                .pointerInput(Unit) {
+                    val segmentPx = segment.toPx()
+
+                    fun bitsAt(position: Offset): Int {
+                        val col = (position.x / segmentPx).toInt().coerceIn(0, 2)
+                        val row = (position.y / segmentPx).toInt().coerceIn(0, 2)
+                        return when {
+                            col == 1 && row == 0 -> GbaStreamClient.BUTTON_UP
+                            col == 1 && row == 2 -> GbaStreamClient.BUTTON_DOWN
+                            col == 0 && row == 1 -> GbaStreamClient.BUTTON_LEFT
+                            col == 2 && row == 1 -> GbaStreamClient.BUTTON_RIGHT
+                            else -> 0
+                        }
+                    }
+
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var activeBits = bitsAt(down.position)
+                        extButtons = (extButtons and dpadMask.inv()) or activeBits
+                        sendCombinedExtendedInput()
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val newBits = bitsAt(change.position)
+                            if (newBits != activeBits) {
+                                activeBits = newBits
+                                extButtons = (extButtons and dpadMask.inv()) or activeBits
+                                sendCombinedExtendedInput()
+                            }
+                            change.consume()
+                        }
+
+                        extButtons = extButtons and dpadMask.inv()
+                        sendCombinedExtendedInput()
                     }
                 }
         ) {
@@ -902,6 +984,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         textInputRequest = null
         touchMode = false
         hasButtonsMode = false
+        hasSticksMode = false
         extTouchPressed = false
         extButtons = 0
         extPhysicalButtons = 0
@@ -940,11 +1023,12 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     // before touching Compose state. onAudioFrame is the one exception --
     // writing to AudioTrack from a background thread is exactly what it's for.
 
-    override fun onConnected(isTouch: Boolean, hasButtons: Boolean) {
+    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean) {
         runOnUiThread {
             connected = true
             touchMode = isTouch
             hasButtonsMode = hasButtons
+            hasSticksMode = hasSticks
         }
     }
 

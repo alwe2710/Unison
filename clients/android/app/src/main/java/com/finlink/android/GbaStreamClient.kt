@@ -9,18 +9,23 @@ package com.finlink.android
 class GbaStreamClient(private val listener: Listener) {
 
     interface Listener {
-        // isTouch/hasButtons reflect the server's own hello.input_encoding
-        // ("n3ds_touch_and_buttons" vs "n3ds_touch" vs "gba_buttons", see
+        // isTouch/hasButtons/hasSticks reflect the server's own
+        // hello.input_encoding ("n3ds_touch_and_buttons" vs
+        // "touch_and_buttons" vs "n3ds_touch" vs "gba_buttons", see
         // jni_bridge.c's perform_app_handshake), not a client-side guess
         // from the discovery beacon -- authoritative even for manual host
         // entry (which has no beacon to read a stream_type from beforehand)
         // and across a redirect hop landing on a different stream type than
         // the one first dialed. hasButtons is only ever true alongside
         // isTouch (there's no buttons-without-touch encoding); it's false
-        // for "n3ds_touch" servers that don't accept remote buttons/circle
-        // pad yet (Cemu, melonDS, as of this comment), true only for
-        // "n3ds_touch_and_buttons" (Azahar's N3DS_BOTTOM_SCREEN).
-        fun onConnected(isTouch: Boolean, hasButtons: Boolean)
+        // for "n3ds_touch" servers that don't accept remote buttons at all
+        // (Cemu), true for both "touch_and_buttons" (melonDS's
+        // NDS_BOTTOM_SCREEN -- buttons, but no analog sticks, the DS has
+        // none on real hardware) and "n3ds_touch_and_buttons" (Azahar's
+        // N3DS_BOTTOM_SCREEN -- buttons AND circle pad/analog sticks).
+        // hasSticks distinguishes those last two; only ever true alongside
+        // hasButtons.
+        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
         // The server's own on-screen software keyboard (e.g. Cemu's swkbd)
@@ -80,7 +85,10 @@ class GbaStreamClient(private val listener: Listener) {
      * centered); rightX/rightY is always 0 from a caller with only one
      * stick to report. touchPressed/touchX/touchY follow sendTouch's own
      * convention (x/y ignored by the receiver whenever touchPressed is
-     * false). */
+     * false). Stick args are meaningless (and simply dropped native-side,
+     * see jni_bridge.c's maybe_send_touch()) when hasSticks = false --
+     * callers there (no VirtualStick UI shown at all) should just always
+     * pass 0. */
     fun sendExtendedInput(
         touchPressed: Boolean, touchX: Int, touchY: Int,
         buttons: Int, leftX: Int, leftY: Int, rightX: Int = 0, rightY: Int = 0

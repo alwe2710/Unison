@@ -86,13 +86,18 @@ typedef struct {
     atomic_int pending_touch_y;
     atomic_bool pending_touch_pressed;
     atomic_bool touch_dirty;
-    // Set once from app_handshake_result.extended_input right after a
-    // successful handshake, read by maybe_send_touch() to pick which frame
-    // shape/builder to use -- see that function's own comment. Buttons and
-    // stick state below are meaningless (left at their init-time zero, only
-    // ever written by nativeSendExtendedInput) on a plain touch_input
-    // session that isn't also extended_input.
+    // Set once from app_handshake_result.{extended_input,has_buttons} right
+    // after a successful handshake, read by maybe_send_touch() to pick
+    // which of three frame shapes to build -- see that function's own
+    // comment. extended_input (sticks + buttons, "n3ds_touch_and_buttons")
+    // implies has_buttons; has_buttons alone (buttons, no sticks,
+    // "touch_and_buttons" -- melonDS's DS encoding, no analog input at all
+    // on real hardware) picks the narrower finlink_touch_and_buttons frame
+    // instead. Buttons and stick state below are meaningless (left at
+    // their init-time zero, only ever written by nativeSendExtendedInput)
+    // on a plain touch_input session that isn't also has_buttons.
     atomic_bool extended_input;
+    atomic_bool has_buttons;
     atomic_int pending_buttons;
     atomic_int pending_left_x;
     atomic_int pending_left_y;
@@ -332,17 +337,20 @@ typedef struct {
     // from the server's own hello.input_encoding (protocol.h), not guessed
     // client-side, since manual host entry has no beacon to read a
     // stream_type from beforehand and a redirect hop can in principle land
-    // on a different stream type than the one first dialed. true for either
+    // on a different stream type than the one first dialed. true for any
     // touch encoding below, false for "gba_buttons".
     bool touch_input;
-    // Distinguishes the two touch encodings once touch_input is true:
+    // Distinguishes the three touch encodings once touch_input is true:
     // "n3ds_touch_and_buttons" (buttons + circle pad/analog sticks
-    // remotely controllable too, not just touch -- currently only Azahar's
-    // N3DS_BOTTOM_SCREEN advertises this) vs. the older, narrower
-    // "n3ds_touch" (touch only, buttons/circle-pad stay local -- still
-    // what Cemu/melonDS advertise until they get the same treatment).
-    // Meaningless when touch_input is false.
+    // remotely controllable too, not just touch -- Azahar's
+    // N3DS_BOTTOM_SCREEN) vs. "touch_and_buttons" (buttons but no sticks
+    // at all -- melonDS's NDS_BOTTOM_SCREEN, the DS has no analog input on
+    // real hardware) vs. the narrowest "n3ds_touch" (touch only, buttons
+    // stay local -- still what Cemu advertises). has_buttons is true for
+    // the first two; extended_input (a strict subset of has_buttons) is
+    // true only for the first. Both meaningless when touch_input is false.
     bool extended_input;
+    bool has_buttons;
 } app_handshake_result;
 
 // App-level handshake (finlink/handshake.h, docs/protocol.md
@@ -389,8 +397,10 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
             return result;
         }
         result.extended_input = strcmp(hello.input_encoding, "n3ds_touch_and_buttons") == 0;
+        result.has_buttons =
+            result.extended_input || strcmp(hello.input_encoding, "touch_and_buttons") == 0;
         result.touch_input =
-            result.extended_input || strcmp(hello.input_encoding, "n3ds_touch") == 0;
+            result.has_buttons || strcmp(hello.input_encoding, "n3ds_touch") == 0;
 
         finlink_hello_ack_request ack_req;
         memset(&ack_req, 0, sizeof(ack_req));
@@ -790,6 +800,13 @@ static void maybe_send_touch(finlink_session *s) {
         input.right_x = (int16_t)atomic_load(&s->pending_right_x);
         input.right_y = (int16_t)atomic_load(&s->pending_right_y);
         payload_len = finlink_build_extended_input_frame(&input, payload);
+    } else if (atomic_load(&s->has_buttons)) {
+        finlink_touch_and_buttons input;
+        input.pressed = pressed ? 1 : 0;
+        input.touch_x = pressed ? (uint16_t)atomic_load(&s->pending_touch_x) : 0;
+        input.touch_y = pressed ? (uint16_t)atomic_load(&s->pending_touch_y) : 0;
+        input.buttons = (uint32_t)atomic_load(&s->pending_buttons);
+        payload_len = finlink_build_touch_and_buttons_frame(&input, payload);
     } else {
         finlink_touch_state touch;
         touch.pressed = pressed ? 1 : 0;
@@ -892,7 +909,7 @@ static void *client_thread_main(void *arg) {
     (*s->jvm)->AttachCurrentThread(s->jvm, &env, NULL);
 
     jclass listener_class = (*env)->GetObjectClass(env, s->listener);
-    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZ)V");
+    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZ)V");
     jmethodID on_video = (*env)->GetMethodID(env, listener_class, "onVideoFrame", "(II[B)V");
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
     jmethodID on_text_input_request =
@@ -924,8 +941,9 @@ static void *client_thread_main(void *arg) {
     }
 
     atomic_store(&s->extended_input, hs.extended_input);
+    atomic_store(&s->has_buttons, hs.has_buttons);
     (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
-                            (jboolean)hs.extended_input);
+                            (jboolean)hs.has_buttons, (jboolean)hs.extended_input);
     run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf);
     byte_buf_free(&buf);
 
@@ -964,6 +982,7 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     atomic_init(&s->pending_touch_pressed, false);
     atomic_init(&s->touch_dirty, false);
     atomic_init(&s->extended_input, false);
+    atomic_init(&s->has_buttons, false);
     atomic_init(&s->pending_buttons, 0);
     atomic_init(&s->pending_left_x, 0);
     atomic_init(&s->pending_left_y, 0);
