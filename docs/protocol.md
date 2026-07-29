@@ -113,7 +113,7 @@ behandeln, ohne mit einer ungültigen Zahlen-Kombination verwechselt zu werden:
 |---|---|---|---|---|
 | `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja | nein |
 | `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen (320×240) | 1 | nein | ja |
-| `NDS_BOTTOM_SCREEN` | melonDS, Bottom Screen (256×192) | 1 | nein | nein |
+| `NDS_BOTTOM_SCREEN` | melonDS, Bottom Screen (256×192) | 1 | nein | ja |
 | `WIIU_GAMEPAD` | Cemu, GamePad-Bildschirm (854×480) | 1 | ja | ja |
 
 Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`) lassen das
@@ -203,7 +203,9 @@ gesendet:
   Verbindung erwartet (`type=2`-Messages, siehe unten). `"gba_buttons"` ist das
   bestehende `u16le`-Bitmask-Format, unverändert; `"n3ds_touch"` ist Touch-Position
   + Press-Status; `"n3ds_touch_and_buttons"` (`N3DS_BOTTOM_SCREEN`, `WIIU_GAMEPAD`)
-  bündelt zusätzlich Tasten und bis zu zwei Analogsticks in einem Frame — siehe
+  bündelt zusätzlich Tasten und bis zu zwei Analogsticks in einem Frame;
+  `"touch_and_buttons"` (`NDS_BOTTOM_SCREEN`) ist dasselbe ohne die
+  Analogstick-Felder, für Konsolen ganz ohne Analogeingabe — siehe
   [WebSocket, binäre Frames](#websocket-binäre-frames).
 
 ### `hello_ack` (Client → Server)
@@ -312,6 +314,7 @@ generischen Fehlermeldung).
 | Client → Server | `2` (Input, `input_encoding = "gba_buttons"`) | `[u8 type=2][u16le keyBitmask]` |
 | Client → Server | `2` (Input, `input_encoding = "n3ds_touch"`) | `[u8 type=2][u8 pressed][u16le x][u16le y]` |
 | Client → Server | `2` (Input, `input_encoding = "n3ds_touch_and_buttons"`) | `[u8 type=2][u8 pressed][u16le touchX][u16le touchY][u32le buttons][s16le leftX][s16le leftY][s16le rightX][s16le rightY]` |
+| Client → Server | `2` (Input, `input_encoding = "touch_and_buttons"`) | `[u8 type=2][u8 pressed][u16le touchX][u16le touchY][u32le buttons]` |
 | Server → Client | `3` (Audio) | `[u8 type=3][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
 | Server → Client | `4` (Text-Input-Anfrage) | `[u8 type=4][u32le maxLength][u32le textLen][utf8 text]` |
 | Client → Server | `5` (Text-Input-Antwort) | `[u8 type=5][u8 confirmed][u32le textLen][utf8 text]` |
@@ -324,23 +327,24 @@ auf. Inhaltlich unverändert gegenüber der Vor-Handshake-Version des Protokolls
 `width`/`height`/`sampleRate`/`channels` in den Headern spiegeln die in
 `session_ready` bestätigten (ggf. herunterskalierten) Werte.
 
-Alle drei `type=2`-Formen teilen sich denselben Nachrichtentyp — welche Form auf
+Alle vier `type=2`-Formen teilen sich denselben Nachrichtentyp — welche Form auf
 einer Verbindung gilt, legt `hello.input_encoding` einmalig beim Handshake fest
 (siehe oben), nicht ein zusätzliches Unterscheidungsbyte im Frame selbst.
 
 Bitreihenfolge Input-Bitmask (Bit 0 = LSB, `"gba_buttons"`): `A, B, Select, Start, Right, Left, Up, Down, R, L`
 
-`"n3ds_touch"` (für alle Sekundärbildschirm-Stream-Typen mit Touch-Eingabe --
-aktuell `N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN` und `WIIU_GAMEPAD`, trotz
-des Namens nicht 3DS-spezifisch): `x`/`y` sind Pixel-Koordinaten im nativen
-Raster des jeweiligen Stream-Typs, wie in `hello.video`/`session_ready.video`
-als `width`/`height` deklariert (`320x240` bei `N3DS_BOTTOM_SCREEN`, `256x192`
+`"n3ds_touch"` (reiner Touch, keine Tasten -- der reine Touch-Teil, den
+`"n3ds_touch_and_buttons"` und `"touch_and_buttons"` unten beide
+übernehmen): `x`/`y` sind Pixel-Koordinaten im nativen Raster des
+jeweiligen Stream-Typs, wie in `hello.video`/`session_ready.video` als
+`width`/`height` deklariert (`320x240` bei `N3DS_BOTTOM_SCREEN`, `256x192`
 bei `NDS_BOTTOM_SCREEN`, `854x480` bei `WIIU_GAMEPAD`) — wie ein Client von
 seiner eigenen Eingabe (Touch, Maus, Stick, ...) auf diesen Bereich abbildet,
-ist allein seine Sache. Der Encoding-Name selbst bleibt `"n3ds_touch"` über
-alle diese Stream-Typen hinweg (keine Wire-Format-Änderung, nur diese
-Doku-Präzisierung -- ein neuer Name pro Stream-Typ hätte hier nur 100%
-identischen Code unter mehreren Namen dupliziert).
+ist allein seine Sache. Aktuell meldet kein implementierter Server dieses
+reine Encoding mehr in `hello.input_encoding` (alle drei genannten
+Stream-Typen sind inzwischen auf eine der beiden Tasten-Erweiterungen
+umgestiegen) — als eigener Name bleibt es trotzdem bestehen, für einen
+künftigen Stream-Typ mit Touch, aber ganz ohne Tasten.
 `pressed = 0` bedeutet **loslassen**; `x`/`y` sind dabei bedeutungslos und
 müssen `0` sein — ein Loslassen hat keine sinnvolle Position, es ist schlicht
 „nicht mehr berühren", nicht „Berührung endete bei (x,y)". Ein Drag wird als
@@ -389,6 +393,19 @@ Referenzimplementierung:
 [`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
 (`finlink_extended_input`, `finlink_button_bit`,
 `finlink_build_extended_input_frame`, `finlink_parse_extended_input_frame`).
+
+`"touch_and_buttons"` (aktuell nur `NDS_BOTTOM_SCREEN`) ist dieselbe Idee wie
+`"n3ds_touch_and_buttons"` -- Touch + Tasten in einem kombinierten Frame,
+dieselbe `buttons`-Bitmaske (siehe Tabelle oben) -- aber für eine Konsole
+ganz ohne Analogeingabe (die DS hat nur ein digitales Steuerkreuz): kein
+`leftX`/`leftY`/`rightX`/`rightY` im Frame, statt vier Feldern, die dort
+ohnehin nur je `0` sein könnten. Eigener, kleinerer Struct/Wire-Shape statt
+einer Wiederverwendung von `finlink_extended_input` mit Padding.
+
+Referenzimplementierung:
+[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
+(`finlink_touch_and_buttons`, `finlink_build_touch_and_buttons_frame`,
+`finlink_parse_touch_and_buttons_frame`).
 
 Alle Mehrbyte-Felder sind Little-Endian.
 
@@ -568,8 +585,6 @@ Mechanismus für die nativen Clients — die nutzen den UDP-Beacon.
 
 ## Bekannte Einschränkungen / offene Fragen
 
-- `NDS_BOTTOM_SCREEN` ist als `stream_type`-Wert reserviert, aber nirgends
-  implementiert. Kein Server sendet diesen Wert aktuell.
 - Der Discovery-Beacon ist unauthentifiziert (siehe
   [Discovery-Beacon](#discovery-beacon-udp)) — Härtung dagegen ist bewusst
   zurückgestellt.

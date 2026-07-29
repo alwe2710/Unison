@@ -273,6 +273,31 @@ finlink_result finlink_parse_extended_input_frame(const uint8_t *data, size_t si
     return FINLINK_OK;
 }
 
+size_t finlink_build_touch_and_buttons_frame(const finlink_touch_and_buttons *input,
+                                              uint8_t out_buf[FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE]) {
+    out_buf[0] = FINLINK_MSG_INPUT;
+    out_buf[1] = input->pressed ? 1 : 0;
+    finlink_write_u16le(out_buf + 2, input->pressed ? input->touch_x : 0);
+    finlink_write_u16le(out_buf + 4, input->pressed ? input->touch_y : 0);
+    finlink_write_u32le(out_buf + 6, input->buttons);
+    return FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE;
+}
+
+finlink_result finlink_parse_touch_and_buttons_frame(const uint8_t *data, size_t size,
+                                                      finlink_touch_and_buttons *out) {
+    if (size < FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_INPUT) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+    out->pressed = data[1] != 0;
+    out->touch_x = finlink_read_u16le(data + 2);
+    out->touch_y = finlink_read_u16le(data + 4);
+    out->buttons = finlink_read_u32le(data + 6);
+    return FINLINK_OK;
+}
+
 size_t finlink_text_input_request_max_size(size_t text_len) {
     return FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE + text_len;
 }

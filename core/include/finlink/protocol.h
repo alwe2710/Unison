@@ -179,6 +179,37 @@ size_t finlink_build_extended_input_frame(const finlink_extended_input *input,
 finlink_result finlink_parse_extended_input_frame(const uint8_t *data, size_t size,
                                                    finlink_extended_input *out);
 
+/* Touch + buttons for input_encoding "touch_and_buttons" (docs/protocol.md)
+ * -- a client->server type=2 message, for touch-capable stream types whose
+ * console has no analog stick at all (currently only NDS_BOTTOM_SCREEN).
+ * Same touch/buttons semantics as finlink_extended_input (touch_x/touch_y
+ * meaningless when pressed is 0; buttons is the same finlink_button_bit
+ * superset, a given server only looking at the bits its own console
+ * actually has), just without the two always-zero stick fields
+ * finlink_extended_input would otherwise carry on a console with none --
+ * a distinct, smaller wire shape rather than a duplicate of that one with
+ * padding. */
+typedef struct {
+    int pressed;
+    uint16_t touch_x;
+    uint16_t touch_y;
+    uint32_t buttons;
+} finlink_touch_and_buttons;
+
+#define FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE 10
+
+/* Writes out_buf[FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE] (the caller must
+ * have room for that many bytes). Returns the number of bytes written,
+ * always FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE -- same convention as
+ * finlink_build_touch_frame. */
+size_t finlink_build_touch_and_buttons_frame(const finlink_touch_and_buttons *input,
+                                              uint8_t out_buf[FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE]);
+
+/* Only valid to call when hello.input_encoding was "touch_and_buttons" --
+ * see finlink_touch_and_buttons's own comment. */
+finlink_result finlink_parse_touch_and_buttons_frame(const uint8_t *data, size_t size,
+                                                      finlink_touch_and_buttons *out);
+
 /* Reads the leading type byte of a server->client message without consuming
  * the rest. `size` must be >= 1. */
 finlink_result finlink_peek_type(const uint8_t *data, size_t size, finlink_msg_type *out_type);
