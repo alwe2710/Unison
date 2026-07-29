@@ -130,6 +130,78 @@ ein Client ohne Mikrofon-Implementierung ignoriert `type=6` unbehandelt und send
 nie ein `type=7` zurück, was für den Server gleichbedeutend mit „kein Mikrofon
 verfügbar“ ist — kein Fehlerzustand, kein Abbruch.
 
+Wie oft ein Server `type=6` tatsächlich sendet, ist Implementierungssache und
+hängt davon ab, ob die jeweilige Konsole überhaupt ein „Mikrofon gerade aktiv
+angefordert“-Signal kennt: Cemu (`WIIU_GAMEPAD`) und Azahar
+(`N3DS_BOTTOM_SCREEN`) haben ein solches Signal (`MICStatus.isOpen` bzw.
+Äquivalent) und senden `type=6` genau bei jeder Änderung dieses Zustands
+(Level-Signal, siehe unten). melonDS (`NDS_BOTTOM_SCREEN`) hat kein
+vergleichbares Signal auf dieser Ebene — dort wird `type=6` (`enabled=1`)
+einmalig direkt nach `session_ready` gesendet und danach nie erneut, auch
+nicht bei Verbindungsende (kein `enabled=0`).
+
+### Datenfluss pro Stream-Typ
+
+Welche Binärframe-Typen (siehe [WebSocket, binäre Frames](#websocket-binäre-frames))
+in welche Richtung fließen, pro `stream_type` und dessen Referenzimplementierung
+(alle nach dem Handshake, siehe [Verbindungsaufbau](#verbindungsaufbau-handshake)):
+
+**`GC_GBA_LINK`** (Dolphin, `dolphin-gba-stream`-Fork):
+
+```mermaid
+flowchart LR
+    S["Server<br/>(Dolphin)"] -- "Video (type=1)" --> C[Client]
+    S -- "Audio (type=3)" --> C
+    C -- "Input: gba_buttons (type=2)" --> S
+```
+
+**`N3DS_BOTTOM_SCREEN`** (Azahar, `src/core/streaming/`):
+
+```mermaid
+flowchart LR
+    S["Server<br/>(Azahar)"] -- "Video (type=1)" --> C[Client]
+    S -- "Mikrofon-Freigabe (type=6)" --> C
+    C -- "Input: n3ds_touch_and_buttons (type=2)" --> S
+    C -- "Mikrofon-Audio (type=7)" --> S
+```
+
+Kein `type=3` (Audio): Azahar leitet DS-/3DS-Lautsprecher-Audio bewusst nicht
+weiter, nur das Mikrofon in Gegenrichtung.
+
+**`NDS_BOTTOM_SCREEN`** (melonDS, `src/streaming/`):
+
+```mermaid
+flowchart LR
+    S["Server<br/>(melonDS)"] -- "Video (type=1)" --> C[Client]
+    S -- "Mikrofon-Freigabe (type=6, einmalig)" --> C
+    C -- "Input: touch_and_buttons (type=2)" --> S
+    C -- "Mikrofon-Audio (type=7)" --> S
+```
+
+Kein `type=3` (Audio), aus demselben Grund wie bei `N3DS_BOTTOM_SCREEN`.
+`type=2` nutzt hier `"touch_and_buttons"`, nicht `"n3ds_touch_and_buttons"`
+— kein Analogstick-Feld, da die DS keinen Analogstick hat.
+
+**`WIIU_GAMEPAD`** (Cemu, `src/Cemu/finlinkStream/`):
+
+```mermaid
+flowchart LR
+    S["Server<br/>(Cemu)"] -- "Video (type=1)" --> C[Client]
+    S -- "Audio (type=3)" --> C
+    S -- "Text-Input-Anfrage (type=4)" --> C
+    S -- "Mikrofon-Freigabe (type=6)" --> C
+    C -- "Input: n3ds_touch_and_buttons (type=2)" --> S
+    C -- "Text-Input-Antwort (type=5)" --> S
+    C -- "Mikrofon-Audio (type=7)" --> S
+```
+
+Einziger Stream-Typ mit allen bisherigen Nachrichtentypen gleichzeitig:
+GamePad-Lautsprecher-Audio läuft exklusiv zum Client (lokale Wiedergabe wird
+währenddessen stummgeschaltet, siehe `ax_out.cpp`/`AIInitDRCDMA`), GamePad-
+Mikrofon läuft in Gegenrichtung, und `swkbd` (die Wii U-Software-Tastatur)
+nutzt Text-Input statt eines lokalen Overlays, da dieses von der
+Video-Capture nie erfasst würde (siehe „Text-Eingabe“ unten).
+
 ### Zielbildschirm auf Zweitbildschirm-Clients (3DS, DS/DSi)
 
 `N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN` und `WIIU_GAMEPAD` sind selbst schon der
