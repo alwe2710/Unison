@@ -16,6 +16,8 @@ finlink_result finlink_peek_type(const uint8_t *data, size_t size, finlink_msg_t
         case FINLINK_MSG_VIDEO:
         case FINLINK_MSG_INPUT:
         case FINLINK_MSG_AUDIO:
+        case FINLINK_MSG_TEXT_INPUT_REQUEST:
+        case FINLINK_MSG_TEXT_INPUT_RESPONSE:
             *out_type = (finlink_msg_type)data[0];
             return FINLINK_OK;
         default:
@@ -266,5 +268,79 @@ finlink_result finlink_parse_extended_input_frame(const uint8_t *data, size_t si
     out->left_y = finlink_read_s16le(data + 12);
     out->right_x = finlink_read_s16le(data + 14);
     out->right_y = finlink_read_s16le(data + 16);
+    return FINLINK_OK;
+}
+
+size_t finlink_text_input_request_max_size(size_t text_len) {
+    return FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE + text_len;
+}
+
+size_t finlink_build_text_input_request(const finlink_text_input_request *req, uint8_t *out_buf,
+                                         size_t out_capacity) {
+    const size_t needed = FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE + req->text_len;
+    if (out_capacity < needed) {
+        return 0;
+    }
+    out_buf[0] = FINLINK_MSG_TEXT_INPUT_REQUEST;
+    finlink_write_u32le(out_buf + 1, req->max_length);
+    finlink_write_u32le(out_buf + 5, (uint32_t)req->text_len);
+    if (req->text_len > 0) {
+        memcpy(out_buf + FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE, req->text, req->text_len);
+    }
+    return needed;
+}
+
+finlink_result finlink_parse_text_input_request(const uint8_t *data, size_t size,
+                                                  finlink_text_input_request *out) {
+    if (size < FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_TEXT_INPUT_REQUEST) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+    out->max_length = finlink_read_u32le(data + 1);
+    const size_t text_len = finlink_read_u32le(data + 5);
+    if (size < FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE + text_len) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    out->text = (const char *)(data + FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE);
+    out->text_len = text_len;
+    return FINLINK_OK;
+}
+
+size_t finlink_text_input_response_max_size(size_t text_len) {
+    return FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE + text_len;
+}
+
+size_t finlink_build_text_input_response(const finlink_text_input_response *resp, uint8_t *out_buf,
+                                          size_t out_capacity) {
+    const size_t needed = FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE + resp->text_len;
+    if (out_capacity < needed) {
+        return 0;
+    }
+    out_buf[0] = FINLINK_MSG_TEXT_INPUT_RESPONSE;
+    out_buf[1] = resp->confirmed ? 1 : 0;
+    finlink_write_u32le(out_buf + 2, (uint32_t)resp->text_len);
+    if (resp->text_len > 0) {
+        memcpy(out_buf + FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE, resp->text, resp->text_len);
+    }
+    return needed;
+}
+
+finlink_result finlink_parse_text_input_response(const uint8_t *data, size_t size,
+                                                   finlink_text_input_response *out) {
+    if (size < FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_TEXT_INPUT_RESPONSE) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+    out->confirmed = data[1] != 0;
+    const size_t text_len = finlink_read_u32le(data + 2);
+    if (size < FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE + text_len) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    out->text = (const char *)(data + FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE);
+    out->text_len = text_len;
     return FINLINK_OK;
 }

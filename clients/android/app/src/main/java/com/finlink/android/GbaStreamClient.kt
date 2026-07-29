@@ -23,6 +23,15 @@ class GbaStreamClient(private val listener: Listener) {
         fun onConnected(isTouch: Boolean, hasButtons: Boolean)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
+        // The server's own on-screen software keyboard (e.g. Cemu's swkbd)
+        // is drawn as a host-side UI overlay, never part of the captured
+        // video -- this is the server asking the client to show its own
+        // native text input UI instead, since there'd otherwise be no way
+        // to type at all. maxLength is in characters, 0 = no server-side
+        // limit; initialText is whatever's already in the field (often
+        // empty). Reply with sendTextInputResponse() once the user submits
+        // or cancels.
+        fun onTextInputRequest(maxLength: Int, initialText: String)
         fun onDisconnected(reason: String)
     }
 
@@ -70,6 +79,15 @@ class GbaStreamClient(private val listener: Listener) {
         }
     }
 
+    /** Reply to Listener.onTextInputRequest() -- confirmed=false (user
+     * cancelled) sends regardless of what's in text, the server is expected
+     * to leave its existing text unchanged in that case (finlink's own
+     * finlink_text_input_response convention). */
+    fun sendTextInputResponse(confirmed: Boolean, text: String) {
+        val handle = nativeHandle
+        if (handle != 0L) nativeSendTextInputResponse(handle, confirmed, text)
+    }
+
     fun disconnect() {
         val handle = nativeHandle
         if (handle != 0L) {
@@ -85,6 +103,7 @@ class GbaStreamClient(private val listener: Listener) {
         handle: Long, touchPressed: Boolean, touchX: Int, touchY: Int,
         buttons: Int, leftX: Int, leftY: Int, rightX: Int, rightY: Int
     )
+    private external fun nativeSendTextInputResponse(handle: Long, confirmed: Boolean, text: String)
     private external fun nativeDisconnect(handle: Long)
 
     companion object {

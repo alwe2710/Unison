@@ -98,6 +98,20 @@ typedef struct {
     atomic_int pending_left_y;
     atomic_int pending_right_x;
     atomic_int pending_right_y;
+    // Text input response (finlink/protocol.h's finlink_text_input_response)
+    // -- unlike the continuously-resent state above, this is a one-shot
+    // send: nativeSendTextInputResponse stashes the confirmed flag + a heap
+    // copy of the UTF-8 text under pending_text_response_mutex (a plain
+    // mutex rather than atomics, since the text itself needs to move, not
+    // just a scalar), and text_response_dirty tells
+    // maybe_send_text_input_response() there's one waiting -- same "only
+    // the session thread touches the socket" reasoning as
+    // maybe_send_input/maybe_send_touch.
+    pthread_mutex_t pending_text_response_mutex;
+    char *pending_text_response_text; // heap-owned, UTF-8, NOT NUL-terminated
+    size_t pending_text_response_len;
+    bool pending_text_response_confirmed;
+    atomic_bool text_response_dirty;
 } finlink_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -563,6 +577,79 @@ static void handle_audio_message(JNIEnv *env, finlink_session *s, jmethodID on_a
     (*env)->DeleteLocalRef(env, arr);
 }
 
+// Cemu's on-screen software keyboard (and any future server that does the
+// same) is drawn as a host-side UI overlay, never part of the captured
+// video -- this is the server telling the client to show its own native
+// text input UI instead. req.text isn't NUL-terminated (it points straight
+// into the WS payload buffer), so it needs a temporary NUL-terminated copy
+// before NewStringUTF() can use it.
+static void handle_text_input_request_message(JNIEnv *env, finlink_session *s,
+                                                jmethodID on_text_input_request, const uint8_t *payload,
+                                                size_t payload_size) {
+    finlink_text_input_request req;
+    if (finlink_parse_text_input_request(payload, payload_size, &req) != FINLINK_OK) {
+        return;
+    }
+    char *text_nul = malloc(req.text_len + 1);
+    if (!text_nul) {
+        return;
+    }
+    memcpy(text_nul, req.text, req.text_len);
+    text_nul[req.text_len] = '\0';
+    jstring jtext = (*env)->NewStringUTF(env, text_nul);
+    free(text_nul);
+    (*env)->CallVoidMethod(env, s->listener, on_text_input_request, (jint)req.max_length, jtext);
+    (*env)->DeleteLocalRef(env, jtext);
+}
+
+// Text-input counterpart to maybe_send_input/maybe_send_touch, but a
+// one-shot send rather than "resend the latest state every time it
+// changes": there's no ongoing state to resend, just a single response to
+// whatever request handle_text_input_request_message() last delivered.
+// Dynamically allocated (unlike those two's fixed-size stack buffers)
+// since the text length is caller-controlled, not a small fixed shape.
+static void maybe_send_text_input_response(finlink_session *s) {
+    if (!atomic_exchange(&s->text_response_dirty, false)) {
+        return;
+    }
+
+    pthread_mutex_lock(&s->pending_text_response_mutex);
+    char *text = s->pending_text_response_text;
+    size_t text_len = s->pending_text_response_len;
+    bool confirmed = s->pending_text_response_confirmed;
+    s->pending_text_response_text = NULL;
+    s->pending_text_response_len = 0;
+    pthread_mutex_unlock(&s->pending_text_response_mutex);
+
+    finlink_text_input_response resp;
+    resp.confirmed = confirmed ? 1 : 0;
+    resp.text = text ? text : "";
+    resp.text_len = text_len;
+
+    const size_t payload_cap = finlink_text_input_response_max_size(text_len);
+    uint8_t *payload = malloc(payload_cap);
+    if (payload) {
+        size_t payload_len = finlink_build_text_input_response(&resp, payload, payload_cap);
+        if (payload_len > 0) {
+            uint8_t mask_key[4];
+            arc4random_buf(mask_key, sizeof(mask_key));
+
+            const size_t frame_cap = finlink_ws_build_frame_max_size(payload_len);
+            uint8_t *frame_buf = malloc(frame_cap);
+            if (frame_buf) {
+                size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, payload_len,
+                                                           mask_key, frame_buf, frame_cap);
+                if (frame_len > 0) {
+                    send_all(s->sockfd, frame_buf, frame_len, &s->stop);
+                }
+                free(frame_buf);
+            }
+        }
+        free(payload);
+    }
+    free(text);
+}
+
 // Sends the current key mask, if it changed since the last send, as a
 // masked WS input frame. Called once per loop iteration rather than
 // eagerly from nativeSendInput, so this thread stays the sole owner of the
@@ -639,8 +726,8 @@ static void maybe_send_touch(finlink_session *s) {
     }
 }
 
-static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video,
-                              jmethodID on_audio, byte_buf *buf) {
+static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video, jmethodID on_audio,
+                              jmethodID on_text_input_request, byte_buf *buf) {
     uint8_t chunk[4096];
     uint8_t *inflate_out = NULL;
     size_t inflate_out_cap = 0;
@@ -685,6 +772,9 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
                                          &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
                 } else if (type == FINLINK_MSG_AUDIO) {
                     handle_audio_message(env, s, on_audio, frame.payload, frame.payload_size);
+                } else if (type == FINLINK_MSG_TEXT_INPUT_REQUEST) {
+                    handle_text_input_request_message(env, s, on_text_input_request, frame.payload,
+                                                       frame.payload_size);
                 }
             }
 
@@ -696,6 +786,7 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
 
         maybe_send_input(s);
         maybe_send_touch(s);
+        maybe_send_text_input_response(s);
     }
 
     free(inflate_out);
@@ -718,6 +809,8 @@ static void *client_thread_main(void *arg) {
     jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZ)V");
     jmethodID on_video = (*env)->GetMethodID(env, listener_class, "onVideoFrame", "(II[B)V");
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
+    jmethodID on_text_input_request =
+        (*env)->GetMethodID(env, listener_class, "onTextInputRequest", "(ILjava/lang/String;)V");
     jmethodID on_disconnected =
         (*env)->GetMethodID(env, listener_class, "onDisconnected", "(Ljava/lang/String;)V");
 
@@ -745,7 +838,7 @@ static void *client_thread_main(void *arg) {
     atomic_store(&s->extended_input, hs.extended_input);
     (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
                             (jboolean)hs.extended_input);
-    run_session_loop(env, s, on_video, on_audio, &buf);
+    run_session_loop(env, s, on_video, on_audio, on_text_input_request, &buf);
     byte_buf_free(&buf);
 
     call_on_disconnected(env, s, on_disconnected, "Verbindung getrennt");
@@ -788,6 +881,8 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     atomic_init(&s->pending_left_y, 0);
     atomic_init(&s->pending_right_x, 0);
     atomic_init(&s->pending_right_y, 0);
+    pthread_mutex_init(&s->pending_text_response_mutex, NULL);
+    atomic_init(&s->text_response_dirty, false);
 
     if (pthread_create(&s->thread, NULL, client_thread_main, s) != 0) {
         LOGE("pthread_create failed");
@@ -858,6 +953,43 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendExtend
     atomic_store(&s->touch_dirty, true);
 }
 
+// Only meaningful right after Listener.onTextInputRequest() fires --
+// confirmed=false (the user cancelled) sends an empty text regardless of
+// jtext's content, matching finlink_text_input_response's own convention
+// that text is meaningless when not confirmed.
+JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTextInputResponse(
+    JNIEnv *env, jobject thiz, jlong handle, jboolean confirmed, jstring jtext) {
+    (void)thiz;
+    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    if (!s) {
+        return;
+    }
+
+    const char *text_chars = confirmed ? (*env)->GetStringUTFChars(env, jtext, NULL) : NULL;
+    size_t text_len = text_chars ? strlen(text_chars) : 0;
+
+    char *text_copy = NULL;
+    if (text_len > 0) {
+        text_copy = malloc(text_len);
+        if (text_copy) {
+            memcpy(text_copy, text_chars, text_len);
+        } else {
+            text_len = 0;
+        }
+    }
+    if (text_chars) {
+        (*env)->ReleaseStringUTFChars(env, jtext, text_chars);
+    }
+
+    pthread_mutex_lock(&s->pending_text_response_mutex);
+    free(s->pending_text_response_text); // in case a previous response never got sent
+    s->pending_text_response_text = text_copy;
+    s->pending_text_response_len = text_len;
+    s->pending_text_response_confirmed = (bool)confirmed;
+    pthread_mutex_unlock(&s->pending_text_response_mutex);
+    atomic_store(&s->text_response_dirty, true);
+}
+
 JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect(JNIEnv *env,
                                                                                   jobject thiz,
                                                                                   jlong handle) {
@@ -869,5 +1001,7 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect
     atomic_store(&s->stop, true);
     pthread_join(s->thread, NULL);
     (*env)->DeleteGlobalRef(env, s->listener);
+    pthread_mutex_destroy(&s->pending_text_response_mutex);
+    free(s->pending_text_response_text);
     free(s);
 }

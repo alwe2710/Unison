@@ -8,6 +8,8 @@
     <string name="status_error">Fehler: %1$s</string>
     <string name="stream_lost_title">Verbindung unterbrochen</string>
     <string name="ok">OK</string>
+    <string name="cancel">Abbrechen</string>
+    <string name="text_input_title">Texteingabe</string>
     <string name="lobby_host_required">Host erforderlich</string>
     <string name="lobby_searching">Suche…</string>
     <string name="lobby_pick">Platz wählen</string>

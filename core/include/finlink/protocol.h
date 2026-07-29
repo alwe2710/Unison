@@ -17,6 +17,8 @@ typedef enum {
     FINLINK_MSG_VIDEO = 1,
     FINLINK_MSG_INPUT = 2,
     FINLINK_MSG_AUDIO = 3,
+    FINLINK_MSG_TEXT_INPUT_REQUEST = 4,  /* server->client, see finlink_text_input_request */
+    FINLINK_MSG_TEXT_INPUT_RESPONSE = 5, /* client->server, see finlink_text_input_response */
 } finlink_msg_type;
 
 typedef enum {
@@ -224,6 +226,60 @@ size_t finlink_build_touch_frame(const finlink_touch_state *touch, uint8_t out_b
  * type byte. Only valid to call when hello.input_encoding was
  * "n3ds_touch" -- see finlink_touch_state's own comment. */
 finlink_result finlink_parse_touch_frame(const uint8_t *data, size_t size, finlink_touch_state *out);
+
+/* Text input request (type=4), server->client -- sent when the emulated
+ * console wants to show its own on-screen software keyboard (e.g. Cemu's
+ * swkbd, 3DS's swkbd applet), whose local rendering the video stream never
+ * captures (it's drawn as a host-side UI overlay on top of the emulated
+ * framebuffer, not part of it). Prompts the client to show its own native
+ * text input UI instead of leaving the remote user with no way to type at
+ * all. `text` points into the caller's buffer (no copy); empty if there's
+ * no initial/pre-filled text to show. */
+typedef struct {
+    uint32_t max_length; /* in characters; 0 = no limit enforced by the server */
+    const char *text;    /* utf8, initial/pre-filled text */
+    size_t text_len;      /* in bytes */
+} finlink_text_input_request;
+
+/* Header only (type + max_length + text_len); the text itself follows and
+ * is variable-length, see finlink_text_input_request_max_size(). */
+#define FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE 9
+
+size_t finlink_text_input_request_max_size(size_t text_len);
+
+/* Writes into out_buf (sized with finlink_text_input_request_max_size()).
+ * Returns the number of bytes written, or 0 if out_capacity was too small. */
+size_t finlink_build_text_input_request(const finlink_text_input_request *req, uint8_t *out_buf,
+                                         size_t out_capacity);
+
+/* Parses a type=4 message. `data` must start at the type byte. */
+finlink_result finlink_parse_text_input_request(const uint8_t *data, size_t size,
+                                                 finlink_text_input_request *out);
+
+/* Text input response (type=5), client->server -- the user's typed result.
+ * confirmed=0 means the user cancelled (dismissed the client's text input
+ * UI without submitting); text/text_len are meaningless in that case and
+ * the server should leave whatever text was already there unchanged. */
+typedef struct {
+    int confirmed;
+    const char *text; /* utf8 */
+    size_t text_len;   /* in bytes */
+} finlink_text_input_response;
+
+/* Header only (type + confirmed + text_len); the text itself follows and is
+ * variable-length, see finlink_text_input_response_max_size(). */
+#define FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE 6
+
+size_t finlink_text_input_response_max_size(size_t text_len);
+
+/* Writes into out_buf (sized with finlink_text_input_response_max_size()).
+ * Returns the number of bytes written, or 0 if out_capacity was too small. */
+size_t finlink_build_text_input_response(const finlink_text_input_response *resp, uint8_t *out_buf,
+                                          size_t out_capacity);
+
+/* Parses a type=5 message. `data` must start at the type byte. */
+finlink_result finlink_parse_text_input_response(const uint8_t *data, size_t size,
+                                                  finlink_text_input_response *out);
 
 #ifdef __cplusplus
 }

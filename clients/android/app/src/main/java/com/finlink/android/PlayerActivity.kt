@@ -27,17 +27,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -46,9 +52,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.window.Dialog
 import java.nio.ByteBuffer
@@ -78,6 +86,13 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private var disconnectedReason by mutableStateOf<String?>(null)
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var bilinearVideoFilter by mutableStateOf(false)
+
+    // Set from GbaStreamClient.Listener.onTextInputRequest() (the server's
+    // own on-screen keyboard has no way to reach a remote client, see that
+    // callback's own comment) -- non-null shows TextInputDialog below;
+    // cleared again once the user submits or cancels.
+    private data class TextInputRequest(val maxLength: Int, val initialText: String)
+    private var textInputRequest by mutableStateOf<TextInputRequest?>(null)
 
     // Set from GbaStreamClient.Listener.onConnected(isTouch, hasButtons),
     // i.e. from the server's own hello.input_encoding -- not known before
@@ -378,6 +393,62 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                     }
                 }
             }
+
+            // See Listener.onTextInputRequest()'s own comment for why this
+            // exists at all: the server's own on-screen keyboard has no way
+            // to reach a remote client.
+            textInputRequest?.let { request ->
+                TextInputDialog(
+                    request = request,
+                    onSubmit = { text ->
+                        client?.sendTextInputResponse(true, text)
+                        textInputRequest = null
+                    },
+                    onCancel = {
+                        client?.sendTextInputResponse(false, "")
+                        textInputRequest = null
+                    }
+                )
+            }
+        }
+    }
+
+    /** Pre-filled with request.initialText, auto-focused so the system
+     * keyboard comes up immediately -- the whole point of this dialog is to
+     * stand in for the server's own on-screen keyboard, which the video
+     * stream never shows. IME "Done" submits the same as the OK button;
+     * dismissing (back button/outside tap) cancels, same as Cancel. */
+    @Composable
+    private fun TextInputDialog(request: TextInputRequest, onSubmit: (String) -> Unit, onCancel: () -> Unit) {
+        var text by remember(request) { mutableStateOf(request.initialText) }
+        val focusRequester = remember { FocusRequester() }
+
+        Dialog(onDismissRequest = onCancel) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(stringResource(R.string.text_input_title), style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { new ->
+                            text = if (request.maxLength > 0) new.take(request.maxLength) else new
+                        },
+                        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { onSubmit(text) })
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Row(modifier = Modifier.align(Alignment.End)) {
+                        TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
+                        TextButton(onClick = { onSubmit(text) }) { Text(stringResource(R.string.ok)) }
+                    }
+                }
+            }
+        }
+
+        LaunchedEffect(request) {
+            focusRequester.requestFocus()
         }
     }
 
@@ -783,6 +854,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         physicalMask = 0
         connected = false
         disconnectedReason = null
+        textInputRequest = null
         touchMode = false
         hasButtonsMode = false
         extTouchPressed = false
@@ -828,6 +900,12 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
             connected = true
             touchMode = isTouch
             hasButtonsMode = hasButtons
+        }
+    }
+
+    override fun onTextInputRequest(maxLength: Int, initialText: String) {
+        runOnUiThread {
+            textInputRequest = TextInputRequest(maxLength, initialText)
         }
     }
 
