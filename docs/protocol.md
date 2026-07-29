@@ -114,7 +114,7 @@ behandeln, ohne mit einer ungültigen Zahlen-Kombination verwechselt zu werden:
 | `GC_GBA_LINK` | Dolphins integrierte GBA-Emulation (GC↔GBA-Link-Cable) | 4 (P1–P4) | ja | nein |
 | `N3DS_BOTTOM_SCREEN` | Azahar, Bottom Screen (320×240) | 1 | nein | ja |
 | `NDS_BOTTOM_SCREEN` | melonDS, Bottom Screen (256×192) | 1 | nein | nein |
-| `WIIU_GAMEPAD` | Cemu, GamePad-Bildschirm (854×480) | 1 | ja | nein |
+| `WIIU_GAMEPAD` | Cemu, GamePad-Bildschirm (854×480) | 1 | ja | ja |
 
 Stream-Typen ohne Audio (`N3DS_BOTTOM_SCREEN`, `NDS_BOTTOM_SCREEN`) lassen das
 `audio`-Feld in `hello` weg (`null`/nicht vorhanden) und die Audio-Verhandlung in
