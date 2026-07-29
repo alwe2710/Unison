@@ -19,6 +19,8 @@ typedef enum {
     FINLINK_MSG_AUDIO = 3,
     FINLINK_MSG_TEXT_INPUT_REQUEST = 4,  /* server->client, see finlink_text_input_request */
     FINLINK_MSG_TEXT_INPUT_RESPONSE = 5, /* client->server, see finlink_text_input_response */
+    FINLINK_MSG_MIC_ENABLE = 6,          /* server->client, see finlink_mic_enable */
+    FINLINK_MSG_MIC_AUDIO = 7,           /* client->server, see finlink_parse_mic_audio_frame */
 } finlink_msg_type;
 
 typedef enum {
@@ -280,6 +282,46 @@ size_t finlink_build_text_input_response(const finlink_text_input_response *resp
 /* Parses a type=5 message. `data` must start at the type byte. */
 finlink_result finlink_parse_text_input_response(const uint8_t *data, size_t size,
                                                   finlink_text_input_response *out);
+
+/* Mic input enable (type=6), server->client -- tells the client whether the
+ * emulated console currently wants microphone input, and at what sample
+ * rate to capture it at. Mirrors real hardware: the physical mic (Wii U
+ * GamePad, 3DS) is only actually active while a game has powered it on and
+ * is sampling, not continuously just because a stream is connected -- so
+ * the client should only capture and upload its own microphone while the
+ * most recent message had enabled=1, stopping as soon as one with
+ * enabled=0 arrives. A level signal (safe to resend the same value
+ * idempotently), not an edge/toggle. sample_rate is meaningless when
+ * enabled=0. */
+typedef struct {
+    int enabled;
+    uint32_t sample_rate;
+} finlink_mic_enable;
+
+#define FINLINK_MIC_ENABLE_FRAME_SIZE 6
+
+/* Writes out_buf[FINLINK_MIC_ENABLE_FRAME_SIZE] (the caller must have room
+ * for that many bytes). Returns the number of bytes written, always
+ * FINLINK_MIC_ENABLE_FRAME_SIZE. */
+size_t finlink_build_mic_enable_frame(const finlink_mic_enable *enable,
+                                      uint8_t out_buf[FINLINK_MIC_ENABLE_FRAME_SIZE]);
+
+/* Parses a type=6 message. `data` must start at the type byte. */
+finlink_result finlink_parse_mic_enable_frame(const uint8_t *data, size_t size,
+                                               finlink_mic_enable *out);
+
+/* Mic input audio (type=7), client->server -- raw PCM samples captured from
+ * the client's own microphone, sent while a FINLINK_MSG_MIC_ENABLE(1) is in
+ * effect. Always mono (consoles with a mic input, Wii U GamePad and 3DS,
+ * only ever take a single channel). Same wire shape as finlink_audio_frame
+ * (type=3, which is always server->client console/speaker audio -- this is
+ * the reverse direction, reusing the identical struct since nothing about
+ * the layout differs). No build helper here since, like FINLINK_MSG_AUDIO,
+ * there's currently exactly one implementation producing this message
+ * (the Android client) and it hand-builds it the same way that
+ * implementation hand-builds everything else it sends. */
+finlink_result finlink_parse_mic_audio_frame(const uint8_t *data, size_t size,
+                                              finlink_audio_frame *out);
 
 #ifdef __cplusplus
 }

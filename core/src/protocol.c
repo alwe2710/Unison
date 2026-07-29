@@ -18,6 +18,8 @@ finlink_result finlink_peek_type(const uint8_t *data, size_t size, finlink_msg_t
         case FINLINK_MSG_AUDIO:
         case FINLINK_MSG_TEXT_INPUT_REQUEST:
         case FINLINK_MSG_TEXT_INPUT_RESPONSE:
+        case FINLINK_MSG_MIC_ENABLE:
+        case FINLINK_MSG_MIC_AUDIO:
             *out_type = (finlink_msg_type)data[0];
             return FINLINK_OK;
         default:
@@ -342,5 +344,41 @@ finlink_result finlink_parse_text_input_response(const uint8_t *data, size_t siz
     }
     out->text = (const char *)(data + FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE);
     out->text_len = text_len;
+    return FINLINK_OK;
+}
+
+size_t finlink_build_mic_enable_frame(const finlink_mic_enable *enable,
+                                      uint8_t out_buf[FINLINK_MIC_ENABLE_FRAME_SIZE]) {
+    out_buf[0] = FINLINK_MSG_MIC_ENABLE;
+    out_buf[1] = enable->enabled ? 1 : 0;
+    finlink_write_u32le(out_buf + 2, enable->sample_rate);
+    return FINLINK_MIC_ENABLE_FRAME_SIZE;
+}
+
+finlink_result finlink_parse_mic_enable_frame(const uint8_t *data, size_t size,
+                                               finlink_mic_enable *out) {
+    if (size < FINLINK_MIC_ENABLE_FRAME_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_MIC_ENABLE) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+    out->enabled = data[1] != 0;
+    out->sample_rate = finlink_read_u32le(data + 2);
+    return FINLINK_OK;
+}
+
+finlink_result finlink_parse_mic_audio_frame(const uint8_t *data, size_t size, finlink_audio_frame *out) {
+    if (size < AUDIO_HEADER_SIZE) {
+        return FINLINK_ERR_TOO_SHORT;
+    }
+    if (data[0] != FINLINK_MSG_MIC_AUDIO) {
+        return FINLINK_ERR_UNKNOWN_TYPE;
+    }
+
+    out->sample_rate = finlink_read_u32le(data + 1);
+    out->channels = data[5];
+    out->samples = data + AUDIO_HEADER_SIZE;
+    out->sample_count = (size - AUDIO_HEADER_SIZE) / sizeof(int16_t);
     return FINLINK_OK;
 }

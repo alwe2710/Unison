@@ -1,16 +1,22 @@
 package com.finlink.android
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioRecord
 import android.media.AudioTrack
+import android.media.MediaRecorder
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -79,6 +85,20 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
     private var client: GbaStreamClient? = null
     private var audioTrack: AudioTrack? = null
+
+    // Mic capture (GbaStreamClient.Listener.onMicEnable) -- only running
+    // while the console has its mic powered on and sampling, see that
+    // callback's own comment. Requested proactively in onCreate() rather
+    // than lazily in onMicEnable() itself, since the server only resends
+    // MIC_ENABLE(true) on an actual state change on its end (not
+    // periodically) -- if permission were still ungranted the first time a
+    // game asked for the mic, granting it later would have nothing to
+    // retrigger capture until the game toggled its mic off and on again.
+    private val requestRecordAudioPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way, see class comment */ }
+    private var micRecord: AudioRecord? = null
+    private var micThread: Thread? = null
+    @Volatile private var micStopFlag = false
 
     private var videoBitmap by mutableStateOf<Bitmap?>(null)
     private var statusText by mutableStateOf("")
@@ -177,6 +197,11 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         // during any other idle screen. Tied to this window, so it's lifted
         // automatically once the Activity is no longer shown.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestRecordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
 
         prefs = Prefs(this)
         keyCodeToBit = prefs.keyBindingsByKeyCode()
@@ -944,6 +969,74 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         track.write(pcm, 0, pcm.size)
     }
 
+    override fun onMicEnable(enabled: Boolean, sampleRate: Int) {
+        if (enabled) startMicCapture(sampleRate) else stopMicCapture()
+    }
+
+    // Idempotent (stops any already-running capture first) since a change
+    // in the requested sample rate arrives as another onMicEnable(true,
+    // ...) rather than a separate message. Silently does nothing if
+    // RECORD_AUDIO isn't granted, the device can't open this config, or
+    // AudioRecord itself fails to initialize -- see GbaStreamClient.
+    // Listener.onMicEnable's own comment on why that's the right behavior
+    // here rather than surfacing an error.
+    private fun startMicCapture(sampleRate: Int) {
+        stopMicCapture()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        val minBufSize = AudioRecord.getMinBufferSize(
+            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBufSize <= 0) return // Device can't do this sample rate/config at all.
+
+        val record = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(minBufSize, 4096) * 2
+            )
+        } catch (e: SecurityException) {
+            return // Permission revoked between the check above and here.
+        }
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            record.release()
+            return
+        }
+
+        micStopFlag = false
+        micRecord = record
+        record.startRecording()
+        val thread = Thread {
+            val buf = ShortArray(1024)
+            while (!micStopFlag) {
+                val n = record.read(buf, 0, buf.size)
+                if (n > 0) {
+                    client?.sendMicAudio(sampleRate, if (n == buf.size) buf else buf.copyOf(n))
+                } else if (n < 0) {
+                    break // AudioRecord.ERROR_* -- give up rather than spin.
+                }
+            }
+        }
+        thread.isDaemon = true
+        micThread = thread
+        thread.start()
+    }
+
+    private fun stopMicCapture() {
+        micStopFlag = true
+        micThread?.join(500)
+        micThread = null
+        micRecord?.apply {
+            stop()
+            release()
+        }
+        micRecord = null
+    }
+
     override fun onDisconnected(reason: String) {
         // The native session thread calls this right before it exits on its
         // own (connect/handshake failure, peer closed, protocol error) --
@@ -969,6 +1062,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     }
 
     override fun onDestroy() {
+        stopMicCapture()
         disconnect()
         super.onDestroy()
     }

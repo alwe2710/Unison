@@ -32,6 +32,18 @@ class GbaStreamClient(private val listener: Listener) {
         // empty). Reply with sendTextInputResponse() once the user submits
         // or cancels.
         fun onTextInputRequest(maxLength: Int, initialText: String)
+        // Mirrors real mic hardware: the console only wants microphone
+        // input while a game has it powered on and actively sampling (see
+        // e.g. the 3DS's mic:u service or the Wii U GamePad's own mic
+        // input), not continuously just because a stream is connected --
+        // start (or stop) capturing from the device's own microphone via
+        // sendMicAudio() only while enabled is true, at sampleRate (the
+        // exact rate the console asked for; AudioRecord accepts arbitrary
+        // rates and resamples internally, so this can be requested
+        // directly without the client doing its own resampling). Requires
+        // RECORD_AUDIO at runtime -- if the permission isn't granted, the
+        // implementation should simply not capture rather than crash.
+        fun onMicEnable(enabled: Boolean, sampleRate: Int)
         fun onDisconnected(reason: String)
     }
 
@@ -88,6 +100,16 @@ class GbaStreamClient(private val listener: Listener) {
         if (handle != 0L) nativeSendTextInputResponse(handle, confirmed, text)
     }
 
+    /** Uploads a chunk of mono s16 PCM samples captured from the device's own
+     * microphone -- only meaningful while Listener.onMicEnable(true, ...)
+     * is the most recent state; harmless (silently queued, just never
+     * useful) otherwise. sampleRate should match whatever onMicEnable most
+     * recently reported. */
+    fun sendMicAudio(sampleRate: Int, samples: ShortArray) {
+        val handle = nativeHandle
+        if (handle != 0L) nativeSendMicAudio(handle, sampleRate, samples)
+    }
+
     fun disconnect() {
         val handle = nativeHandle
         if (handle != 0L) {
@@ -104,6 +126,7 @@ class GbaStreamClient(private val listener: Listener) {
         buttons: Int, leftX: Int, leftY: Int, rightX: Int, rightY: Int
     )
     private external fun nativeSendTextInputResponse(handle: Long, confirmed: Boolean, text: String)
+    private external fun nativeSendMicAudio(handle: Long, sampleRate: Int, samples: ShortArray)
     private external fun nativeDisconnect(handle: Long)
 
     companion object {

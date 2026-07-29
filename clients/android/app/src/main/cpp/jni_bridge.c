@@ -112,6 +112,26 @@ typedef struct {
     size_t pending_text_response_len;
     bool pending_text_response_confirmed;
     atomic_bool text_response_dirty;
+    // Mic audio (finlink/protocol.h's FINLINK_MSG_MIC_AUDIO) -- unlike
+    // pending_text_response above (a one-shot value), this is a continuous
+    // FIFO byte queue: nativeSendMicAudio() (called repeatedly off the
+    // Kotlin-managed AudioRecord capture thread) appends s16le sample bytes
+    // under pending_mic_audio_mutex, and maybe_send_mic_audio() (network
+    // thread, once per loop iteration) drains and sends whatever's
+    // accumulated -- "latest wins" would drop audio, so this can't reuse
+    // the atomic-scalar pattern maybe_send_input/maybe_send_touch use.
+    // mic_enabled mirrors the most recent FINLINK_MSG_MIC_ENABLE from the
+    // server (see handle_mic_enable_message) -- nativeSendMicAudio is a
+    // harmless no-op while it's false, since Kotlin's own capture loop is
+    // also gated on Listener.onMicEnable and shouldn't normally call it
+    // then anyway, but a stray call racing a StopSampling() on the server
+    // side is still possible.
+    pthread_mutex_t pending_mic_audio_mutex;
+    uint8_t *pending_mic_audio; // heap buffer of s16le sample bytes
+    size_t pending_mic_audio_len;
+    size_t pending_mic_audio_cap;
+    uint32_t pending_mic_sample_rate;
+    atomic_bool mic_enabled;
 } finlink_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -602,6 +622,22 @@ static void handle_text_input_request_message(JNIEnv *env, finlink_session *s,
     (*env)->DeleteLocalRef(env, jtext);
 }
 
+// Mirrors real mic hardware: the console only wants microphone input while
+// a game has it powered on and actively sampling (see e.g. 3DS's mic:u
+// service), not continuously just because a stream is connected -- this
+// tells Kotlin's Listener to start or stop its own AudioRecord capture
+// loop accordingly, at the sample rate the console actually asked for.
+static void handle_mic_enable_message(JNIEnv *env, finlink_session *s, jmethodID on_mic_enable,
+                                        const uint8_t *payload, size_t payload_size) {
+    finlink_mic_enable enable;
+    if (finlink_parse_mic_enable_frame(payload, payload_size, &enable) != FINLINK_OK) {
+        return;
+    }
+    atomic_store(&s->mic_enabled, enable.enabled != 0);
+    (*env)->CallVoidMethod(env, s->listener, on_mic_enable, (jboolean)(enable.enabled != 0),
+                            (jint)enable.sample_rate);
+}
+
 // Text-input counterpart to maybe_send_input/maybe_send_touch, but a
 // one-shot send rather than "resend the latest state every time it
 // changes": there's no ongoing state to resend, just a single response to
@@ -648,6 +684,53 @@ static void maybe_send_text_input_response(finlink_session *s) {
         free(payload);
     }
     free(text);
+}
+
+// Mic-audio counterpart to maybe_send_text_input_response, but draining a
+// FIFO byte queue rather than taking a single one-shot value -- see
+// pending_mic_audio's own comment (finlink_session) for why this can't
+// reuse the "latest wins" pattern maybe_send_input/maybe_send_touch use.
+// Hand-built the same way Cemu's WiiuGamepadStream::SendAudioFrame() and
+// this app's own FINLINK_MSG_AUDIO receive side are -- no shared
+// finlink_build_mic_audio_frame() in core since, like FINLINK_MSG_AUDIO,
+// there's exactly one implementation producing this message right now.
+static void maybe_send_mic_audio(finlink_session *s) {
+    pthread_mutex_lock(&s->pending_mic_audio_mutex);
+    if (s->pending_mic_audio_len == 0) {
+        pthread_mutex_unlock(&s->pending_mic_audio_mutex);
+        return;
+    }
+    uint8_t *samples = s->pending_mic_audio;
+    size_t samples_len = s->pending_mic_audio_len;
+    uint32_t sample_rate = s->pending_mic_sample_rate;
+    s->pending_mic_audio = NULL;
+    s->pending_mic_audio_len = 0;
+    s->pending_mic_audio_cap = 0;
+    pthread_mutex_unlock(&s->pending_mic_audio_mutex);
+
+    const size_t payload_len = 6 + samples_len; // type(1) + sample_rate(4) + channels(1)
+    uint8_t *payload = malloc(payload_len);
+    if (payload) {
+        payload[0] = FINLINK_MSG_MIC_AUDIO;
+        finlink_write_u32le(payload + 1, sample_rate);
+        payload[5] = 1; // mono -- the only channel count a mic input ever has here
+        memcpy(payload + 6, samples, samples_len);
+
+        uint8_t mask_key[4];
+        arc4random_buf(mask_key, sizeof(mask_key));
+        const size_t frame_cap = finlink_ws_build_frame_max_size(payload_len);
+        uint8_t *frame_buf = malloc(frame_cap);
+        if (frame_buf) {
+            size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, payload_len,
+                                                       mask_key, frame_buf, frame_cap);
+            if (frame_len > 0) {
+                send_all(s->sockfd, frame_buf, frame_len, &s->stop);
+            }
+            free(frame_buf);
+        }
+        free(payload);
+    }
+    free(samples);
 }
 
 // Sends the current key mask, if it changed since the last send, as a
@@ -727,7 +810,7 @@ static void maybe_send_touch(finlink_session *s) {
 }
 
 static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video, jmethodID on_audio,
-                              jmethodID on_text_input_request, byte_buf *buf) {
+                              jmethodID on_text_input_request, jmethodID on_mic_enable, byte_buf *buf) {
     uint8_t chunk[4096];
     uint8_t *inflate_out = NULL;
     size_t inflate_out_cap = 0;
@@ -775,6 +858,8 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
                 } else if (type == FINLINK_MSG_TEXT_INPUT_REQUEST) {
                     handle_text_input_request_message(env, s, on_text_input_request, frame.payload,
                                                        frame.payload_size);
+                } else if (type == FINLINK_MSG_MIC_ENABLE) {
+                    handle_mic_enable_message(env, s, on_mic_enable, frame.payload, frame.payload_size);
                 }
             }
 
@@ -787,6 +872,7 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
         maybe_send_input(s);
         maybe_send_touch(s);
         maybe_send_text_input_response(s);
+        maybe_send_mic_audio(s);
     }
 
     free(inflate_out);
@@ -811,6 +897,8 @@ static void *client_thread_main(void *arg) {
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
     jmethodID on_text_input_request =
         (*env)->GetMethodID(env, listener_class, "onTextInputRequest", "(ILjava/lang/String;)V");
+    jmethodID on_mic_enable =
+        (*env)->GetMethodID(env, listener_class, "onMicEnable", "(ZI)V");
     jmethodID on_disconnected =
         (*env)->GetMethodID(env, listener_class, "onDisconnected", "(Ljava/lang/String;)V");
 
@@ -838,7 +926,7 @@ static void *client_thread_main(void *arg) {
     atomic_store(&s->extended_input, hs.extended_input);
     (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
                             (jboolean)hs.extended_input);
-    run_session_loop(env, s, on_video, on_audio, on_text_input_request, &buf);
+    run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf);
     byte_buf_free(&buf);
 
     call_on_disconnected(env, s, on_disconnected, "Verbindung getrennt");
@@ -883,6 +971,8 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     atomic_init(&s->pending_right_y, 0);
     pthread_mutex_init(&s->pending_text_response_mutex, NULL);
     atomic_init(&s->text_response_dirty, false);
+    pthread_mutex_init(&s->pending_mic_audio_mutex, NULL);
+    atomic_init(&s->mic_enabled, false);
 
     if (pthread_create(&s->thread, NULL, client_thread_main, s) != 0) {
         LOGE("pthread_create failed");
@@ -990,6 +1080,67 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTextIn
     atomic_store(&s->text_response_dirty, true);
 }
 
+// Called repeatedly off Kotlin's AudioRecord capture loop (see
+// GbaStreamClient.Listener.onMicEnable's own comment) with whatever chunk
+// of mono s16 samples it just read -- appends to pending_mic_audio for
+// maybe_send_mic_audio() to drain, rather than sending directly from this
+// thread, so the network thread stays the sole owner of the socket fd
+// (same reasoning as every other nativeSend* function here). Caps the
+// backlog at ~2s of audio at typical mic rates so a stalled network thread
+// can't make this grow unbounded; drops the oldest data by resetting
+// rather than blocking the capture thread, since a brief gap matters far
+// less to the receiving game than an ever-growing queue would.
+JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendMicAudio(
+    JNIEnv *env, jobject thiz, jlong handle, jint sample_rate, jshortArray samples) {
+    (void)thiz;
+    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    if (!s) {
+        return;
+    }
+
+    jsize sample_count = (*env)->GetArrayLength(env, samples);
+    if (sample_count <= 0) {
+        return;
+    }
+    jshort *elems = (*env)->GetShortArrayElements(env, samples, NULL);
+    if (!elems) {
+        return;
+    }
+
+    const size_t new_bytes = (size_t)sample_count * sizeof(int16_t);
+
+    pthread_mutex_lock(&s->pending_mic_audio_mutex);
+    const size_t kMaxPendingBytes = 48000 * sizeof(int16_t) * 2; // ~2s at 48kHz mono
+    if (s->pending_mic_audio_len + new_bytes > kMaxPendingBytes) {
+        free(s->pending_mic_audio);
+        s->pending_mic_audio = NULL;
+        s->pending_mic_audio_len = 0;
+        s->pending_mic_audio_cap = 0;
+    }
+    if (s->pending_mic_audio_len + new_bytes > s->pending_mic_audio_cap) {
+        size_t new_cap = s->pending_mic_audio_cap == 0 ? 4096 : s->pending_mic_audio_cap * 2;
+        while (new_cap < s->pending_mic_audio_len + new_bytes) {
+            new_cap *= 2;
+        }
+        uint8_t *grown = realloc(s->pending_mic_audio, new_cap);
+        if (grown) {
+            s->pending_mic_audio = grown;
+            s->pending_mic_audio_cap = new_cap;
+        }
+    }
+    if (s->pending_mic_audio_len + new_bytes <= s->pending_mic_audio_cap) {
+        for (jsize i = 0; i < sample_count; i++) {
+            finlink_write_u16le(s->pending_mic_audio + s->pending_mic_audio_len + (size_t)i * 2,
+                                 (uint16_t)elems[i]);
+        }
+        s->pending_mic_audio_len += new_bytes;
+        s->pending_mic_sample_rate = (uint32_t)sample_rate;
+    }
+    pthread_mutex_unlock(&s->pending_mic_audio_mutex);
+
+    (*env)->ReleaseShortArrayElements(env, samples, elems, JNI_ABORT);
+}
+
 JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect(JNIEnv *env,
                                                                                   jobject thiz,
                                                                                   jlong handle) {
@@ -1003,5 +1154,7 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect
     (*env)->DeleteGlobalRef(env, s->listener);
     pthread_mutex_destroy(&s->pending_text_response_mutex);
     free(s->pending_text_response_text);
+    pthread_mutex_destroy(&s->pending_mic_audio_mutex);
+    free(s->pending_mic_audio);
     free(s);
 }

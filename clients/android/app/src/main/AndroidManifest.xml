@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Requested at runtime (not just declared here) before PlayerActivity
+         ever starts capturing; see its onMicEnable handling. Only ever
+         actually opens the mic while the console has one powered on and
+         sampling (Listener.onMicEnable), not just because a stream is
+         connected. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Needed for the menu's GET /status polling and discovery sweep
          (java.net.HttpURLConnection in MenuActivity), which, unlike the
