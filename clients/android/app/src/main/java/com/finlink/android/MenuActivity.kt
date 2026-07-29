@@ -67,9 +67,12 @@ private data class DiscoveredServer(
  * Landing screen (three-page app: menu -> settings / player). Two ways to
  * find a host:
  *
- * 1. Manual host entry + "Suchen" -- always assumes GC_GBA_LINK (poll GET
- *    /status on all four player ports, docs/protocol.md), since there's no
- *    beacon to read a stream_type from for a host the user just typed in.
+ * 1. Manual host entry + "Suchen" -- a bare host assumes GC_GBA_LINK (poll
+ *    GET /status on all four player ports, docs/protocol.md), since there's
+ *    no beacon to read a stream_type from for a host the user just typed
+ *    in. Typing "host:port" instead skips that probe and connects straight
+ *    to that port, for single-slot stream types (Cemu/Azahar/melonDS) that
+ *    don't speak the GC_GBA_LINK lobby endpoint at all.
  * 2. Discovery: listens for the UDP beacon every finlink server broadcasts
  *    (docs/protocol.md, "Discovery-Beacon (UDP)"). Tapping a discovered
  *    GC_GBA_LINK entry funnels into the same P1-P4 picker as manual entry;
@@ -254,12 +257,31 @@ class MenuActivity : ComponentActivity() {
     // GET /status isn't part of the stream protocol). ---
 
     private fun searchLobby() {
-        val host = hostText.trim()
-        if (host.isEmpty()) {
+        val raw = hostText.trim()
+        if (raw.isEmpty()) {
             statusText = getString(R.string.status_error, getString(R.string.lobby_host_required))
             return
         }
-        runSearch(host)
+
+        // A typed "host:port" means "connect directly to this single-slot
+        // finlink server" (Cemu/Azahar/melonDS's WIIU_GAMEPAD/
+        // N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN stream types) -- those don't
+        // speak GC_GBA_LINK's GET /status lobby endpoint at all, and each
+        // uses its own configured port instead of PLAYER_BASE_PORT+0..3, so
+        // there's nothing to probe: launch straight into PlayerActivity,
+        // same as a discovered non-GC_GBA_LINK beacon entry already does
+        // (see the LazyColumn's onClick above). A bare host (no colon) keeps
+        // the original GC_GBA_LINK lobby-probe behavior unchanged.
+        val colonIndex = raw.lastIndexOf(':')
+        if (colonIndex > 0) {
+            val port = raw.substring(colonIndex + 1).toIntOrNull()
+            if (port != null) {
+                launchPlayer(raw.substring(0, colonIndex), port)
+                return
+            }
+        }
+
+        runSearch(raw)
     }
 
     private fun runSearch(host: String) {

@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import java.nio.ByteBuffer
 
 /**
@@ -441,32 +442,51 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     /** Pre-filled with request.initialText, auto-focused so the system
      * keyboard comes up immediately -- the whole point of this dialog is to
      * stand in for the server's own on-screen keyboard, which the video
-     * stream never shows. IME "Done" submits the same as the OK button;
-     * dismissing (back button/outside tap) cancels, same as Cancel. */
+     * stream never shows. Fullscreen rather than a small wrap-content
+     * popup: the system IME already covers the bottom half of the screen
+     * once focused, so a small centered popup left barely any room to see
+     * what was actually typed. IME "Done" submits the same as the OK
+     * button; dismissing (back button) cancels, same as Cancel. */
     @Composable
     private fun TextInputDialog(request: TextInputRequest, onSubmit: (String) -> Unit, onCancel: () -> Unit) {
         var text by remember(request) { mutableStateOf(request.initialText) }
         val focusRequester = remember { FocusRequester() }
 
-        Dialog(onDismissRequest = onCancel) {
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text(stringResource(R.string.text_input_title), style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
+        Dialog(
+            onDismissRequest = onCancel,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
+                        Text(
+                            stringResource(R.string.text_input_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                        )
+                        TextButton(onClick = { onSubmit(text) }) { Text(stringResource(R.string.ok)) }
+                    }
+                    Spacer(Modifier.height(24.dp))
                     OutlinedTextField(
                         value = text,
                         onValueChange = { new ->
                             text = if (request.maxLength > 0) new.take(request.maxLength) else new
                         },
                         modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                        textStyle = MaterialTheme.typography.headlineSmall,
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { onSubmit(text) })
                     )
-                    Spacer(Modifier.height(16.dp))
-                    Row(modifier = Modifier.align(Alignment.End)) {
-                        TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
-                        TextButton(onClick = { onSubmit(text) }) { Text(stringResource(R.string.ok)) }
+                    if (request.maxLength > 0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "${text.length} / ${request.maxLength}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.align(Alignment.End)
+                        )
                     }
                 }
             }
