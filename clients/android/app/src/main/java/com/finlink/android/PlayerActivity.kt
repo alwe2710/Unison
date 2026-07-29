@@ -112,18 +112,25 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private var extTouchY = 0
     private var extButtons = 0 // on-screen ExtHoldButton contribution
     private var extPhysicalButtons = 0 // physical key contribution, see KeyBindingsActivity
-    private var extStickDragX = 0 // VirtualStick's own (touch-drag) contribution
-    private var extStickDragY = 0
-    // Physical-key "digital stick" contribution -- held, each pushes the
-    // left stick to full deflection on that axis, same convention several
-    // other emulators offer as a keyboard alternative to a real analog
-    // input; combined with extStickDragX/Y (clamped addition) rather than
-    // one replacing the other, since both could technically be held at once
-    // even though in practice a user picks one input method or the other.
-    private var extKeyStickUp = false
-    private var extKeyStickDown = false
-    private var extKeyStickLeft = false
-    private var extKeyStickRight = false
+    private var extStickLDragX = 0 // left VirtualStick's own (touch-drag) contribution
+    private var extStickLDragY = 0
+    private var extStickRDragX = 0 // right VirtualStick's own (touch-drag) contribution
+    private var extStickRDragY = 0
+    // Physical-key "digital stick" contribution -- held, each pushes that
+    // stick to full deflection on that axis, same convention several other
+    // emulators offer as a keyboard alternative to a real analog input;
+    // combined with the matching VirtualStick's own drag contribution
+    // (clamped addition) rather than one replacing the other, since both
+    // could technically be held at once even though in practice a user
+    // picks one input method or the other.
+    private var extKeyStickLUp = false
+    private var extKeyStickLDown = false
+    private var extKeyStickLLeft = false
+    private var extKeyStickLRight = false
+    private var extKeyStickRUp = false
+    private var extKeyStickRDown = false
+    private var extKeyStickRLeft = false
+    private var extKeyStickRRight = false
     private var extKeyCodeToButton: Map<Int, ExtButton> = emptyMap()
     // Standard-Tasten bindings that double as a hasButtonsMode button too
     // (ExtButtons.kt's GBA_PREFKEY_TO_EXT_BUTTON_BIT) -- see handleExtKey().
@@ -132,21 +139,18 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private fun sendCombinedExtendedInput() {
         // Y sign matches VirtualStick's own convention (see its comment):
         // positive = stick pushed up.
-        val keyStickX = when {
-            extKeyStickLeft == extKeyStickRight -> 0
-            extKeyStickLeft -> -32767
+        fun axis(negative: Boolean, positive: Boolean) = when {
+            negative == positive -> 0
+            negative -> -32767
             else -> 32767
         }
-        val keyStickY = when {
-            extKeyStickUp == extKeyStickDown -> 0
-            extKeyStickUp -> 32767
-            else -> -32767
-        }
-        val leftX = (extStickDragX + keyStickX).coerceIn(-32768, 32767)
-        val leftY = (extStickDragY + keyStickY).coerceIn(-32768, 32767)
+        val leftX = (extStickLDragX + axis(extKeyStickLLeft, extKeyStickLRight)).coerceIn(-32768, 32767)
+        val leftY = (extStickLDragY + axis(extKeyStickLDown, extKeyStickLUp)).coerceIn(-32768, 32767)
+        val rightX = (extStickRDragX + axis(extKeyStickRLeft, extKeyStickRRight)).coerceIn(-32768, 32767)
+        val rightY = (extStickRDragY + axis(extKeyStickRDown, extKeyStickRUp)).coerceIn(-32768, 32767)
         client?.sendExtendedInput(
             extTouchPressed, extTouchX, extTouchY,
-            extButtons or extPhysicalButtons, leftX, leftY
+            extButtons or extPhysicalButtons, leftX, leftY, rightX, rightY
         )
     }
 
@@ -274,19 +278,19 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                     ActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
                 }
 
-                // Buttons + circle pad for a hasButtonsMode session -- shown
+                // Buttons + both sticks for a hasButtonsMode session -- shown
                 // alongside TouchOverlay above (not instead of it), since
                 // these and touch are independent parts of one combined
                 // finlink_extended_input frame, not alternatives (see
                 // extTouchPressed's own comment). Same L/R/Select/Start
                 // layout as the gba_buttons overlay, via ExtHoldButton
-                // instead of GbaHoldButton; X/Y (a real 3DS button the GBA
-                // overlay has no equivalent for) added to the A/B cluster;
-                // the circle pad is a real analog stick (VirtualStick)
-                // rather than DPad's digital cross, matching what a 3DS
-                // circle pad actually is -- the D-pad's own four digital
-                // bits aren't exposed in this first pass, only the analog
-                // circle pad most games actually read.
+                // instead of GbaHoldButton, with ZL/ZR added below L/R;
+                // X/Y (a real 3DS/Wii U button the GBA overlay has no
+                // equivalent for) added to the A/B cluster. Both sticks are
+                // real analog sticks (VirtualStick) rather than a digital
+                // cross -- the D-pad's own four digital bits aren't exposed
+                // in this first pass, only the two analog sticks most games
+                // actually read.
                 if (touchMode && hasButtonsMode) {
                     ExtHoldButton(
                         "L", GbaStreamClient.BUTTON_L, shape = RoundedCornerShape(8.dp),
@@ -296,10 +300,24 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                             .size(width = 64.dp, height = 40.dp)
                     )
                     ExtHoldButton(
+                        "ZL", GbaStreamClient.BUTTON_ZL, shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = 60.dp, start = 16.dp)
+                            .size(width = 64.dp, height = 40.dp)
+                    )
+                    ExtHoldButton(
                         "R", GbaStreamClient.BUTTON_R, shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 16.dp, end = 16.dp)
+                            .size(width = 64.dp, height = 40.dp)
+                    )
+                    ExtHoldButton(
+                        "ZR", GbaStreamClient.BUTTON_ZR, shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 60.dp, end = 16.dp)
                             .size(width = 64.dp, height = 40.dp)
                     )
 
@@ -319,7 +337,20 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                         )
                     }
 
-                    VirtualStick(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp))
+                    VirtualStick(
+                        modifier = Modifier.align(Alignment.BottomStart).padding(24.dp),
+                        onMove = { x, y -> extStickLDragX = x; extStickLDragY = y; sendCombinedExtendedInput() },
+                        onRelease = { extStickLDragX = 0; extStickLDragY = 0; sendCombinedExtendedInput() }
+                    )
+                    // Top-end, left of the R/ZR column rather than
+                    // CenterEnd -- centered vertically overlapped
+                    // ExtActionButtons' A/B/X/Y diamond down in the
+                    // BottomEnd corner.
+                    VirtualStick(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 96.dp),
+                        onMove = { x, y -> extStickRDragX = x; extStickRDragY = y; sendCombinedExtendedInput() },
+                        onRelease = { extStickRDragX = 0; extStickRDragY = 0; sendCombinedExtendedInput() }
+                    )
                     ExtActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
                 }
             }
@@ -546,18 +577,22 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         }
     }
 
-    /** Real analog stick for the circle pad (or, on a two-stick console, the
-     * left stick) -- drag from anywhere inside, position clamps to the
-     * outer circle's radius, releasing snaps back to (0, 0). Reports
-     * extLeftX/Y in the wire's -32768..32767 range via
-     * sendCombinedExtendedInput(), same "resend everything together"
-     * reasoning as sendTouchState/ExtHoldButton.
+    /** Real analog stick -- for the circle pad, or on a two-stick console
+     * (WIIU_GAMEPAD) either its left or right stick, one instance each (see
+     * PlayerScreen()'s two call sites). Drag from anywhere inside, position
+     * clamps to the outer circle's radius, releasing snaps back to (0, 0).
+     * Reports through [onMove]/[onRelease] in the wire's -32768..32767
+     * range rather than writing a hardcoded field directly, so this same
+     * composable serves both sticks; the caller's callback both updates the
+     * matching extStick{L,R}DragX/Y pair and resends the whole combined
+     * frame (sendCombinedExtendedInput(), same "resend everything together"
+     * reasoning as sendTouchState/ExtHoldButton).
      *
      * Y sign is inverted (screen-down is positive, but "stick pushed up"
      * should be a positive Y like a real circle pad) -- unverified against
      * real hardware, flip this if it turns out backwards in practice. */
     @Composable
-    private fun VirtualStick(modifier: Modifier = Modifier) {
+    private fun VirtualStick(modifier: Modifier = Modifier, onMove: (x: Int, y: Int) -> Unit, onRelease: () -> Unit) {
         val outerDiameter = 112.dp
         var knobOffset by remember { mutableStateOf(Offset.Zero) }
         Box(
@@ -573,9 +608,9 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                         val distance = delta.getDistance()
                         val clamped = if (distance > radiusPx) delta * (radiusPx / distance) else delta
                         knobOffset = clamped
-                        extStickDragX = (clamped.x / radiusPx * 32767f).toInt().coerceIn(-32767, 32767)
-                        extStickDragY = (-clamped.y / radiusPx * 32767f).toInt().coerceIn(-32767, 32767)
-                        sendCombinedExtendedInput()
+                        val x = (clamped.x / radiusPx * 32767f).toInt().coerceIn(-32767, 32767)
+                        val y = (-clamped.y / radiusPx * 32767f).toInt().coerceIn(-32767, 32767)
+                        onMove(x, y)
                     }
 
                     awaitEachGesture {
@@ -589,9 +624,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                             change.consume()
                         }
                         knobOffset = Offset.Zero
-                        extStickDragX = 0
-                        extStickDragY = 0
-                        sendCombinedExtendedInput()
+                        onRelease()
                     }
                 },
             contentAlignment = Alignment.Center
@@ -729,10 +762,14 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private fun applyExtKey(button: ExtButton, pressed: Boolean) {
         when (button.kind) {
             ExtInputKind.BUTTON -> applyExtButtonBit(button.bit, pressed)
-            ExtInputKind.STICK_UP -> extKeyStickUp = pressed
-            ExtInputKind.STICK_DOWN -> extKeyStickDown = pressed
-            ExtInputKind.STICK_LEFT -> extKeyStickLeft = pressed
-            ExtInputKind.STICK_RIGHT -> extKeyStickRight = pressed
+            ExtInputKind.STICK_L_UP -> extKeyStickLUp = pressed
+            ExtInputKind.STICK_L_DOWN -> extKeyStickLDown = pressed
+            ExtInputKind.STICK_L_LEFT -> extKeyStickLLeft = pressed
+            ExtInputKind.STICK_L_RIGHT -> extKeyStickLRight = pressed
+            ExtInputKind.STICK_R_UP -> extKeyStickRUp = pressed
+            ExtInputKind.STICK_R_DOWN -> extKeyStickRDown = pressed
+            ExtInputKind.STICK_R_LEFT -> extKeyStickRLeft = pressed
+            ExtInputKind.STICK_R_RIGHT -> extKeyStickRRight = pressed
         }
         sendCombinedExtendedInput()
     }
@@ -751,12 +788,18 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         extTouchPressed = false
         extButtons = 0
         extPhysicalButtons = 0
-        extStickDragX = 0
-        extStickDragY = 0
-        extKeyStickUp = false
-        extKeyStickDown = false
-        extKeyStickLeft = false
-        extKeyStickRight = false
+        extStickLDragX = 0
+        extStickLDragY = 0
+        extStickRDragX = 0
+        extStickRDragY = 0
+        extKeyStickLUp = false
+        extKeyStickLDown = false
+        extKeyStickLLeft = false
+        extKeyStickLRight = false
+        extKeyStickRUp = false
+        extKeyStickRDown = false
+        extKeyStickRLeft = false
+        extKeyStickRRight = false
         val c = GbaStreamClient(this)
         client = c
         statusText = getString(R.string.status_connecting)

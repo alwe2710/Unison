@@ -1,21 +1,25 @@
 package com.finlink.android
 
 /** One entry per finlink_extended_input control (protocol.h's
- * finlink_button_bit bits, plus four synthetic stick-direction entries),
+ * finlink_button_bit bits, plus eight synthetic stick-direction entries),
  * shared between PlayerActivity (physical key handling for a hasButtonsMode
  * session) and KeyBindingsActivity (key binding list), mirroring GbaButton's
  * own role for the plain gba_buttons encoding.
  *
  * BUTTON entries carry their finlink_button_bit in [bit] and get OR'd into
- * finlink_extended_input.buttons, exactly like GbaButton. The four STICK_*
- * entries are a keyboard/gamepad-only convenience with no wire bit of their
- * own ([bit] is unused, 0) -- held, they push the left stick to full
- * deflection on that axis (see PlayerActivity.sendCombinedExtendedInput's
- * digital-stick-from-keys math), the same "keyboard circle pad" convention
- * several other emulators offer alongside real analog input (VirtualStick,
- * for touch/drag).
+ * finlink_extended_input.buttons, exactly like GbaButton. The eight STICK_*
+ * entries (four per stick) are a keyboard/gamepad-only convenience with no
+ * wire bit of their own ([bit] is unused, 0) -- held, they push that stick
+ * to full deflection on that axis (see PlayerActivity.
+ * sendCombinedExtendedInput's digital-stick-from-keys math), the same
+ * "keyboard circle pad" convention several other emulators offer alongside
+ * real analog input (VirtualStick, for touch/drag).
  */
-enum class ExtInputKind { BUTTON, STICK_UP, STICK_DOWN, STICK_LEFT, STICK_RIGHT }
+enum class ExtInputKind {
+    BUTTON,
+    STICK_L_UP, STICK_L_DOWN, STICK_L_LEFT, STICK_L_RIGHT,
+    STICK_R_UP, STICK_R_DOWN, STICK_R_LEFT, STICK_R_RIGHT,
+}
 
 data class ExtButton(val label: String, val kind: ExtInputKind, val bit: Int, val prefKey: String)
 
@@ -52,17 +56,20 @@ val GBA_PREFKEY_TO_EXT_BUTTON_BIT: Map<String, Int> = mapOf(
     "B" to GbaStreamClient.BUTTON_B,
 )
 
-/** ZL/ZR and the left-stick directions -- only meaningful on the small
- * subset of stream types whose console actually has them (Cemu's
- * WIIU_GAMEPAD; no current server advertises a right stick, so there's no
- * STICK entry for it yet), kept in their own list so the UI can label this
- * group accordingly instead of implying every hasButtonsMode server uses
- * them. */
+/** ZL/ZR and both sticks' directions -- only meaningful on the small subset
+ * of stream types whose console actually has them (Cemu's WIIU_GAMEPAD is
+ * the only two-stick, ZL/ZR-having server today), kept in their own list so
+ * the UI can label this group accordingly instead of implying every
+ * hasButtonsMode server uses them. */
 val EXT_BUTTONS_LIMITED = listOf(
     ExtButton("ZL", ExtInputKind.BUTTON, GbaStreamClient.BUTTON_ZL, "ZL"),
     ExtButton("ZR", ExtInputKind.BUTTON, GbaStreamClient.BUTTON_ZR, "ZR"),
-    ExtButton("Stick hoch", ExtInputKind.STICK_UP, 0, "STICK_UP"),
-    ExtButton("Stick runter", ExtInputKind.STICK_DOWN, 0, "STICK_DOWN"),
-    ExtButton("Stick links", ExtInputKind.STICK_LEFT, 0, "STICK_LEFT"),
-    ExtButton("Stick rechts", ExtInputKind.STICK_RIGHT, 0, "STICK_RIGHT"),
+    ExtButton("Stick L hoch", ExtInputKind.STICK_L_UP, 0, "STICK_L_UP"),
+    ExtButton("Stick L runter", ExtInputKind.STICK_L_DOWN, 0, "STICK_L_DOWN"),
+    ExtButton("Stick L links", ExtInputKind.STICK_L_LEFT, 0, "STICK_L_LEFT"),
+    ExtButton("Stick L rechts", ExtInputKind.STICK_L_RIGHT, 0, "STICK_L_RIGHT"),
+    ExtButton("Stick R hoch", ExtInputKind.STICK_R_UP, 0, "STICK_R_UP"),
+    ExtButton("Stick R runter", ExtInputKind.STICK_R_DOWN, 0, "STICK_R_DOWN"),
+    ExtButton("Stick R links", ExtInputKind.STICK_R_LEFT, 0, "STICK_R_LEFT"),
+    ExtButton("Stick R rechts", ExtInputKind.STICK_R_RIGHT, 0, "STICK_R_RIGHT"),
 )
