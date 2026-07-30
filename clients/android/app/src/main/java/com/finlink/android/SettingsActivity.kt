@@ -41,12 +41,14 @@ class SettingsActivity : LocalizedActivity() {
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var language by mutableStateOf(Prefs.LANGUAGE_SYSTEM)
+    private var legacyVideoMode by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         language = prefs.language
+        legacyVideoMode = prefs.legacyVideoMode
 
         setContent {
             FinlinkTheme {
@@ -75,6 +77,34 @@ class SettingsActivity : LocalizedActivity() {
                                     onCheckedChange = {
                                         onScreenControlsEnabled = it
                                         prefs.onScreenControlsEnabled = it
+                                    }
+                                )
+                            }
+
+                            HorizontalDivider()
+
+                            // Sent to the server as hello_ack.video_mode at
+                            // the next connection's handshake (see
+                            // docs/protocol.md) -- a fallback to the
+                            // original always-full-frame encoding, in case
+                            // TILES delta-encoding/dedup ever misbehaves.
+                            // Only WIIU_GAMEPAD (Cemu) honors it today;
+                            // servers that don't recognize the field just
+                            // ignore it, so this is harmless to leave off
+                            // for every other stream type.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                            ) {
+                                Text(
+                                    stringResource(R.string.settings_legacy_video),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = legacyVideoMode,
+                                    onCheckedChange = {
+                                        legacyVideoMode = it
+                                        prefs.legacyVideoMode = it
                                     }
                                 )
                             }

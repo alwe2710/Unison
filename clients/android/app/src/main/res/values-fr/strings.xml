@@ -43,6 +43,7 @@
     <string name="settings">Paramètres</string>
     <string name="settings_on_screen_controls">Afficher les commandes à l\'écran</string>
     <string name="settings_antialiasing">Filtrage bilinéaire</string>
+    <string name="settings_legacy_video">Mode vidéo classique (non compressé)</string>
     <string name="settings_bilinear_filter_header">Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.</string>
     <string name="settings_key_bindings">Assignation des touches</string>
     <string name="settings_bind">Assigner</string>

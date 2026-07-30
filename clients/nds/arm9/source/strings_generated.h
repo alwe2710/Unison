@@ -48,6 +48,7 @@ static const char *STR_LOBBY_SLOT_OCCUPIED_TITLE = "Bereits verbunden";
 static const char *STR_SETTINGS = "Einstellungen";
 static const char *STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeigen";
 static const char *STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
+static const char *STR_SETTINGS_LEGACY_VIDEO = "Alter Videomodus (unkomprimiert)";
 static const char *STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
 static const char *STR_SETTINGS_KEY_BINDINGS = "Tastenzuweisungen";
 static const char *STR_SETTINGS_BIND = "Zuweisen";
@@ -148,6 +149,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS = "Einstellungen";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeigen";
         STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
+        STR_SETTINGS_LEGACY_VIDEO = "Alter Videomodus (unkomprimiert)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
         STR_SETTINGS_KEY_BINDINGS = "Tastenzuweisungen";
         STR_SETTINGS_BIND = "Zuweisen";
@@ -243,6 +245,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS = "Settings";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Show on-screen controls";
         STR_SETTINGS_ANTIALIASING = "Bilinear filtering";
+        STR_SETTINGS_LEGACY_VIDEO = "Legacy video mode (uncompressed)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilinear filtering instead of nearest-neighbor, per connected console.";
         STR_SETTINGS_KEY_BINDINGS = "Key bindings";
         STR_SETTINGS_BIND = "Bind";
@@ -338,6 +341,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS = "Paramètres";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Afficher les commandes à l'écran";
         STR_SETTINGS_ANTIALIASING = "Filtrage bilinéaire";
+        STR_SETTINGS_LEGACY_VIDEO = "Mode vidéo classique (non compressé)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.";
         STR_SETTINGS_KEY_BINDINGS = "Assignation des touches";
         STR_SETTINGS_BIND = "Assigner";
@@ -433,6 +437,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS = "Impostazioni";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Mostra controlli a schermo";
         STR_SETTINGS_ANTIALIASING = "Filtro bilineare";
+        STR_SETTINGS_LEGACY_VIDEO = "Modalità video classica (non compressa)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtro bilineare invece del vicino più prossimo, per console collegata.";
         STR_SETTINGS_KEY_BINDINGS = "Associazione tasti";
         STR_SETTINGS_BIND = "Assegna";
@@ -528,6 +533,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS = "Ajustes";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Mostrar controles en pantalla";
         STR_SETTINGS_ANTIALIASING = "Filtrado bilineal";
+        STR_SETTINGS_LEGACY_VIDEO = "Modo de vídeo clásico (sin comprimir)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtrado bilineal en lugar de vecino más cercano, por consola conectada.";
         STR_SETTINGS_KEY_BINDINGS = "Asignación de teclas";
         STR_SETTINGS_BIND = "Asignar";

@@ -49,6 +49,7 @@ extern const char *kLobbySlotOccupiedTitle;
 extern const char *kSettings;
 extern const char *kSettingsOnScreenControls;
 extern const char *kSettingsAntialiasing;
+extern const char *kSettingsLegacyVideo;
 extern const char *kSettingsBilinearFilterHeader;
 extern const char *kSettingsKeyBindings;
 extern const char *kSettingsBind;

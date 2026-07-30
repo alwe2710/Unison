@@ -43,6 +43,7 @@
     <string name="settings">Einstellungen</string>
     <string name="settings_on_screen_controls">On-Screen-Controls anzeigen</string>
     <string name="settings_antialiasing">Bilineare Filterung</string>
+    <string name="settings_legacy_video">Alter Videomodus (unkomprimiert)</string>
     <string name="settings_bilinear_filter_header">Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.</string>
     <string name="settings_key_bindings">Tastenzuweisungen</string>
     <string name="settings_bind">Zuweisen</string>

@@ -52,6 +52,7 @@
   "settings": {"de": "Einstellungen", "en": "Settings", "fr": "Paramètres", "it": "Impostazioni", "es": "Ajustes"},
   "settings_on_screen_controls": {"de": "On-Screen-Controls anzeigen", "en": "Show on-screen controls", "fr": "Afficher les commandes à l'écran", "it": "Mostra controlli a schermo", "es": "Mostrar controles en pantalla"},
   "settings_antialiasing": {"de": "Bilineare Filterung", "en": "Bilinear filtering", "fr": "Filtrage bilinéaire", "it": "Filtro bilineare", "es": "Filtrado bilineal"},
+  "settings_legacy_video": {"de": "Alter Videomodus (unkomprimiert)", "en": "Legacy video mode (uncompressed)", "fr": "Mode vidéo classique (non compressé)", "it": "Modalità video classica (non compressa)", "es": "Modo de vídeo clásico (sin comprimir)"},
   "settings_bilinear_filter_header": {"de": "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.", "en": "Bilinear filtering instead of nearest-neighbor, per connected console.", "fr": "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.", "it": "Filtro bilineare invece del vicino più prossimo, per console collegata.", "es": "Filtrado bilineal en lugar de vecino más cercano, por consola conectada."},
   "settings_key_bindings": {"de": "Tastenzuweisungen", "en": "Key bindings", "fr": "Assignation des touches", "it": "Associazione tasti", "es": "Asignación de teclas"},
   "settings_bind": {"de": "Zuweisen", "en": "Bind", "fr": "Assigner", "it": "Assegna", "es": "Asignar"},

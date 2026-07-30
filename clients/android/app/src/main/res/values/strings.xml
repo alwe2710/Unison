@@ -43,6 +43,7 @@
     <string name="settings">Settings</string>
     <string name="settings_on_screen_controls">Show on-screen controls</string>
     <string name="settings_antialiasing">Bilinear filtering</string>
+    <string name="settings_legacy_video">Legacy video mode (uncompressed)</string>
     <string name="settings_bilinear_filter_header">Bilinear filtering instead of nearest-neighbor, per connected console.</string>
     <string name="settings_key_bindings">Key bindings</string>
     <string name="settings_bind">Bind</string>

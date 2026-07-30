@@ -79,6 +79,15 @@ class Prefs(context: Context) {
         get() = prefs.getString(PREF_LANGUAGE, LANGUAGE_SYSTEM) ?: LANGUAGE_SYSTEM
         set(value) = prefs.edit().putString(PREF_LANGUAGE, value).apply()
 
+    /** true = ask the server (hello_ack.video_mode = "legacy") for the
+     * original, always-full-frame video encoding instead of the default
+     * TILES delta-encoding + dedup ("tiles") -- a fallback in case TILES
+     * ever misbehaves for a given server/network. Servers that don't
+     * implement the negotiation at all just ignore the field either way. */
+    var legacyVideoMode: Boolean
+        get() = prefs.getBoolean(PREF_LEGACY_VIDEO_MODE, false)
+        set(value) = prefs.edit().putBoolean(PREF_LEGACY_VIDEO_MODE, value).apply()
+
     /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
      * filtering (crisp/pixelated upscale). Per stream_type ("GC_GBA_LINK",
      * "WIIU_GAMEPAD", ...) rather than one global toggle -- see
@@ -111,6 +120,7 @@ class Prefs(context: Context) {
 
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
         private const val PREF_LANGUAGE = "language"
+        private const val PREF_LEGACY_VIDEO_MODE = "legacy_video_mode"
         private const val NO_KEYCODE = -1
 
         const val LANGUAGE_SYSTEM = "system"

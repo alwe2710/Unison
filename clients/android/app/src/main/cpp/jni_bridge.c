@@ -71,6 +71,11 @@ typedef struct {
     jobject listener; // global ref
     char host[128];
     int port;
+    // Settings.legacyVideoMode at connect() time -- sent as
+    // hello_ack.video_mode ("legacy" vs "tiles") during the handshake, see
+    // perform_app_handshake(). Read once here rather than from Prefs
+    // directly since this file has no Context to build one from.
+    bool legacy_video;
     int sockfd;
     pthread_t thread;
     atomic_bool stop;
@@ -428,6 +433,11 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         ack_req.wants_audio = hello.has_audio;
         ack_req.max_sample_rate = hello.has_audio && hello.audio.sample_rate > 0 ? hello.audio.sample_rate : 48000;
         ack_req.max_channels = hello.has_audio && hello.audio.channels > 0 ? hello.audio.channels : 2;
+        if (s->legacy_video) {
+            strncpy(ack_req.video_mode, "legacy", sizeof(ack_req.video_mode) - 1);
+        }
+        // else leave video_mode empty -- finlink_build_hello_ack() omits
+        // the field entirely, which servers treat as "tiles" (the default).
 
         char ack_json[512];
         size_t ack_len = finlink_build_hello_ack(&ack_req, ack_json, sizeof(ack_json));
@@ -958,6 +968,7 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
                                                                                 jobject thiz,
                                                                                 jstring jhost,
                                                                                 jint jport,
+                                                                                jboolean jlegacyVideo,
                                                                                 jobject listener) {
     (void)thiz;
 
@@ -971,6 +982,7 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     (*env)->ReleaseStringUTFChars(env, jhost, host_chars);
 
     s->port = (int)jport;
+    s->legacy_video = (bool)jlegacyVideo;
     s->sockfd = -1;
     (*env)->GetJavaVM(env, &s->jvm);
     s->listener = (*env)->NewGlobalRef(env, listener);
