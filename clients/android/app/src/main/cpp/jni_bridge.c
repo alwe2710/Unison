@@ -611,8 +611,24 @@ static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width
         return;
     }
 
-    const char *mime = (format & FINLINK_VIDEO_FORMAT_H264) ? "video/avc" : "video/hevc";
-    AMediaCodec *codec = AMediaCodec_createDecoderByType(mime);
+    const bool isH264 = (format & FINLINK_VIDEO_FORMAT_H264) != 0;
+    const char *mime = isH264 ? "video/avc" : "video/hevc";
+
+    // Temporary diagnostic (see the "schief und interlaced" investigation):
+    // every render-path change tried (TextureView vs SurfaceView) and
+    // every encoder-side change tried (bitrate mode, VBV sizing, H.264
+    // profile) left the same distortion unchanged on this device, while
+    // the identical bitstream renders correctly on the Android emulator's
+    // software decoder -- forcing Android's own software decoder by name
+    // here tells us directly whether this device's *hardware* decoder is
+    // the actual culprit. Falls back to the normal by-type lookup (whatever
+    // hardware/software decoder Android would pick itself) if the named
+    // software decoder doesn't exist on this device.
+    const char *softwareName = isH264 ? "c2.android.avc.decoder" : "c2.android.hevc.decoder";
+    AMediaCodec *codec = AMediaCodec_createCodecByName(softwareName);
+    if (!codec) {
+        codec = AMediaCodec_createDecoderByType(mime);
+    }
     if (!codec) {
         ANativeWindow_release(window);
         return;
