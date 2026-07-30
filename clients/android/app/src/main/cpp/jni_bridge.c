@@ -626,7 +626,10 @@ static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width
     // software decoder doesn't exist on this device.
     const char *softwareName = isH264 ? "c2.android.avc.decoder" : "c2.android.hevc.decoder";
     AMediaCodec *codec = AMediaCodec_createCodecByName(softwareName);
-    if (!codec) {
+    if (codec) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "finlink using named software decoder: %s", softwareName);
+    } else {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "finlink named software decoder unavailable (%s), falling back to by-type lookup", softwareName);
         codec = AMediaCodec_createDecoderByType(mime);
     }
     if (!codec) {
