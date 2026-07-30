@@ -276,7 +276,8 @@ The client's reply:
   "protocol_version": 2,
   "requested_slot": 0,
   "video_limits": { "max_width": 240, "max_height": 160, "max_fps": 60, "max_bitrate_kbps": null },
-  "audio_limits": { "max_sample_rate": 32768, "max_channels": 2 }
+  "audio_limits": { "max_sample_rate": 32768, "max_channels": 2 },
+  "video_mode": "tiles"
 }
 ```
 
@@ -289,6 +290,10 @@ The client's reply:
 - `audio_limits`: absent (or `null`) if the client doesn't want/can't handle audio, **or** if
   `hello.audio` was already absent (a stream type without audio) — in that case there's nothing to
   negotiate here.
+- `video_mode`: optional, `"tiles"` (TILES delta-encoding + frame dedup, see "Frame semantics
+  (video dedup)" below) or `"legacy"` (always a full, non-tiled frame, no dedup — the original
+  behavior, kept as a fallback a user can pick). Absent entirely for any client that predates this
+  field; a server should treat that the same as `"tiles"`.
 
 ### `session_ready` (server → client)
 

@@ -35,6 +35,7 @@ extern "C" {
 #define FINLINK_HOST_LEN 64
 #define FINLINK_HANDSHAKE_CODE_LEN 32
 #define FINLINK_HANDSHAKE_DETAIL_LEN 256
+#define FINLINK_VIDEO_MODE_LEN 16
 
 typedef enum {
     FINLINK_HANDSHAKE_OK = 0,
@@ -72,7 +73,17 @@ typedef struct {
 
 /* Client capabilities/limits to send back as hello_ack. wants_audio=0 skips
  * audio_limits entirely in the built JSON (see docs/protocol.md: "fehlt
- * ... wenn der Client keinen Ton möchte/kann"). */
+ * ... wenn der Client keinen Ton möchte/kann").
+ *
+ * video_mode is the client's requested video encoding: "tiles" (TILES
+ * delta-encoding + frame dedup, see finlink/video_encode.h) or "legacy"
+ * (always a full, non-tiled frame -- the original, pre-dedup behavior, kept
+ * as a user-selectable fallback). Left as an empty string, video_mode is
+ * omitted from the built JSON entirely, same convention as wants_audio; a
+ * server that doesn't recognize the field (or an old client that never sets
+ * it) should default to "tiles". Always set this from a fixed literal, never
+ * from user-entered text -- finlink_build_hello_ack() writes it into the
+ * JSON unescaped. */
 typedef struct {
     int requested_slot;
     uint32_t max_width;
@@ -81,6 +92,7 @@ typedef struct {
     int wants_audio;
     uint32_t max_sample_rate;
     uint8_t max_channels;
+    char video_mode[FINLINK_VIDEO_MODE_LEN];
 } finlink_hello_ack_request;
 
 /* Server -> client, confirms (possibly downscaled) parameters and either the
