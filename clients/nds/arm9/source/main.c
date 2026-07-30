@@ -956,6 +956,75 @@ static bool streamTypeIsMultiSlot(const char *streamType) {
     return streamType[0] == '\0' || strcmp(streamType, "GC_GBA_LINK") == 0;
 }
 
+/* Cursor-navigable list (UP/DOWN + A to confirm, B to cancel) -- this
+ * client's menus are entirely button-driven, not touch-driven, so this is
+ * the closest equivalent to every other client's "tap a row, pick from it,
+ * land back where you were" language screen. Confirming applies the choice
+ * immediately (every STR_* read from here on already reflects it, applied
+ * via applyLanguage()) and returns to the caller, which re-renders itself
+ * fully to pick up the new language on every line, not just this one. */
+static void languageMenu(void) {
+    struct LanguageOption {
+        int prefValue;
+        const char *label;
+    };
+    struct LanguageOption options[3] = {
+        { 0, STR_LANGUAGE_SYSTEM },
+        { 1, STR_LANGUAGE_GERMAN },
+        { 2, STR_LANGUAGE_ENGLISH },
+    };
+    /* Sorted by the displayed label, not a fixed order -- "System" is
+     * localized like any other UI string, but "Deutsch"/"English" are
+     * fixed endonyms (see strings.json), so this only actually reorders
+     * relative to "System"/"Systeme"/... as more languages are added
+     * later. Plain insertion sort -- only 3 entries, not worth pulling in
+     * qsort() for. */
+    for (int i = 1; i < 3; i++) {
+        struct LanguageOption key = options[i];
+        int j = i - 1;
+        while (j >= 0 && strcmp(options[j].label, key.label) > 0) {
+            options[j + 1] = options[j];
+            j--;
+        }
+        options[j + 1] = key;
+    }
+
+    int cursor = 0;
+    for (int i = 0; i < 3; i++) {
+        if (options[i].prefValue == g_prefLanguage) {
+            cursor = i;
+        }
+    }
+
+    bool dirty = true;
+    for (;;) {
+        if (dirty) {
+            consoleClear();
+            iprintf("%s\n\n", STR_SETTINGS_LANGUAGE);
+            for (int i = 0; i < 3; i++) {
+                iprintf("%s %s\n", i == cursor ? ">" : " ", options[i].label);
+            }
+            dirty = false;
+        }
+        swiWaitForVBlank();
+        scanKeys();
+        int keys = keysDown();
+        if (keys & KEY_UP) {
+            cursor = (cursor + 2) % 3;
+            dirty = true;
+        } else if (keys & KEY_DOWN) {
+            cursor = (cursor + 1) % 3;
+            dirty = true;
+        } else if (keys & KEY_A) {
+            g_prefLanguage = options[cursor].prefValue;
+            applyLanguage();
+            return;
+        } else if (keys & KEY_B) {
+            return;
+        }
+    }
+}
+
 /* Returns 0-3 for the chosen slot (GC_GBA_LINK) or 0 for "connect" (every
  * other stream type, see streamTypeIsMultiSlot()), -1 to quit, -2 to
  * re-run discovery, -3 to enter the server IP manually. */
@@ -1024,8 +1093,7 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
             iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? STR_FILTER_ON : STR_FILTER_OFF);
         }
         if (keys & KEY_LEFT) {
-            g_prefLanguage = (g_prefLanguage + 1) % 3;
-            applyLanguage();
+            languageMenu();
             /* Every STR_* line already printed above this loop (hints,
              * headers, ...) needs to change too, not just this row -- a
              * full re-render is simplest on a sequential iprintf console,

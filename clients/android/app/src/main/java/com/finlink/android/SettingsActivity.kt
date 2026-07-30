@@ -26,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
@@ -83,33 +82,37 @@ class SettingsActivity : LocalizedActivity() {
                             HorizontalDivider()
                             Spacer(Modifier.height(16.dp))
 
-                            // Three-way pick (not just "German"/"English"):
-                            // "System" lets the user get back to following
-                            // the device locale after having overridden it.
-                            // LocalizedActivity.onResume() recreates this
-                            // (and every other open Activity) once the
-                            // resolved language actually changes, so the
-                            // whole UI re-renders in the new language
-                            // immediately.
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    stringResource(R.string.settings_language),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                for ((value, labelRes) in listOf(
-                                    Prefs.LANGUAGE_SYSTEM to R.string.language_system,
-                                    "de" to R.string.language_german,
-                                    "en" to R.string.language_english
-                                )) {
-                                    TextButton(onClick = {
-                                        language = value
-                                        prefs.language = value
-                                    }) {
-                                        Text(
-                                            stringResource(labelRes),
-                                            fontWeight = if (language == value) FontWeight.Bold else FontWeight.Normal
-                                        )
+                            // Own sub-screen (LanguageActivity), same
+                            // whole-row-navigates treatment as the two rows
+                            // below -- a selection list (like the device's
+                            // own system-settings language picker) instead
+                            // of three inline buttons, since this is one
+                            // exclusive choice, not three independent
+                            // toggles. Its current value shown as a
+                            // subtitle here, same idea as a system settings
+                            // list item.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        startActivity(Intent(this@SettingsActivity, LanguageActivity::class.java))
                                     }
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        stringResource(
+                                            when (language) {
+                                                "de" -> R.string.language_german
+                                                "en" -> R.string.language_english
+                                                else -> R.string.language_system
+                                            }
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
 
@@ -160,5 +163,19 @@ class SettingsActivity : LocalizedActivity() {
                 }
             }
         }
+    }
+
+    // LocalizedActivity.onResume() only recreate()s this Activity when the
+    // *resolved display language* actually changed -- but picking "System"
+    // while the device locale already happens to match the language that
+    // was explicitly selected before (e.g. both are English) resolves to
+    // the same language, so that check alone misses it, leaving this
+    // screen's own `language` state (and therefore this row's subtitle)
+    // stale even though the underlying preference did change. Re-reading
+    // it here directly covers that case too, on top of (not instead of)
+    // the superclass's own locale-mismatch recreate().
+    override fun onResume() {
+        super.onResume()
+        language = prefs.language
     }
 }

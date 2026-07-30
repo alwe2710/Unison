@@ -48,6 +48,10 @@
             android:name=".AntialiasingActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity
+            android:name=".LanguageActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- PlayerActivity stays landscape-locked: the GBA stream itself
              is a fixed wide aspect ratio, unlike the menu/settings forms. -->
         <activity

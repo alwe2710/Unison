@@ -58,7 +58,7 @@ const char *kSettingsBottomScreenVideoHint = "(wirkungslos bei Streams, die selb
 const char *kSettingsLanguage = "Sprache";
 const char *kLanguageSystem = "System";
 const char *kLanguageGerman = "Deutsch";
-const char *kLanguageEnglish = "Englisch";
+const char *kLanguageEnglish = "English";
 const char *kConsoleGcGbaLink = "GameCube (GBA-Link)";
 const char *kConsoleWiiuGamepad = "Wii U GamePad";
 const char *kConsoleN3dsBottomScreen = "3DS";
@@ -152,7 +152,7 @@ void setLanguage(Lang lang) {
         kSettingsLanguage = "Sprache";
         kLanguageSystem = "System";
         kLanguageGerman = "Deutsch";
-        kLanguageEnglish = "Englisch";
+        kLanguageEnglish = "English";
         kConsoleGcGbaLink = "GameCube (GBA-Link)";
         kConsoleWiiuGamepad = "Wii U GamePad";
         kConsoleN3dsBottomScreen = "3DS";
@@ -243,7 +243,7 @@ void setLanguage(Lang lang) {
         kSettingsBottomScreenVideoHint = "(has no effect for streams that are already a second-screen source themselves)";
         kSettingsLanguage = "Language";
         kLanguageSystem = "System";
-        kLanguageGerman = "German";
+        kLanguageGerman = "Deutsch";
         kLanguageEnglish = "English";
         kConsoleGcGbaLink = "GameCube (GBA Link)";
         kConsoleWiiuGamepad = "Wii U GamePad";

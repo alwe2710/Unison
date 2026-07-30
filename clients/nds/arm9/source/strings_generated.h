@@ -59,7 +59,7 @@ static const char *STR_SETTINGS_BOTTOM_SCREEN_VIDEO_HINT = "(wirkungslos bei Str
 static const char *STR_SETTINGS_LANGUAGE = "Sprache";
 static const char *STR_LANGUAGE_SYSTEM = "System";
 static const char *STR_LANGUAGE_GERMAN = "Deutsch";
-static const char *STR_LANGUAGE_ENGLISH = "Englisch";
+static const char *STR_LANGUAGE_ENGLISH = "English";
 static const char *STR_CONSOLE_GC_GBA_LINK = "GameCube (GBA-Link)";
 static const char *STR_CONSOLE_WIIU_GAMEPAD = "Wii U GamePad";
 static const char *STR_CONSOLE_N3DS_BOTTOM_SCREEN = "3DS";
@@ -156,7 +156,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_LANGUAGE = "Sprache";
         STR_LANGUAGE_SYSTEM = "System";
         STR_LANGUAGE_GERMAN = "Deutsch";
-        STR_LANGUAGE_ENGLISH = "Englisch";
+        STR_LANGUAGE_ENGLISH = "English";
         STR_CONSOLE_GC_GBA_LINK = "GameCube (GBA-Link)";
         STR_CONSOLE_WIIU_GAMEPAD = "Wii U GamePad";
         STR_CONSOLE_N3DS_BOTTOM_SCREEN = "3DS";
@@ -247,7 +247,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_BOTTOM_SCREEN_VIDEO_HINT = "(has no effect for streams that are already a second-screen source themselves)";
         STR_SETTINGS_LANGUAGE = "Language";
         STR_LANGUAGE_SYSTEM = "System";
-        STR_LANGUAGE_GERMAN = "German";
+        STR_LANGUAGE_GERMAN = "Deutsch";
         STR_LANGUAGE_ENGLISH = "English";
         STR_CONSOLE_GC_GBA_LINK = "GameCube (GBA Link)";
         STR_CONSOLE_WIIU_GAMEPAD = "Wii U GamePad";

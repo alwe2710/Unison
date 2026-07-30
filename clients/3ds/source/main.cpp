@@ -17,6 +17,7 @@
 // No borealis/Compose-equivalent UI framework here either: widgets are
 // hand-rolled citro2d rects/text with manual touch hit-testing (ui.hpp).
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -89,7 +90,7 @@ const char *labelForStreamType(const char *streamType) {
     return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
 }
 
-enum class BottomScreenState { MENU, SETTINGS };
+enum class BottomScreenState { MENU, SETTINGS, LANGUAGE };
 
 // strings::kStatusError ("Fehler: %s") applied -- small helper since this
 // is needed at both onDisconnected call sites below.
@@ -420,23 +421,19 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     // 320px-wide bottom screen.
     ui::drawText(textBuf, strings::kSettingsBottomScreenVideoHint, 8, 72, 0.32f, ui::kColorTextDim);
 
-    // Cycles System -> Deutsch -> English -> System; re-resolves and
-    // re-applies immediately so every string on screen (including this
-    // button's own label) updates the instant it's tapped. Fits in the gap
-    // between the hint above and the antialiasing header below rather than
-    // claiming a whole new row of its own -- the 240px-tall bottom screen
-    // is already tight (see backRect below).
+    // Opens LANGUAGE (a plain list, see drawLanguageScreen()) instead of
+    // cycling in place -- same "tap the row, pick from a list" flow as
+    // every other client now uses. Fits in the gap between the hint above
+    // and the antialiasing header below rather than claiming a whole new
+    // row of its own -- the 240px-tall bottom screen is already tight (see
+    // backRect below).
     ui::drawText(textBuf, strings::kSettingsLanguage, 8, 84, 0.4f, ui::kColorTextDim);
     const char *languageLabel = prefs->language == Prefs::LanguagePref::DE ? strings::kLanguageGerman
                                : prefs->language == Prefs::LanguagePref::EN ? strings::kLanguageEnglish
                                                                              : strings::kLanguageSystem;
     ui::Rect languageRect { 200, 80, 104, 20 };
     if (ui::button(textBuf, touch, languageRect, languageLabel)) {
-        prefs->language = prefs->language == Prefs::LanguagePref::SYSTEM ? Prefs::LanguagePref::DE
-                         : prefs->language == Prefs::LanguagePref::DE    ? Prefs::LanguagePref::EN
-                                                                          : Prefs::LanguagePref::SYSTEM;
-        prefs->save();
-        applyLanguage(*prefs);
+        *screenState = BottomScreenState::LANGUAGE;
     }
 
     // Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
@@ -464,6 +461,41 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     ui::Rect backRect { 8, 210, 304, 24 };
     if (ui::button(textBuf, touch, backRect, strings::kBack)) {
         *screenState = BottomScreenState::MENU;
+    }
+}
+
+// Plain list, same "tap a row, pick from it, land back where you were"
+// flow as every other client's language screen -- picking one applies it
+// immediately (every strings::kFoo read this frame onward already reflects
+// it, being a plain immediate-mode redraw) and returns to SETTINGS.
+void drawLanguageScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
+    ui::drawText(textBuf, strings::kSettingsLanguage, 8, 8, 0.55f, ui::kColorText);
+
+    struct LanguageOption {
+        Prefs::LanguagePref pref;
+        const char *label;
+    };
+    LanguageOption options[] = {
+        { Prefs::LanguagePref::SYSTEM, strings::kLanguageSystem },
+        { Prefs::LanguagePref::DE, strings::kLanguageGerman },
+        { Prefs::LanguagePref::EN, strings::kLanguageEnglish },
+    };
+    // Sorted by the displayed label, not a fixed order -- "System" is
+    // localized like any other UI string, but "Deutsch"/"English" are
+    // fixed endonyms (see strings.json), so this only actually reorders
+    // relative to "System"/"Système"/... as more languages are added later.
+    std::sort(std::begin(options), std::end(options),
+        [](const LanguageOption &a, const LanguageOption &b) { return strcmp(a.label, b.label) < 0; });
+    float y = 44.0f;
+    for (const auto &option : options) {
+        ui::Rect r { 8, y, 304, 32 };
+        if (ui::button(textBuf, touch, r, option.label)) {
+            prefs->language = option.pref;
+            prefs->save();
+            applyLanguage(*prefs);
+            *screenState = BottomScreenState::SETTINGS;
+        }
+        y += 38.0f;
     }
 }
 
@@ -620,8 +652,10 @@ int main(int argc, char *argv[]) {
         } else if (screenState == BottomScreenState::MENU) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
                            &connectedHost, &connectedStreamType, &beaconListener);
-        } else {
+        } else if (screenState == BottomScreenState::SETTINGS) {
             drawSettingsScreen(textBuf, touch, &prefs, &screenState);
+        } else {
+            drawLanguageScreen(textBuf, touch, &prefs, &screenState);
         }
 
         C3D_FrameEnd(0);

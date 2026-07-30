@@ -63,8 +63,8 @@
   "settings_language": {"de": "Sprache", "en": "Language"},
 
   "language_system": {"de": "System", "en": "System"},
-  "language_german": {"de": "Deutsch", "en": "German"},
-  "language_english": {"de": "Englisch", "en": "English"},
+  "language_german": {"de": "Deutsch", "en": "Deutsch"},
+  "language_english": {"de": "English", "en": "English"},
 
   "console_gc_gba_link": {"de": "GameCube (GBA-Link)", "en": "GameCube (GBA Link)"},
   "console_wiiu_gamepad": {"de": "Wii U GamePad", "en": "Wii U GamePad"},

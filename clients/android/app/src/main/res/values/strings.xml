@@ -53,7 +53,7 @@
     <string name="settings_bottom_screen_video_hint">(has no effect for streams that are already a second-screen source themselves)</string>
     <string name="settings_language">Language</string>
     <string name="language_system">System</string>
-    <string name="language_german">German</string>
+    <string name="language_german">Deutsch</string>
     <string name="language_english">English</string>
     <string name="console_gc_gba_link">GameCube (GBA Link)</string>
     <string name="console_wiiu_gamepad">Wii U GamePad</string>

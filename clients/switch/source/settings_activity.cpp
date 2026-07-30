@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iterator>
 
+#include "language_activity.hpp"
 #include "strings_generated.hpp"
 
 namespace {
@@ -67,6 +68,19 @@ void SettingsActivity::updateLanguageCellUI() {
     languageCell->setDetailText(labelForLanguagePref(prefs.language));
 }
 
+void SettingsActivity::onResume() {
+    brls::Activity::onResume();
+    prefs = Prefs();
+    updateLanguageCellUI();
+    header->setText(strings::kSettingsAntialiasing);
+    frame->setTitle(strings::kSettings);
+    languageCell->setText(strings::kSettingsLanguage);
+    for (int i = 0; i < static_cast<int>(std::size(kKnownStreamTypes)); i++) {
+        filterCells[i]->setText(labelForStreamType(kKnownStreamTypes[i].streamType));
+        updateFilterCellUI(i);
+    }
+}
+
 brls::View *SettingsActivity::createContentView() {
     auto *column = new brls::Box();
     column->setAxis(brls::Axis::COLUMN);
@@ -75,20 +89,8 @@ brls::View *SettingsActivity::createContentView() {
 
     languageCell = new brls::DetailCell();
     languageCell->setText(strings::kSettingsLanguage);
-    languageCell->registerClickAction([this](brls::View *) {
-        prefs.language = prefs.language == Prefs::LanguagePref::SYSTEM ? Prefs::LanguagePref::DE
-                        : prefs.language == Prefs::LanguagePref::DE    ? Prefs::LanguagePref::EN
-                                                                        : Prefs::LanguagePref::SYSTEM;
-        prefs.save();
-        applyLanguage(prefs);
-        updateLanguageCellUI();
-        languageCell->setText(strings::kSettingsLanguage);
-        header->setText(strings::kSettingsAntialiasing);
-        frame->setTitle(strings::kSettings);
-        for (int i = 0; i < static_cast<int>(std::size(kKnownStreamTypes)); i++) {
-            filterCells[i]->setText(labelForStreamType(kKnownStreamTypes[i].streamType));
-            updateFilterCellUI(i);
-        }
+    languageCell->registerClickAction([](brls::View *) {
+        brls::Application::pushActivity(new LanguageActivity());
         return true;
     });
     updateLanguageCellUI();
