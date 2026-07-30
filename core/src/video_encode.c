@@ -15,7 +15,15 @@ static size_t tiles_per_col(uint32_t height) {
 }
 
 size_t finlink_video_encode_max_size(uint32_t width, uint32_t height) {
-    return finlink_deflate_max_size(finlink_video_max_inflated_size(width, height));
+    return finlink_deflate_max_size(finlink_video_encode_scratch_size(width, height));
+}
+
+size_t finlink_video_encode_scratch_size(uint32_t width, uint32_t height) {
+    size_t max_tile_count = tiles_per_row(width) * tiles_per_col(height);
+    /* u16 tile_count header + up to max_tile_count u16 indices + up to
+     * max_tile_count full padded 8x8 (64px * 2 bytes) tiles -- see the
+     * header comment on why this can exceed width*height*2. */
+    return 2 + max_tile_count * 2 + max_tile_count * 64 * 2;
 }
 
 /* True if any in-bounds pixel of the 8x8 tile at (tile_col, tile_row)

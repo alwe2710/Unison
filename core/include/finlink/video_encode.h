@@ -28,12 +28,20 @@ typedef enum {
 } finlink_encode_status;
 
 /* Upper bound on finlink_encode_video_frame()'s compressed out_buf size for
- * a given width/height -- use this to size out_buf. Reuses
- * finlink_video_max_inflated_size() (finlink/protocol.h) as the pre-deflate
- * size bound, since a TILES-encoded frame's unpacked size is bounded by
- * exactly the same worst case (every tile changed) that function already
- * accounts for. */
+ * a given width/height -- use this to size out_buf. */
 size_t finlink_video_encode_max_size(uint32_t width, uint32_t height);
+
+/* Upper bound on finlink_encode_video_frame()'s scratch_buf size for a given
+ * width/height -- use this to size scratch_buf. NOT the same bound as
+ * finlink_video_max_inflated_size() (finlink/protocol.h): that function
+ * bounds a DECODED framebuffer, which is always exactly width*height*2 bytes
+ * for the full-frame pixel data plus modest header slack. The encoder's
+ * scratch buffer instead holds the TILES block being built, where every
+ * changed tile -- including partial edge tiles when width/height isn't a
+ * multiple of 8 -- occupies a full padded 8x8x2-byte slot; the worst case
+ * (every tile changed) can exceed width*height*2 by that padding, so this
+ * needs its own bound. */
+size_t finlink_video_encode_scratch_size(uint32_t width, uint32_t height);
 
 /* Encodes current_rgb565 (width*height u16le RGB565 pixels, row-major) as
  * the format byte + compressed payload that follow the
@@ -55,9 +63,9 @@ size_t finlink_video_encode_max_size(uint32_t width, uint32_t height);
  * results (nothing to update, since nothing was sent).
  *
  * scratch_buf/scratch_capacity is working space for the pre-deflate TILES
- * block (scratch_capacity must be >= finlink_video_max_inflated_size(width,
- * height), finlink/protocol.h) -- never written to out_buf, freed to reuse
- * by the caller as soon as this call returns.
+ * block (scratch_capacity must be >= finlink_video_encode_scratch_size(width,
+ * height), above) -- never written to out_buf, freed to reuse by the caller
+ * as soon as this call returns.
  *
  * out_buf/out_capacity (sized with finlink_video_encode_max_size()) receives
  * the raw-deflate-compressed bytes; *out_size and *out_format are only
