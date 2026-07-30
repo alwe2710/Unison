@@ -32,10 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,8 +44,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -57,14 +52,21 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.content.Context
+import android.text.Editable
+import android.text.InputFilter
+import android.text.TextWatcher
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import java.nio.ByteBuffer
 
 /**
@@ -464,15 +466,22 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     /** Pre-filled with request.initialText, auto-focused so the system
      * keyboard comes up immediately -- the whole point of this dialog is to
      * stand in for the server's own on-screen keyboard, which the video
-     * stream never shows. Fullscreen rather than a small wrap-content
-     * popup: the system IME already covers the bottom half of the screen
-     * once focused, so a small centered popup left barely any room to see
-     * what was actually typed. IME "Done" submits the same as the OK
-     * button; dismissing (back button) cancels, same as Cancel. */
+     * stream never shows.
+     *
+     * Backed by a real android.widget.EditText via AndroidView rather than
+     * Compose's own TextField/OutlinedTextField: Compose's text fields
+     * always set IME_FLAG_NO_EXTRACT_UI on their InputConnection, which
+     * permanently suppresses the keyboard's own native fullscreen "extract
+     * mode" input surface. A plain EditText doesn't set that flag, so in
+     * landscape (this stream's usual orientation) the system keyboard takes
+     * over the whole screen itself with its own real fullscreen editor --
+     * the actual OS input experience instead of an app-drawn imitation of
+     * one. IME "Done" submits the same as the OK button; dismissing (back
+     * button) cancels, same as Cancel. */
     @Composable
     private fun TextInputDialog(request: TextInputRequest, onSubmit: (String) -> Unit, onCancel: () -> Unit) {
         var text by remember(request) { mutableStateOf(request.initialText) }
-        val focusRequester = remember { FocusRequester() }
+        var editTextRef by remember { mutableStateOf<EditText?>(null) }
 
         Dialog(
             onDismissRequest = onCancel,
@@ -490,16 +499,35 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                         TextButton(onClick = { onSubmit(text) }) { Text(stringResource(R.string.ok)) }
                     }
                     Spacer(Modifier.height(24.dp))
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { new ->
-                            text = if (request.maxLength > 0) new.take(request.maxLength) else new
-                        },
-                        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-                        textStyle = MaterialTheme.typography.headlineSmall,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { onSubmit(text) })
+                    AndroidView(
+                        modifier = Modifier.fillMaxWidth(),
+                        factory = { context ->
+                            EditText(context).apply {
+                                setText(request.initialText)
+                                setSelection(request.initialText.length)
+                                isSingleLine = true
+                                imeOptions = EditorInfo.IME_ACTION_DONE
+                                if (request.maxLength > 0) {
+                                    filters = arrayOf(InputFilter.LengthFilter(request.maxLength))
+                                }
+                                addTextChangedListener(object : TextWatcher {
+                                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                                    override fun afterTextChanged(s: Editable?) {
+                                        text = s?.toString().orEmpty()
+                                    }
+                                })
+                                setOnEditorActionListener { _, actionId, _ ->
+                                    if (actionId == EditorInfo.IME_ACTION_DONE) {
+                                        onSubmit(text)
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                editTextRef = this
+                            }
+                        }
                     )
                     if (request.maxLength > 0) {
                         Spacer(Modifier.height(4.dp))
@@ -515,7 +543,11 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         }
 
         LaunchedEffect(request) {
-            focusRequester.requestFocus()
+            editTextRef?.let { editText ->
+                editText.requestFocus()
+                val imm = editText.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+            }
         }
     }
 
