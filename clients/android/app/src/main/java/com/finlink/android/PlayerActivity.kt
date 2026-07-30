@@ -1,6 +1,8 @@
 package com.finlink.android
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.AudioAttributes
@@ -57,16 +59,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import android.content.Context
-import android.text.Editable
-import android.text.InputFilter
-import android.text.TextWatcher
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
 import java.nio.ByteBuffer
 
 /**
@@ -109,12 +102,20 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var bilinearVideoFilter by mutableStateOf(false)
 
-    // Set from GbaStreamClient.Listener.onTextInputRequest() (the server's
-    // own on-screen keyboard has no way to reach a remote client, see that
-    // callback's own comment) -- non-null shows TextInputDialog below;
-    // cleared again once the user submits or cancels.
-    private data class TextInputRequest(val maxLength: Int, val initialText: String)
-    private var textInputRequest by mutableStateOf<TextInputRequest?>(null)
+    // Launched from GbaStreamClient.Listener.onTextInputRequest() (the
+    // server's own on-screen keyboard has no way to reach a remote client,
+    // see that callback's own comment) -- a real Activity, not a Dialog on
+    // top of this one, so the system keyboard's own fullscreen input isn't
+    // fighting a second app-drawn window (see TextInputActivity's own
+    // comment for why that mattered).
+    private val textInputLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val text = result.data?.getStringExtra(TextInputActivity.EXTRA_RESULT_TEXT) ?: ""
+            client?.sendTextInputResponse(true, text)
+        } else {
+            client?.sendTextInputResponse(false, "")
+        }
+    }
 
     // Set from GbaStreamClient.Listener.onConnected(isTouch, hasButtons),
     // i.e. from the server's own hello.input_encoding -- not known before
@@ -444,110 +445,6 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                 }
             }
 
-            // See Listener.onTextInputRequest()'s own comment for why this
-            // exists at all: the server's own on-screen keyboard has no way
-            // to reach a remote client.
-            textInputRequest?.let { request ->
-                TextInputDialog(
-                    request = request,
-                    onSubmit = { text ->
-                        client?.sendTextInputResponse(true, text)
-                        textInputRequest = null
-                    },
-                    onCancel = {
-                        client?.sendTextInputResponse(false, "")
-                        textInputRequest = null
-                    }
-                )
-            }
-        }
-    }
-
-    /** Pre-filled with request.initialText, auto-focused so the system
-     * keyboard comes up immediately -- the whole point of this dialog is to
-     * stand in for the server's own on-screen keyboard, which the video
-     * stream never shows.
-     *
-     * Backed by a real android.widget.EditText via AndroidView rather than
-     * Compose's own TextField/OutlinedTextField: Compose's text fields
-     * always set IME_FLAG_NO_EXTRACT_UI on their InputConnection, which
-     * permanently suppresses the keyboard's own native fullscreen "extract
-     * mode" input surface. A plain EditText doesn't set that flag, so in
-     * landscape (this stream's usual orientation) the system keyboard takes
-     * over the whole screen itself with its own real fullscreen editor --
-     * the actual OS input experience instead of an app-drawn imitation of
-     * one. IME "Done" submits the same as the OK button; dismissing (back
-     * button) cancels, same as Cancel. */
-    @Composable
-    private fun TextInputDialog(request: TextInputRequest, onSubmit: (String) -> Unit, onCancel: () -> Unit) {
-        var text by remember(request) { mutableStateOf(request.initialText) }
-        var editTextRef by remember { mutableStateOf<EditText?>(null) }
-
-        Dialog(
-            onDismissRequest = onCancel,
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-                Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
-                        Text(
-                            stringResource(R.string.text_input_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                        )
-                        TextButton(onClick = { onSubmit(text) }) { Text(stringResource(R.string.ok)) }
-                    }
-                    Spacer(Modifier.height(24.dp))
-                    AndroidView(
-                        modifier = Modifier.fillMaxWidth(),
-                        factory = { context ->
-                            EditText(context).apply {
-                                setText(request.initialText)
-                                setSelection(request.initialText.length)
-                                isSingleLine = true
-                                imeOptions = EditorInfo.IME_ACTION_DONE
-                                if (request.maxLength > 0) {
-                                    filters = arrayOf(InputFilter.LengthFilter(request.maxLength))
-                                }
-                                addTextChangedListener(object : TextWatcher {
-                                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                                    override fun afterTextChanged(s: Editable?) {
-                                        text = s?.toString().orEmpty()
-                                    }
-                                })
-                                setOnEditorActionListener { _, actionId, _ ->
-                                    if (actionId == EditorInfo.IME_ACTION_DONE) {
-                                        onSubmit(text)
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                }
-                                editTextRef = this
-                            }
-                        }
-                    )
-                    if (request.maxLength > 0) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "${text.length} / ${request.maxLength}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.End)
-                        )
-                    }
-                }
-            }
-        }
-
-        LaunchedEffect(request) {
-            editTextRef?.let { editText ->
-                editText.requestFocus()
-                val imm = editText.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
-            }
         }
     }
 
@@ -1017,7 +914,6 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         physicalMask = 0
         connected = false
         disconnectedReason = null
-        textInputRequest = null
         touchMode = false
         hasButtonsMode = false
         hasSticksMode = false
@@ -1070,7 +966,12 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
 
     override fun onTextInputRequest(maxLength: Int, initialText: String) {
         runOnUiThread {
-            textInputRequest = TextInputRequest(maxLength, initialText)
+            textInputLauncher.launch(
+                Intent(this, TextInputActivity::class.java).apply {
+                    putExtra(TextInputActivity.EXTRA_MAX_LENGTH, maxLength)
+                    putExtra(TextInputActivity.EXTRA_INITIAL_TEXT, initialText)
+                }
+            )
         }
     }
 

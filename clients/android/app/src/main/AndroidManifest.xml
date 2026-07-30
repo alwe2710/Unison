@@ -59,5 +59,13 @@
             android:exported="false"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- Launched only from PlayerActivity, landscape-locked to match it.
+             The stream stays connected in the background while this is on
+             top. -->
+        <activity
+            android:name=".TextInputActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 </manifest>

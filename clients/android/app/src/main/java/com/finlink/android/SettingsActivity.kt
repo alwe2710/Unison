@@ -6,10 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -63,8 +61,11 @@ class SettingsActivity : LocalizedActivity() {
                             )
                         }
                     ) { innerPadding ->
-                        Column(modifier = Modifier.padding(innerPadding).padding(16.dp).fillMaxSize()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.padding(innerPadding).padding(horizontal = 16.dp).fillMaxSize()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                            ) {
                                 Text(
                                     stringResource(R.string.settings_on_screen_controls),
                                     modifier = Modifier.weight(1f)
@@ -78,9 +79,7 @@ class SettingsActivity : LocalizedActivity() {
                                 )
                             }
 
-                            Spacer(Modifier.height(16.dp))
                             HorizontalDivider()
-                            Spacer(Modifier.height(16.dp))
 
                             // Own sub-screen (LanguageActivity), same
                             // whole-row-navigates treatment as the two rows
@@ -113,9 +112,7 @@ class SettingsActivity : LocalizedActivity() {
                                 }
                             }
 
-                            Spacer(Modifier.height(16.dp))
                             HorizontalDivider()
-                            Spacer(Modifier.height(16.dp))
 
                             // Whole-row tap target (system-settings-list-item
                             // style), not a separate "open" button off to the
