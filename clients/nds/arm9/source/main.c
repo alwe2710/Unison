@@ -849,18 +849,41 @@ static void promptForIp(char outIp[16]) {
     iscanf("%15s", outIp);
 }
 
-/* Returns 0-3 for the chosen slot, -1 to quit, -2 to re-run discovery,
- * -3 to enter the server IP manually. */
-static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDiscovered) {
+/* Only GC_GBA_LINK (Dolphin) is multi-slot -- every other stream type is
+ * single-client and connects straight to the beacon's own handshake_port
+ * instead (docs/protocol.md), matching clients/android's MenuActivity.kt,
+ * clients/switch's menu_activity.cpp, and clients/3ds's main.cpp, all of
+ * which gate their P1-P4-equivalent picker the same way. An empty
+ * streamType means "unknown" (manual IP entry has no beacon to read a
+ * stream_type from) -- treated as GC_GBA_LINK, same fallback the other
+ * three clients' own manual-entry paths already accept. */
+static bool streamTypeIsMultiSlot(const char *streamType) {
+    return streamType[0] == '\0' || strcmp(streamType, "GC_GBA_LINK") == 0;
+}
+
+/* Returns 0-3 for the chosen slot (GC_GBA_LINK) or 0 for "connect" (every
+ * other stream type, see streamTypeIsMultiSlot()), -1 to quit, -2 to
+ * re-run discovery, -3 to enter the server IP manually. */
+static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDiscovered,
+                           const char *streamType) {
+    const bool multiSlot = streamTypeIsMultiSlot(streamType);
     consoleClear();
     iprintf("finlink NDS - Machbarkeitstest\n\n");
     iprintf("Server: %s%s\n", serverIp, autoDiscovered ? " (gefunden)" : " (manuell)");
     iprintf("Eigene IP: %s\n\n", ownIp);
-    iprintf("Slot waehlen:\n");
-    iprintf(" A = Slot 1 (Port 6801)\n");
-    iprintf(" B = Slot 2 (Port 6802)\n");
-    iprintf(" X = Slot 3 (Port 6803)\n");
-    iprintf(" Y = Slot 4 (Port 6804)\n\n");
+    if (multiSlot) {
+        iprintf("Slot waehlen:\n");
+        iprintf(" A = Slot 1 (Port 6801)\n");
+        iprintf(" B = Slot 2 (Port 6802)\n");
+        iprintf(" X = Slot 3 (Port 6803)\n");
+        iprintf(" Y = Slot 4 (Port 6804)\n\n");
+    } else {
+        /* Single-client stream types have nothing to pick a slot among --
+         * probing PLAYER_BASE_PORT+0..3 against a server that was never
+         * Dolphin doesn't find "free"/"occupied" slots, just four
+         * unreachable ports, so this doesn't show that picker at all. */
+        iprintf(" A = Verbinden\n\n\n\n\n");
+    }
     iprintf(" SELECT = Server erneut suchen\n");
     iprintf(" R = IP manuell eingeben\n");
     iprintf(" L = Bildschirm umschalten\n");
@@ -878,9 +901,11 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
         scanKeys();
         int keys = keysDown();
         if (keys & KEY_A) return 0;
-        if (keys & KEY_B) return 1;
-        if (keys & KEY_X) return 2;
-        if (keys & KEY_Y) return 3;
+        if (multiSlot) {
+            if (keys & KEY_B) return 1;
+            if (keys & KEY_X) return 2;
+            if (keys & KEY_Y) return 3;
+        }
         if (keys & KEY_SELECT) return -2;
         if (keys & KEY_R) return -3;
         if (keys & KEY_L) {
@@ -929,8 +954,13 @@ static void drawServerList(const BeaconScan *scan) {
  * SELECT doesn't lose anything already heard). Returns 0-3 for the chosen
  * (compatible) server, -1 to quit the app, -3 to enter the IP manually --
  * same convention as slotSelectMenu() below, whose R/START already mean
- * exactly that. outHost must be at least FINLINK_BEACON_HOST_LEN bytes. */
-static int serverSelectMenu(BeaconScan *scan, const char *ownIp, char *outHost, size_t outHostCap) {
+ * exactly that. outHost must be at least FINLINK_BEACON_HOST_LEN bytes;
+ * outStreamType at least FINLINK_BEACON_STREAM_TYPE_LEN bytes -- fed
+ * straight into slotSelectMenu()/main()'s port choice so a discovered
+ * non-GC_GBA_LINK server never goes through the GC_GBA_LINK-only slot
+ * picker (see streamTypeIsMultiSlot()). */
+static int serverSelectMenu(BeaconScan *scan, const char *ownIp, char *outHost, size_t outHostCap,
+                             char *outStreamType, int *outHandshakePort) {
     consoleClear();
     iprintf("finlink NDS - Machbarkeitstest\n\n");
     iprintf("Eigene IP: %s\n\n", ownIp);
@@ -950,6 +980,9 @@ static int serverSelectMenu(BeaconScan *scan, const char *ownIp, char *outHost, 
             if ((keys & keyBits[i]) && scan->servers[i].inUse && scan->servers[i].compatible) {
                 strncpy(outHost, scan->servers[i].beacon.host, outHostCap - 1);
                 outHost[outHostCap - 1] = '\0';
+                strncpy(outStreamType, scan->servers[i].beacon.stream_type, FINLINK_BEACON_STREAM_TYPE_LEN - 1);
+                outStreamType[FINLINK_BEACON_STREAM_TYPE_LEN - 1] = '\0';
+                *outHandshakePort = scan->servers[i].beacon.handshake_port;
                 return i;
             }
         }
@@ -1015,30 +1048,43 @@ int main(void) {
     beaconScan_start(&beaconScan);
 
     char serverIp[FINLINK_BEACON_HOST_LEN];
+    char serverStreamType[FINLINK_BEACON_STREAM_TYPE_LEN];
+    int serverHandshakePort = 0;
     serverIp[0] = '\0';
-    bool autoDiscovered = serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp)) >= 0;
+    serverStreamType[0] = '\0';
+    bool autoDiscovered =
+        serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp), serverStreamType, &serverHandshakePort) >= 0;
     if (!autoDiscovered) {
         promptForIp(serverIp);
+        serverStreamType[0] = '\0'; /* unknown -- see streamTypeIsMultiSlot() */
     }
 
     for (;;) {
-        int slot = slotSelectMenu(ownIp, serverIp, autoDiscovered);
+        int slot = slotSelectMenu(ownIp, serverIp, autoDiscovered, serverStreamType);
         if (slot == -2) {
-            autoDiscovered = serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp)) >= 0;
+            autoDiscovered = serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp), serverStreamType,
+                                               &serverHandshakePort) >= 0;
             if (!autoDiscovered) {
                 promptForIp(serverIp);
+                serverStreamType[0] = '\0';
             }
             continue;
         }
         if (slot == -3) {
             promptForIp(serverIp);
             autoDiscovered = false;
+            serverStreamType[0] = '\0';
             continue;
         }
         if (slot < 0) {
             break;
         }
-        runSession(serverIp, kSlotPorts[slot]);
+        /* GC_GBA_LINK dials the chosen player-slot port; every other
+         * stream type is single-client and connects straight to the
+         * beacon's own handshake_port instead (slotSelectMenu() only ever
+         * returns 0 in that case, see streamTypeIsMultiSlot()). */
+        int port = streamTypeIsMultiSlot(serverStreamType) ? kSlotPorts[slot] : serverHandshakePort;
+        runSession(serverIp, port);
         /* runSession() may have swapped MAIN/SUB to the bottom screen (see
          * its own comment) -- every one of its exit paths returns here, so
          * resetting once, in this one place, is enough to keep every menu
