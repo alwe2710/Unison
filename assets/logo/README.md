@@ -10,13 +10,17 @@ Currently used by:
   `ic_launcher_round.png` — plain resized copies (legacy square launcher
   icon, not an Android adaptive icon with separate foreground/background
   layers — the source has no transparent foreground to split out).
+- `clients/3ds/icon.png` — source for the `.smdh` icon (24×24 + 48×48,
+  platform-specific tiled RGB565 format, built via `bannertool`/`makerom`
+  as part of the normal CMake build).
+- `clients/switch/icon.jpg` — `.nacp` control data icon (256×256 JPEG),
+  embedded into the `.nro` as part of the normal CMake build.
 
-Still needed once those clients exist:
+Still needed:
 
-- **3DS**: `.smdh` icon (24×24 + 48×48, platform-specific tiled RGB565 format,
-  built via `bannertool`/`makerom` from a source PNG)
-- **Switch**: `.nacp` control data icon (256×256 JPEG)
 - **NDS**: banner icon (32×32, 4bpp indexed/paletted, built via `ndstool`)
+  — the build currently falls back to devkitPro's generic default icon
+  (`calico/share/nds-icon.bmp`, see `clients/nds/Makefile`).
 
 Regenerate the Android icons after replacing `finlink-logo.png`:
 

@@ -7,45 +7,61 @@ always shows the GBA stream (or an idle "finlink" screen before
 connecting), **bottom screen** shows Menu/Settings before connecting and
 the on-screen touch controls (+ a "Trennen" button) while playing.
 
-## Architektur
+## Architecture
 
-Alle Protokoll-/Transport-Logik kommt unverändert aus [`../../core/`](../../core/).
-Es gibt kein UI-Framework wie borealis (Switch) hier -- citro2d bietet nur
-Grundprimitive (Rechtecke, Text, Bilder), keine fertigen Widgets, daher sind
-alle Menüs/Buttons handgerollt (`ui.hpp`), im selben Stil wie das
-On-Screen-Touch-Overlay des Switch-Clients (`clients/switch/source/video_view.cpp`).
+All protocol/transport logic comes unmodified from [`../../core/`](../../core/).
+There's no UI framework like borealis (Switch) here -- citro2d only offers
+basic primitives (rectangles, text, images), no ready-made widgets, so every
+menu/button is hand-rolled (`ui.hpp`), in the same style as the Switch
+client's on-screen touch overlay (`clients/switch/source/video_view.cpp`).
 
-- **`source/session.{hpp,cpp}`** -- WS-Handshake/Framing + Session-Loop auf
-  einem Hintergrund-Thread, praktisch identisch zu
-  `clients/switch/source/session.cpp` (portables C++, nur die RNG-Quelle
-  unterscheidet sich: `rand()` statt `randomGet()`, da devkitARM dieselbe
-  fehlende `getentropy()`-Anbindung hat wie devkitA64).
-- **`source/discovery.{hpp,cpp}`** -- UDP-Discovery-Beacon-Listener
-  (`BeaconListener`, Port 6805, siehe `docs/protocol.md`
-  "Discovery-Beacon (UDP)") auf einem eigenen Hintergrund-Thread, plus
-  `/status`-Polling für die Slot-Belegung nach Server-Wahl. `gethostid()`
-  liefert nur noch die eigene IP für die Diagnose-Anzeige.
-- **`source/video_tex.{hpp,cpp}`** -- GBA-Video als citro3d-Textur.
-  RGB565 wird direkt hochgeladen (keine RGBA8-Konvertierung wie beim
-  NanoVG-Pfad des Switch-Clients -- GPU_RGB565 entspricht exakt dem
-  Wire-Format, was auf der deutlich schwächeren 3DS-CPU zählt). Die Textur
-  ist fix 256x256 (PICA200 braucht Zweierpotenzen), gezeichnet wird nur der
-  240x160-Teilbereich über eine `Tex3DS_SubTexture`.
-- **`source/audio.{hpp,cpp}`** -- Audiowiedergabe über NDSP. Im Gegensatz
-  zum Switch-Client (dessen `audout`-Gerät fix auf 48kHz/Stereo steht und
-  daher resamplen muss) nimmt NDSP über `ndspChnSetRate()` eine beliebige
-  Rate entgegen -- kein Resampling nötig.
-- **`source/gba_buttons.hpp`** -- kein Key-Rebinding wie bei Android/Switch:
-  das 3DS-Tastenlayout (Steuerkreuz, A/B, L/R, Start/Select) entspricht
-  bereits fast 1:1 dem GBA, daher nur eine feste Standardbelegung.
-- **`source/ui.hpp`** -- Rechtecke/Buttons/Toggles + manuelles
-  Touch-Hit-Testing für Menu/Settings/On-Screen-Controls.
+- **`source/session.{hpp,cpp}`** -- WS handshake/framing + session loop on
+  a background thread, practically identical to
+  `clients/switch/source/session.cpp` (portable C++, only the RNG source
+  differs: `rand()` instead of `randomGet()`, since devkitARM has the same
+  missing `getentropy()` binding as devkitA64).
+- **`source/discovery.{hpp,cpp}`** -- UDP discovery-beacon listener
+  (`BeaconListener`, port 6805, see `docs/protocol.md`
+  "Discovery-Beacon (UDP)") on its own background thread, plus `/status`
+  polling for slot occupancy after server selection. `gethostid()` now only
+  supplies the client's own IP for the diagnostic display.
+- **`source/video_tex.{hpp,cpp}`** -- GBA video as a citro3d texture.
+  RGB565 is uploaded directly (no RGBA8 conversion like the Switch client's
+  NanoVG path -- GPU_RGB565 matches the wire format exactly, which matters
+  on the 3DS's much weaker CPU). The texture is fixed at 256x256 (PICA200
+  needs powers of two); only the 240x160 sub-region is drawn, via a
+  `Tex3DS_SubTexture`.
+- **`source/audio.{hpp,cpp}`** -- audio playback via NDSP. Unlike the
+  Switch client (whose `audout` device is fixed at 48kHz/stereo and
+  therefore has to resample), NDSP accepts an arbitrary rate via
+  `ndspChnSetRate()` -- no resampling needed.
+- **`source/gba_buttons.hpp`** -- no key rebinding like Android/Switch:
+  the 3DS's button layout (D-pad, A/B, L/R, Start/Select) already matches
+  the GBA's almost 1:1, so there's just a fixed default mapping.
+- **`source/ui.hpp`** -- rectangles/buttons/toggles + manual touch
+  hit-testing for Menu/Settings/on-screen controls/the language picker
+  (see [Localization](#localization) below).
+
+## Localization
+
+The Settings screen's "Sprache"/"Language" row opens its own
+`BottomScreenState::LANGUAGE` screen (`drawLanguageScreen()` in
+`main.cpp`), an alphabetically-sorted list (System, plus every language in
+[`i18n/strings.json`](../../i18n/strings.json)) drawn with the same
+`ui::button()` rows as everywhere else -- tapping one sets `prefs->language`,
+saves it, and calls `applyLanguage()`, which re-resolves and calls
+`strings::setLanguage()`. Since this is a plain immediate-mode redraw (not
+a retained view tree), every string on screen already reflects the new
+language the very next frame, no extra refresh logic needed.
+`resolveLanguage()` detects the console's own system language via
+`CFGU_GetSystemLanguage()`, falling back to English if that call fails or
+the system language isn't one of the five supported.
 
 ## Building
 
-Benötigt devkitPro mit `devkitARM`, `libctru`, `citro2d`, `citro3d`,
-`3dstools`, `general-tools`, `3ds-cmake`, `devkitarm-cmake` und
-`3ds-pkg-config` unter `$DEVKITPRO`.
+Requires devkitPro with `devkitARM`, `libctru`, `citro2d`, `citro3d`,
+`3dstools`, `general-tools`, `3ds-cmake`, `devkitarm-cmake`, and
+`3ds-pkg-config` under `$DEVKITPRO`.
 
 ```sh
 export DEVKITPRO=/opt/devkitpro
@@ -56,22 +72,22 @@ cmake -S clients/3ds -B clients/3ds/build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmak
 cmake --build clients/3ds/build
 ```
 
-Output: `clients/3ds/build/finlink-3ds.3dsx`. Auf die SD-Karte nach
-`/3ds/finlink-3ds.3dsx` kopieren und über den Homebrew Launcher starten.
+Output: `clients/3ds/build/finlink-3ds.3dsx`. Copy it to the SD card at
+`/3ds/finlink-3ds.3dsx` and launch it through the Homebrew Launcher.
 
 ## Status
 
-- [x] Toolchain-Bootstrap verifiziert (Hello-World-Smoke-Test: kompiliert,
-      linkt, erzeugt eine lauffähige `.3dsx`).
-- [x] Menu (Host-Eingabe via Software-Keyboard, P1-P4-Picker, LAN-Discovery
-      via `gethostid()`, Settings-Link) -- unteres Display
-- [x] Settings (On-Screen-Controls-Toggle, Video-Filter-Toggle) -- unteres
-      Display
-- [x] Player -- Video oberes Display, On-Screen-Controls + physische Tasten
-      + "Trennen" unteres Display
+- [x] Toolchain bootstrap verified (hello-world smoke test: compiles,
+      links, produces a runnable `.3dsx`).
+- [x] Menu (host entry via software keyboard, P1-P4 picker, LAN discovery
+      via `gethostid()`, Settings link) -- bottom screen
+- [x] Settings (on-screen-controls toggle, video filter toggle, language
+      picker) -- bottom screen
+- [x] Player -- video on the top screen, on-screen controls + physical
+      buttons + "Trennen" on the bottom screen
 
-Alles oben kompiliert und linkt sauber zu einer `.3dsx`, wurde aber mangels
-Zugriff auf echte 3DS-Hardware in dieser Umgebung noch nicht auf einer
-Konsole getestet -- insbesondere die Video-Textur-UV-Konvention
-(`Tex3DS_SubTexture`) und die NDSP-Audiowiedergabe sind ungetestete
-Annahmen aus der citro2d/citro3d-Dokumentation.
+Everything above compiles and links cleanly to a `.3dsx`, but hasn't been
+tested on a real console in this environment for lack of access to real
+3DS hardware -- in particular the video texture UV convention
+(`Tex3DS_SubTexture`) and NDSP audio playback are untested assumptions
+from the citro2d/citro3d documentation.

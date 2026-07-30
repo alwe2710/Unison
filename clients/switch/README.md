@@ -6,28 +6,45 @@ to Settings), **Settings** (on-screen-controls toggle, video filter toggle,
 physical key bindings), **Player** (fullscreen video/audio/input). Native
 "Horizon" UI look via [borealis](https://github.com/xfangfang/borealis).
 
-## Architektur
+## Architecture
 
-Alle Protokoll-/Transport-Logik kommt unverändert aus [`../../core/`](../../core/)
-(via `add_subdirectory`, siehe `CMakeLists.txt`) — dieser Client fügt nur die
-Switch-spezifische UI (borealis) und Session-Orchestrierung hinzu.
+All protocol/transport logic comes unmodified from [`../../core/`](../../core/)
+(via `add_subdirectory`, see `CMakeLists.txt`) — this client only adds the
+Switch-specific UI (borealis) and session orchestration.
 
-- **`borealis/`** — vendored `library/`-Unterverzeichnis von
+- **`borealis/`** — vendored `library/` subdirectory of
   [xfangfang/borealis](https://github.com/xfangfang/borealis) (Apache 2.0),
-  als plain source statt Submodule, da nur der Switch+glfw-Treiber benötigt
-  wird. Boreals eigene `glfw`/`SDL`-Submodule sind nur für dessen
-  `PLATFORM_DESKTOP`-Build nötig und werden hier nicht eingebunden.
-- **`resources/`** — Font + Material-Icons aus borealis' Demo-Ressourcen,
-  minimal (nicht der volle wiliwili-Ressourcensatz).
-- **`source/`** — App-Code (Menu/Settings/Player-Activities), analog zum
-  Android-Client.
+  as plain source rather than a submodule, since only the Switch+glfw driver
+  is needed. Borealis' own `glfw`/`SDL` submodules are only needed for its
+  `PLATFORM_DESKTOP` build and aren't pulled in here.
+- **`resources/`** — font + Material Icons from borealis' demo resources,
+  a minimal set (not the full wiliwili resource set).
+- **`source/`** — app code (Menu/Settings/Player/Language activities),
+  mirroring the Android client's structure. `language_activity.{hpp,cpp}`
+  is the language picker's own screen — see [Localization](#localization)
+  below.
+
+## Localization
+
+`SettingsActivity`'s "Sprache"/"Language" cell pushes `LanguageActivity`, a
+plain alphabetically-sorted list (System, plus every language in
+[`i18n/strings.json`](../../i18n/strings.json)) — tapping an entry sets
+`Prefs.language`, saves it, calls `strings::setLanguage()`, and pops back.
+Since borealis keeps a pushed activity's view tree alive rather than
+recreating it, `SettingsActivity::onResume()` (called by `popActivity()` on
+the activity revealed underneath) reloads `Prefs` from disk and refreshes
+its own visible text — nothing updates on its own just because the language
+changed one screen up. `prefs.cpp`'s `resolveLanguage()` detects the
+console's own system language via `setGetSystemLanguage()`/
+`setMakeLanguage()`, falling back to English if that call fails or the
+system language isn't one of the five supported.
 
 ## Building
 
-Benötigt devkitPro mit `devkitA64`, `libnx`, `switch-glfw`, `switch-mesa`,
+Requires devkitPro with `devkitA64`, `libnx`, `switch-glfw`, `switch-mesa`,
 `switch-libdrm_nouveau`, `switch-pkg-config`, `switch-zlib`, `switch-cmake`,
-`switch-tools`, `dkp-cmake-common-utils` und `dkp-toolchain-vars` unter
-`$DEVKITPRO` installiert.
+`switch-tools`, `dkp-cmake-common-utils`, and `dkp-toolchain-vars` installed
+under `$DEVKITPRO`.
 
 ```sh
 export DEVKITPRO=/opt/devkitpro
@@ -38,23 +55,23 @@ cmake -S clients/switch -B clients/switch/build -DPLATFORM_SWITCH=ON -DCMAKE_BUI
 cmake --build clients/switch/build --target finlink-switch.nro
 ```
 
-Output: `clients/switch/build/finlink-switch.nro`. Auf die SD-Karte nach
-`/switch/finlink/finlink-switch.nro` kopieren und über das Homebrew Menu
-starten.
+Output: `clients/switch/build/finlink-switch.nro`. Copy it to the SD card at
+`/switch/finlink/finlink-switch.nro` and launch it through the Homebrew
+Menu.
 
 ## Status
 
-- [x] Toolchain-Bootstrap + borealis-Integration verifiziert (Smoke-Test:
-      kompiliert, linkt, erzeugt eine lauffähige `.nro`).
-- [x] Menu (Host-Eingabe, UDP-Discovery-Beacon-Listener, Settings-Link)
-- [x] Settings (On-Screen-Controls-Toggle, Video-Filter-Toggle, Key-Bindings
-      per Controller-Taste)
-- [x] Player (Fullscreen Video via NanoVG-Image, Audio via `audout`,
-      physische + On-Screen-Touch-Eingabe)
+- [x] Toolchain bootstrap + borealis integration verified (smoke test:
+      compiles, links, produces a runnable `.nro`).
+- [x] Menu (host entry, UDP discovery-beacon listener, Settings link)
+- [x] Settings (on-screen-controls toggle, video filter toggle, key
+      bindings per controller button, language picker)
+- [x] Player (fullscreen video via NanoVG image, audio via `audout`,
+      physical + on-screen touch input)
 
-Alles oben kompiliert und linkt sauber zu einer `.nro` (siehe Build-Schritte),
-wurde aber mangels Zugriff auf echte Switch-Hardware in dieser Umgebung noch
-nicht auf einer Konsole getestet. Bekannte Design-Entscheidung: da auf dem
-Switch (anders als Android, wo Zurück ein eigener System-Gesture-Kanal ist)
-alle Controller-Tasten per Default an GBA-Buttons gebunden sind, verlässt man
-den Player durch Halten von ZL+ZR statt eines Zurück-Buttons.
+Everything above compiles and links cleanly to a `.nro` (see build steps),
+but hasn't been tested on a real console in this environment for lack of
+access to real Switch hardware. Known design decision: since on Switch
+(unlike Android, where Back is its own system gesture channel) every
+controller button is bound to a GBA button by default, Player is exited by
+holding ZL+ZR instead of a Back button.

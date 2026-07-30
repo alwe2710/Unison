@@ -7,70 +7,86 @@ Settings), **Settings** (on-screen-controls toggle + physical key bindings),
 [Material 3](https://m3.material.io/) — see [Design](#design) below for why
 and what that cost in this environment.
 
-## Architektur
+## Architecture
 
-Alle Protokoll-/Transport-Logik läuft nativ in C (`app/src/main/cpp/`), nicht
-in Kotlin — die drei Activities sind reine UI- und Orchestrierungs-Schicht:
+All protocol/transport logic runs in native C (`app/src/main/cpp/`), not
+Kotlin — the Activities are a pure UI/orchestration layer on top:
 
-- **`core/`** (via `add_subdirectory`, siehe `cpp/CMakeLists.txt`) — WS-
-  Handshake/Framing, App-Protokoll, Deflate. Unverändert aus dem Core, keine
-  Android-spezifische Anpassung nötig.
-- **`cpp/jni_bridge.c`** — alles, was Android-spezifisch ist: der rohe POSIX-
-  Socket (connect/send/recv), ein Hintergrund-Thread für die Session-Loop
-  (analog zum serverseitigen Poll-Loop-Muster aus `GBAStreamHost.cpp`: kurzes
-  `poll()`-Timeout, danach prüfen ob Input zum Senden ansteht), und die
-  JNI-Callbacks zurück nach Kotlin.
-- **`GbaStreamClient.kt`** — dünner Wrapper um die drei nativen Methoden,
-  alle eigentliche Arbeit passiert in `jni_bridge.c`.
-- **`MenuActivity.kt`** — Host-Eingabe + P1–P4-Picker (`GET /status` auf
-  6801–6804, plain `HttpURLConnection`, bewusst *nicht* über `finlink_core`/
-  den WebSocket-Pfad, da es kein Teil des Stream-Protokolls ist) sowie
-  Netzwerk-Discovery (Subnetz-Sweep gegen Port 6800 — Dolphin bewirbt sich
-  nicht selbst, kein mDNS/UPnP, siehe [`docs/protocol.md`](../../docs/protocol.md)).
-  Die Lobby (6800) liefert dafür keinen gebündelten Status; jeder Player-Port
-  muss einzeln gefragt werden.
-- **`SettingsActivity.kt`** — On-Screen-Controls-Toggle und
-  Tastenzuweisungen (physische Taste/Controller-Taste pro GBA-Button, per
-  `dispatchKeyEvent`-Interception), beides in `Prefs.kt` (`SharedPreferences`)
-  persistiert.
-- **`PlayerActivity.kt`** — verbindet sofort beim Start (Host/Port kommen als
-  Intent-Extras von `MenuActivity`), rendert Video als `Bitmap.RGB_565`
-  (passt exakt zum Wire-Format) über `Image(contentScale = ContentScale.Fit)`
-  (skaliert auf Vollbild, nie gestreckt), spielt Audio über `AudioTrack`,
-  kombiniert Touch- und physische Tasteneingaben (getrennte Bitmasken, ODER-
-  verknüpft beim Senden — analog zum ursprünglichen Web-Client, der Tastatur/
-  Touch/Gamepad genauso mischt).
+- **`core/`** (via `add_subdirectory`, see `cpp/CMakeLists.txt`) — WS
+  handshake/framing, app protocol, deflate. Unmodified from core, no
+  Android-specific changes needed.
+- **`cpp/jni_bridge.c`** — everything Android-specific: the raw POSIX
+  socket (connect/send/recv), a background thread for the session loop
+  (mirrors the server-side poll-loop pattern in `GBAStreamHost.cpp`: a short
+  `poll()` timeout, then check whether any input is queued to send), and the
+  JNI callbacks back into Kotlin.
+- **`GbaStreamClient.kt`** — thin wrapper around the three native methods;
+  all the real work happens in `jni_bridge.c`.
+- **`MenuActivity.kt`** — host entry + P1–P4 picker (`GET /status` on
+  6801–6804, plain `HttpURLConnection`, deliberately *not* through
+  `finlink_core`/the WebSocket path, since it's not part of the stream
+  protocol), plus network discovery (subnet sweep against port 6800 —
+  Dolphin doesn't advertise itself, no mDNS/UPnP, see
+  [`docs/protocol.md`](../../docs/protocol.md)). The lobby (6800) has no
+  bundled status for this; each player port has to be queried individually.
+- **`SettingsActivity.kt`** — on-screen-controls toggle, key bindings
+  (physical key/controller button per GBA button, via `dispatchKeyEvent`
+  interception), and the language picker (see [Localization](#localization)
+  below) — all persisted in `Prefs.kt` (`SharedPreferences`).
+- **`LanguageActivity.kt`** / **`LocaleHelper.kt`** / **`LocalizedActivity.kt`**
+  — the language picker's own screen, Configuration-wrapping helper, and
+  shared Activity base class (`attachBaseContext` override), see
+  [Localization](#localization) below.
+- **`PlayerActivity.kt`** — connects immediately on start (host/port arrive
+  as Intent extras from `MenuActivity`), renders video as `Bitmap.RGB_565`
+  (matches the wire format exactly) via `Image(contentScale = ContentScale.Fit)`
+  (scaled to fullscreen, never stretched), plays audio via `AudioTrack`,
+  combines touch and physical key input (separate bitmasks, OR'd together
+  when sending — same as the original web client, which mixes
+  keyboard/touch/gamepad the same way).
 
-Zufallsbytes für WS-Key und Frame-Maskierung kommen von `arc4random_buf`
-(Bionic-libc-Standard, kein zusätzlicher Dependency).
+Random bytes for the WS key and frame masking come from `arc4random_buf`
+(Bionic libc standard, no extra dependency).
 
-Menu und Settings haben **keine** Orientierungssperre (folgen der
-Geräterotation), Player bleibt landscape-gesperrt (feste GBA-Seitenverhältnis-
-Anforderung) — siehe `AndroidManifest.xml`.
+Menu and Settings have **no** orientation lock (follow device rotation),
+Player stays landscape-locked (fixed GBA aspect ratio requirement) — see
+`AndroidManifest.xml`.
+
+## Localization
+
+`SettingsActivity`'s "Sprache"/"Language" row opens `LanguageActivity`, a
+plain alphabetically-sorted list (System, plus every language in
+[`i18n/strings.json`](../../i18n/strings.json)) — tapping an entry sets
+`Prefs.language` and returns immediately. `LocaleHelper.wrap()` applies the
+resolved `Locale` to a `Context`'s `Configuration`; every Activity extends
+`LocalizedActivity`, which overrides `attachBaseContext` with that wrapper
+and `recreate()`s itself in `onResume()` if the resolved language changed
+since it was created (there's no `androidx.appcompat` dependency here, see
+[Design](#design) below, so no `AppCompatDelegate.setApplicationLocales()`
+to lean on instead).
 
 ## Design
 
-„Modernes Material Design“ hieß hier: UI-Layer komplett von XML-Views auf
-Jetpack Compose + Material 3 umgestellt (`Theme.kt`), mit dynamischem Farb-
-schema (Material You, Android 12+) und statischem Cyan-auf-Navy-Fallback
-passend zu [`assets/logo/`](../../assets/logo/) für ältere Geräte.
+"Modern Material Design" meant: the UI layer moved entirely from XML views
+to Jetpack Compose + Material 3 (`Theme.kt`), with a dynamic color scheme
+(Material You, Android 12+) and a static cyan-on-navy fallback matching
+[`assets/logo/`](../../assets/logo/) for older devices.
 
-Dependency-Versionen sind bewusst *nicht* die aktuellsten: `compose-bom
-2024.09.00` + `activity-compose 1.9.2` statt der neuesten Releases, weil
-neuere Versionen `compileSdk 35/36` und AGP 8.6+/8.9+ voraussetzen — das hätte
-eine Kaskade an weiteren Toolchain-Upgrades in dieser Umgebung ausgelöst.
-Funktional vollwertiges Material 3, nur ein bis zwei Jahre hinter der
-Speerspitze.
+Dependency versions are deliberately *not* the latest: `compose-bom
+2024.09.00` + `activity-compose 1.9.2` instead of the newest releases,
+because newer versions require `compileSdk 35/36` and AGP 8.6+/8.9+ — that
+would have triggered a cascade of further toolchain upgrades in this
+environment. Functionally full-featured Material 3, just a year or two
+behind the cutting edge.
 
-## Bauen
+## Building
 
-Diese Umgebung hatte ursprünglich weder Android NDK/Build-Tools noch JDK 17
-noch Gradle (nur `platform-tools`/`adb`, JDK 8). Für einen vollständigen Build
-wurden JDK 17 (Temurin), Android cmdline-tools, `platform-tools`,
-`platforms;android-34`, `build-tools;34.0.0` und Gradle 8.7 lokal
-nachinstalliert (AGP hat sich beim ersten Build zusätzlich selbst noch eine
-NDK-Version nachgeladen, da keine `ndkVersion` in `app/build.gradle.kts`
-gepinnt ist).
+This environment originally had neither the Android NDK/build tools, JDK 17,
+nor Gradle (only `platform-tools`/`adb`, JDK 8). For a full build, JDK 17
+(Temurin), the Android cmdline-tools, `platform-tools`,
+`platforms;android-34`, `build-tools;34.0.0`, and Gradle 8.7 were installed
+locally (AGP also pulled in its own NDK version on the first build, since no
+`ndkVersion` is pinned in `app/build.gradle.kts`).
 
 ```sh
 cd clients/android
@@ -78,30 +94,30 @@ cd clients/android
 # APK liegt danach unter app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Voraussetzung: Android SDK mit `platforms;android-34` und
-`build-tools;34.0.0` sowie ein `sdk.dir` in `clients/android/local.properties`
-(oder `ANDROID_HOME`/`ANDROID_SDK_ROOT` gesetzt) — Android Studio richtet das
-beim Öffnen des Projekts automatisch ein.
+Prerequisite: Android SDK with `platforms;android-34` and
+`build-tools;34.0.0`, plus an `sdk.dir` in `clients/android/local.properties`
+(or `ANDROID_HOME`/`ANDROID_SDK_ROOT` set) — Android Studio sets this up
+automatically when opening the project.
 
-## Ausprobieren
+## Trying it out
 
-1. Dolphin (`dolphin-gba-stream`-Fork) mit einem GC-Port auf „GBA
-   (Client-Stream)“ starten.
-2. In der App die Host-IP eingeben (z. B. `192.168.1.5`) und „Suchen“ — oder
-   „Server suchen“ für die automatische Netzwerk-Suche.
-3. Einen freien P-Slot antippen.
+1. Start Dolphin (`dolphin-gba-stream` fork) with a GC port set to "GBA
+   (Client Stream)".
+2. In the app, enter the host IP (e.g. `192.168.1.5`) and "Connect" — or
+   "Search for servers" for automatic network discovery.
+3. Tap a free P slot.
 
-**Auf echter Hardware verifiziert** (Samsung Galaxy S22, per WLAN-`adb`):
-Menu-, Settings- und Player-Screen laufen fehlerfrei in Compose/Material 3,
-inkl. dynamischem Farbschema und korrektem Verhalten bei Rotation (Menu/
-Settings folgen der Geräteausrichtung, Player bleibt Landscape). Eine echte
-Verbindung zu einem laufenden Dolphin-Stream wurde ebenfalls erfolgreich
-getestet — Video- und Audio-Wiedergabe funktionieren im Player.
+**Verified on real hardware** (Samsung Galaxy S22, over Wi-Fi `adb`): the
+Menu, Settings, and Player screens run cleanly in Compose/Material 3,
+including the dynamic color scheme and correct rotation behavior (Menu/
+Settings follow device orientation, Player stays landscape). A real
+connection to a running Dolphin stream was also tested successfully — video
+and audio playback both work in Player.
 
-## Bekannte Lücken (bewusst außerhalb des Rahmens dieser Demo)
+## Known gaps (deliberately out of scope for this demo)
 
-- Touch-Overlay ist eine einzelne Button-Reihe, kein D-Pad-Layout
-- Keine Reconnect-Logik bei Verbindungsabbruch
-- Lobby-Suche fragt die vier Ports nacheinander ab, nicht parallel (bei
-  Timeouts entsprechend langsamer); die Discovery-Suche läuft dagegen bereits
-  parallel (Thread-Pool)
+- The touch overlay is a single row of buttons, not a D-pad layout.
+- No reconnect logic on a dropped connection.
+- Lobby search queries the four ports sequentially, not in parallel (slower
+  accordingly on timeouts); discovery search, by contrast, already runs in
+  parallel (thread pool).

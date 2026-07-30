@@ -1,89 +1,96 @@
-# NDS-Client: Machbarkeitsanalyse (Stand 2026-07-25)
+# NDS client: feasibility analysis (as of 2026-07-25)
 
-Status: **in Verifikation auf echter Hardware**. Android, 3DS und Switch kamen
-zuerst; die Analyse unten war zunächst rein theoretisch (keine NDS-Hardware in
-der Entwicklungsumgebung verfügbar). Seit der TILES-Protokolländerung (siehe
-[`protocol.md`](./protocol.md)) gibt es außerdem [`clients/nds`](../clients/nds)
-als bewusst minimalen Test-Client (kein Menü/Player, nur Verbinden + Dekodieren
-+ Durchsatz-/Framerate-Anzeige), um die Zahlen unten gegen einen echten
-Server/echte WLAN-Bedingungen zu prüfen, statt weiter nur zu schätzen.
+Status: **being verified on real hardware**. Android, 3DS, and Switch came
+first; the analysis below started out purely theoretical (no NDS hardware
+available in the development environment). Since the TILES protocol change
+(see [`protocol.md`](./protocol.md)), there's also
+[`clients/nds`](../clients/nds) as a deliberately minimal test client (no
+menu/player, just connect + decode + throughput/frame-rate readout), to
+check the numbers below against a real server and real Wi-Fi conditions
+instead of continuing to only estimate them.
 
-## Kernproblem: WLAN-Hardwarelimit
+## Core problem: Wi-Fi hardware limit
 
-Die NDS-WLAN-Hardware unterstützt nur die 802.11b-Transferraten **1 und 2 Mbit/s**
-(kein 5,5/11 Mbit/s). Reales TCP-Throughput über `dswifi` liegt durch Protokoll-
-Overhead noch darunter. Das ist eine harte Hardwaregrenze, keine Softwareschwäche.
+The NDS's Wi-Fi hardware only supports the 802.11b transfer rates **1 and
+2 Mbit/s** (no 5.5/11 Mbit/s). Real TCP throughput over `dswifi` is even
+lower than that due to protocol overhead. This is a hard hardware limit,
+not a software weakness.
 
-## Bandbreiten-Budget gegen das aktuelle Protokoll
+## Bandwidth budget against the current protocol
 
-- **Audio allein**: z. B. 32 kHz, Stereo, 16-bit PCM → 128.000 B/s ≈ **1,02 Mbit/s**.
-  Das entspricht bereits der gesamten realistischen WLAN-Kapazität der NDS —
-  noch bevor überhaupt Video dazukommt.
-- **Video**: 240×160 × RGB565 = 76.800 B/Frame unkomprimiert, voll (kein TILES).
-  Selbst mit optimistischer 3–4×-Deflate-Kompression bleiben ~19–25 kB/Frame —
-  bei 60 fps allein schon ~9–12 Mbit/s, weit über dem Hardwarelimit.
+- **Audio alone**: e.g. 32 kHz, stereo, 16-bit PCM → 128,000 B/s ≈
+  **1.02 Mbit/s**. That already matches the NDS's entire realistic Wi-Fi
+  capacity -- before video even enters the picture.
+- **Video**: 240×160 × RGB565 = 76,800 B/frame uncompressed, full frame
+  (no TILES). Even with an optimistic 3-4× deflate compression, ~19-25
+  kB/frame remain -- at 60 fps that alone is already ~9-12 Mbit/s, far
+  above the hardware limit.
 
-### Mit der TILES-Protokolländerung (siehe `protocol.md`)
+### With the TILES protocol change (see `protocol.md`)
 
-Seit der `format`-Bitmask (INDEXED/TILES) muss der Server pro Frame nur noch
-die 8×8-Kacheln senden, die sich seit dem letzten tatsächlich gesendeten Frame
-geändert haben — bei GBA-Spielen mit typischerweise nur teilweise bewegtem
-Bildinhalt (HUD/Standbild-Anteile, Textboxen, langsamere Genres) reduziert das
-die Video-Bandbreite gegenüber dem Vollbild-Fall deutlich, geschätzt
-grob 5–8× bei moderater Bewegung (stark inhaltsabhängig — schnelle
-Full-Screen-Scroller profitieren viel weniger als z. B. rundenbasierte
-Spiele). Rechnerisch bleibt Video damit potenziell im ein- bis
-niedrigen-zweistelligen kB/Frame-Bereich statt ~20-25 kB — aber:
+Since the `format` bitmask (INDEXED/TILES), the server only has to send
+the 8×8 tiles that changed since the last frame actually sent, per frame --
+for GBA games with typically only partially moving image content (HUD/
+still-image portions, text boxes, slower genres) this noticeably reduces
+video bandwidth compared to the full-frame case, roughly estimated at 5-8×
+at moderate motion (heavily content-dependent -- fast full-screen scrollers
+benefit much less than, say, turn-based games). By the numbers, video can
+therefore potentially stay in the low single-to-double-digit kB/frame
+range instead of ~20-25 kB -- but:
 
-**Audio bleibt von der TILES-Änderung komplett unberührt** (sie betrifft nur
-Video-Frames) und ist mit ~1,02 Mbit/s bei 32 kHz/Stereo weiterhin für sich
-allein schon nahe der gesamten realistischen WLAN-Kapazität. Selbst ein durch
-TILES stark reduzierter Video-Stream plus unverändertes Stereo-Audio bleibt
-also rechnerisch eng bis nicht machbar bei voller Framerate — die TILES-
-Änderung verschiebt das Verhältnis (Audio wird zum dominanten statt
-gleichrangigen Faktor), löst das Grundproblem aber nicht allein.
+**Audio is completely unaffected by the TILES change** (it only applies to
+video frames) and, at ~1.02 Mbit/s for 32 kHz/stereo, remains on its own
+close to the entire realistic Wi-Fi capacity. So even a video stream
+heavily reduced by TILES plus unchanged stereo audio remains, by the
+numbers, tight to infeasible at full frame rate -- the TILES change shifts
+the ratio (audio becomes the dominant factor rather than an equal one) but
+doesn't solve the underlying problem by itself.
 
-**Fazit (weiterhin vorwiegend theoretisch, siehe Status oben)**: Voller
-Original-Stream (Stereo-Audio + native Framerate) bleibt mit dem aktuellen
-Wire-Protokoll auf NDS **rechnerisch eng bis nicht machbar**, auch nach TILES.
-Was auf echter Hardware tatsächlich ankommt (u. a. weil reale
-`dswifi`/TCP-Overhead und tatsächliche Tile-Änderungsraten schwer präzise
-vorherzusagen sind), ist genau die Frage, die [`clients/nds`](../clients/nds)
-jetzt empirisch beantworten soll.
+**Conclusion (still mostly theoretical, see status above)**: a full
+original stream (stereo audio + native frame rate) remains, by the
+numbers, **tight to infeasible** on NDS with the current wire protocol,
+even after TILES. What actually arrives on real hardware (among other
+things because real `dswifi`/TCP overhead and actual tile-change rates are
+hard to predict precisely) is exactly the question
+[`clients/nds`](../clients/nds) is now meant to answer empirically.
 
-## Präzedenzfälle
+## Precedents
 
-Bekannte NDS-Homebrew-Streaming-Projekte (z. B. `streamer-ds`) lösen das
-vergleichbare Problem nur durch drastisch reduzierte Auflösung/Framerate und
-LZ77-Kompression — kein Fall von Vollqualitäts-Streaming über NDS-WLAN gefunden.
+Known NDS homebrew streaming projects (e.g. `streamer-ds`) solve the
+comparable problem only through drastically reduced resolution/frame rate
+and LZ77 compression -- no case of full-quality streaming over NDS Wi-Fi
+was found.
 
-## Optionen für einen späteren NDS-Client
+## Options for a later NDS client
 
-1. **Kein/kaum Audio** (z. B. 8 kHz mono ≈ 128 kbit/s) + reduzierte Framerate
-   (Schätzung: einstellige fps-Bereich, abhängig von tatsächlicher Kompression).
-2. **Serverseitige Protokollerweiterung** um Qualitäts-/Framerate-Verhandlung
-   (Änderung am `dolphin-gba-stream`-Fork, außerhalb dieses Repos). Seit
-   `protocol_version = 2` existiert dieser Mechanismus bereits generisch im
-   Handshake (siehe [`protocol.md`](./protocol.md#verbindungsaufbau-handshake),
-   Abschnitt zu `video_limits`/`audio_limits` und Downscaling) — für NDS aktuell
-   nur insofern relevant, als `NDS_BOTTOM_SCREEN` dort als `stream_type` bereits
-   reserviert ist. Ob ein NDS-Client die damit mögliche Framerate-/Auflösungs-
-   Reduktion tatsächlich bis in den machbaren Bereich bringt, ist weiterhin offen
-   und hängt zusätzlich von Option 1 (kein/kaum Audio) ab, da `NDS_BOTTOM_SCREEN`
-   ohnehin ohne Audioübertragung spezifiziert ist.
-3. NDS **nicht** als Live-Stream-Client, sondern reduzierter Anwendungsfall
-   (z. B. nur Status-Anzeige/Lobby via `/status`, kein Video/Audio).
+1. **No/minimal audio** (e.g. 8 kHz mono ≈ 128 kbit/s) + reduced frame
+   rate (estimate: single-digit fps range, depending on actual
+   compression achieved).
+2. **Server-side protocol extension** for quality/frame-rate negotiation
+   (a change to the `dolphin-gba-stream` fork, outside this repo). Since
+   `protocol_version = 2`, this mechanism already exists generically in
+   the handshake (see
+   [`protocol.md`](./protocol.md#connection-setup-handshake), the section
+   on `video_limits`/`audio_limits` and downscaling) -- currently relevant
+   for NDS only insofar as `NDS_BOTTOM_SCREEN` is already reserved there
+   as a `stream_type`. Whether an NDS client could use the frame-rate/
+   resolution reduction this enables to actually reach the feasible range
+   remains open, and additionally depends on option 1 (no/minimal audio),
+   since `NDS_BOTTOM_SCREEN` is specified without audio transmission
+   anyway.
+3. NDS **not** as a live-stream client, but a reduced use case (e.g. only
+   a status display/lobby via `/status`, no video/audio).
 
-Diese Analyse basiert weiterhin auf dokumentierten Hardware-Grenzwerten, nicht
-auf einem Test mit echter Hardware (in dieser Entwicklungsumgebung nach wie vor
-nicht verfügbar). Der devkitARM/libnds/dswifi-Toolchain-Teil ist inzwischen
-kein Hindernis mehr — [`clients/nds`](../clients/nds) baut und läuft (als
-`.nds`-ROM verifiziert) —, aber die eigentliche Zahl (tatsächlicher Durchsatz
-über echtes WLAN zu einem echten finlink-Server) kann nur auf echter Hardware
-gemessen werden. Vor einer finalen Entscheidung zwischen den Optionen oben
-sollte dieses Ergebnis abgewartet werden.
+This analysis still rests on documented hardware limits, not a test on
+real hardware (still unavailable in this development environment). The
+devkitARM/libnds/dswifi toolchain part is no longer an obstacle at this
+point -- [`clients/nds`](../clients/nds) builds and runs (verified as a
+`.nds` ROM) -- but the actual number that matters (real throughput over
+real Wi-Fi to a real finlink server) can only be measured on real
+hardware. That result should be awaited before a final decision between
+the options above.
 
-## Quellen
+## Sources
 
 - [DSWifi documentation – BlocksDS](https://blocksds.skylyrac.net/dswifi/)
 - [Wi-Fi – BlocksDS Tutorial](https://blocksds.skylyrac.net/tutorial/advanced/wifi/)

@@ -1,65 +1,80 @@
 # clients/nds
 
-Nintendo DS Homebrew-Client (devkitARM / libnds / dswifi). **Machbarkeitstest**,
-kein vollwertiger Player: die NDS-WLAN-Hardware ist auf 802.11b (1-2 Mbit/s)
-begrenzt, was mit dem aktuellen Wire-Protokoll rein rechnerisch selbst nach der
-TILES-Kompressionsänderung eng wird, siehe
-[`docs/nds-feasibility.md`](../../docs/nds-feasibility.md). Dieser Client
-existiert, um das auf echter Hardware zu verifizieren statt es nur theoretisch
-abzuschätzen.
+Nintendo DS homebrew client (devkitARM / libnds / dswifi). **Feasibility
+test**, not a full-featured player: the NDS's Wi-Fi hardware is capped at
+802.11b (1-2 Mbit/s), which is tight with the current wire protocol even
+after the TILES compression change, purely by the numbers — see
+[`docs/nds-feasibility.md`](../../docs/nds-feasibility.md). This client
+exists to verify that on real hardware instead of only estimating it
+theoretically.
 
-## Umfang
+## Scope
 
-- Verbindet per WLAN (`Wifi_InitDefault(WFC_CONNECT)`, nutzt die auf der Konsole
-  hinterlegten WFC-Zugangsdaten aus den Systemeinstellungen), zeigt danach
-  laufend die Server an, die sich per UDP-Discovery-Beacon melden (Port 6805,
-  `docs/protocol.md` "Discovery-Beacon (UDP)" -- siehe
-  [`arm9/source/beacon_discovery.c`](arm9/source/beacon_discovery.c)), und
-  geht nach Server-Wahl (A/B/X/Y) per Slot-Wahl (ebenfalls A/B/X/Y = Slot 1-4)
-  zu einem `StreamHost`-Port. Meldet sich (noch) kein Server, fragt ein
-  On-Screen-Keyboard (`nds/arm9/keyboard.h`, wie bei den anderen drei
-  Clients' Software-Tastatur für die Host-Eingabe) nach der IP; SELECT im
-  Slot-Menü geht zurück zur Server-Liste, R fragt die IP direkt neu ab.
-  Keine Persistenz über Neustarts hinweg -- genau wie bei den anderen drei
-  Clients.
-- Dekodiert Video **und** Audio mit demselben `core/` wie alle anderen Clients
-  (WS-Handshake/Framing, Deflate, TILES/INDEXED-Formate).
-- Zeigt das Video direkt (Hauptbildschirm, `MODE_FB0`, zentriert 240×160 in
-  256×192) und läuft laufende Durchsatz-/Framerate-Statistik auf dem
-  Unterbildschirm mit (Konsolen-Text).
-- **Audio-Playback** über maxmod9 (`mmStreamOpen()`, manueller Modus, siehe
+- Connects over Wi-Fi (`Wifi_InitDefault(WFC_CONNECT)`, using the WFC
+  credentials stored in the console's system settings), then continuously
+  displays servers that announce themselves via UDP discovery beacon (port
+  6805, `docs/protocol.md` "Discovery-Beacon (UDP)" -- see
+  [`arm9/source/beacon_discovery.c`](arm9/source/beacon_discovery.c)), and
+  after picking a server (A/B/X/Y) goes through slot selection (also
+  A/B/X/Y = slot 1-4) to a `StreamHost` port. If no server has announced
+  itself yet, an on-screen keyboard (`nds/arm9/keyboard.h`, same software
+  keyboard as the other three clients' host entry) asks for the IP; SELECT
+  in the slot menu goes back to the server list, R re-prompts for the IP
+  directly. No persistence across restarts -- same as the other three
+  clients.
+- Decodes video **and** audio with the same `core/` as every other client
+  (WS handshake/framing, deflate, TILES/INDEXED formats).
+- Displays video directly (main screen, `MODE_FB0`, 240×160 centered in
+  256×192) and runs a live throughput/frame-rate readout on the bottom
+  screen (console text).
+- **Audio playback** via maxmod9 (`mmStreamOpen()`, manual mode, see
   `main()`/`audioStreamRequest()` in
-  [`arm9/source/main.c`](arm9/source/main.c)) — nutzt einen bereits im
-  unveränderten ARM7-Core enthaltenen `mmInstall()`-Aufruf, keine
-  ARM7-Änderung nötig. Fordert im Handshake explizit Mono an
-  (`max_channels = 1`), um die knappe Bandbreite zu schonen; Samplerate
-  bleibt serverseitig immer nativ (kein Downsampling, siehe
-  `docs/protocol.md`).
-- **GBA-Tasten werden gesendet** (D-Pad/A/B/L/R/Select/Start, 1:1 wie beim
-  echten GBA — `buildGbaKeyMask()`/`sendGbaInput()` in
-  [`arm9/source/main.c`](arm9/source/main.c)). **X+Y gemeinsam ~0,6s halten**
-  beendet die Verbindung (wie `clients/switch`s ZL+ZR-Hold) — normales
-  START/SELECT geht nicht, weil die während einer aktiven Session echte,
-  sendbare GBA-Tasten sind und NDS (anders als Switch/3DS) weder einen
-  HOME-Knopf noch spontan einen Touch-Bereich für "Trennen" hat, ohne den
-  Unterbildschirm mit der Durchsatz-Statistik zu verdecken.
+  [`arm9/source/main.c`](arm9/source/main.c)) -- uses an `mmInstall()`
+  call already present in the unmodified ARM7 core, no ARM7 change needed.
+  Explicitly requests mono in the handshake (`max_channels = 1`) to save
+  the tight bandwidth budget; the sample rate always stays native
+  server-side (no downsampling, see `docs/protocol.md`).
+- **GBA buttons are sent** (D-pad/A/B/L/R/Select/Start, 1:1 like a real
+  GBA -- `buildGbaKeyMask()`/`sendGbaInput()` in
+  [`arm9/source/main.c`](arm9/source/main.c)). **Holding X+Y together for
+  ~0.6s** disconnects (like `clients/switch`'s ZL+ZR hold) -- plain
+  START/SELECT won't do, since during an active session those are real,
+  sendable GBA buttons, and unlike Switch/3DS the NDS has neither a HOME
+  button nor a spare touch area for "Disconnect" without covering the
+  bottom screen's throughput readout.
 
-## Server-IP konfigurieren
+## Localization
 
-Kein Compile-Time-`#define` mehr nötig — die automatische Discovery (siehe
-"Umfang" oben) zeigt Server an, die sich selbst per UDP-Beacon melden, und wenn
-keiner erscheint, fragt ein On-Screen-Keyboard danach (`promptForIp()` in
-[`arm9/source/main.c`](arm9/source/main.c)). Muss eine literale
-IPv4-Adresse sein, kein Hostname — der Client nutzt bewusst `inet_addr()`
-statt `gethostbyname()`, um keinen DNS-Roundtrip über WFC zu brauchen; eine
-ungültige Eingabe führt einfach zu einem fehlgeschlagenen Verbindungsversuch,
-genau wie bei den anderen drei Clients gibt es keine Formatvalidierung.
+The slot-selection screen's LEFT button opens `languageMenu()`, a
+cursor-navigable list (UP/DOWN + A to confirm, B to cancel) -- the closest
+equivalent this button-driven client (no touch-driven menus) has to every
+other client's "tap a row, pick from it" language screen. Options are
+System plus every language in
+[`i18n/strings.json`](../../i18n/strings.json), alphabetically sorted by
+their displayed (endonym) label. Confirming calls `applyLanguage()`, which
+repoints every `STR_*` constant (`strings_generated.h`) via
+`strSetLanguage()`, and the caller re-renders itself fully to pick up the
+new language on every line. `applyLanguage()`'s System case reads
+`PersonalData->language` (libnds `nds/system.h`) directly, falling back to
+English for any value it has no translation for (Japanese, Chinese, or the
+call simply being unavailable).
 
-## Bauen
+## Configuring the server IP
 
-Braucht dieselbe devkitARM-Toolchain wie der 3DS-Client, plus `libnds`,
-`dswifi`, `maxmod-nds`, `calico` und `ndstool` (alle über das normale
-devkitPro-Pacman-Repo).
+No compile-time `#define` needed anymore -- automatic discovery (see
+"Scope" above) shows servers that announce themselves via UDP beacon, and
+if none appear, an on-screen keyboard asks for one (`promptForIp()` in
+[`arm9/source/main.c`](arm9/source/main.c)). Must be a literal IPv4
+address, not a hostname -- the client deliberately uses `inet_addr()`
+instead of `gethostbyname()`, to avoid a DNS round-trip over WFC; an
+invalid entry simply results in a failed connection attempt, same as the
+other three clients, there's no format validation.
+
+## Building
+
+Needs the same devkitARM toolchain as the 3DS client, plus `libnds`,
+`dswifi`, `maxmod-nds`, `calico`, and `ndstool` (all from the normal
+devkitPro pacman repo).
 
 ```sh
 export DEVKITPRO=/opt/devkitpro
@@ -68,38 +83,36 @@ cd clients/nds
 make
 ```
 
-Erzeugt `finlink-nds.nds`. Zwei getrennt gebaute ELFs (ARM9 + ARM7), per
-`ndstool` kombiniert — devkitPro's `NDS.cmake` hat dafür **keinen** Helfer
-(anders als bei Switch/3DS/Android), und selbst devkitPro's eigenes
-Referenzbeispiel für diesen Fall (`templates/combined`) nutzt klassische
-Makefiles statt CMake. Deshalb weicht dieser Client bewusst vom
-CMake-Muster der anderen drei Clients ab:
+Produces `finlink-nds.nds`. Two separately built ELFs (ARM9 + ARM7),
+combined via `ndstool` -- devkitPro's `NDS.cmake` has **no** helper for
+this (unlike Switch/3DS/Android), and even devkitPro's own reference
+example for this case (`templates/combined`) uses classic Makefiles
+instead of CMake. That's why this client deliberately deviates from the
+other three clients' CMake pattern:
 
-- `arm9/` — der eigentliche finlink-Client (`arm9/source/main.c`), linkt
-  `finlink_core` als Quelldateien direkt mit ein (kein
-  `add_subdirectory()`-Äquivalent in einem klassischen Makefile).
-- `arm7/` — unveränderter "default ARM7 core" aus devkitPro's
-  `templates/combined`-Beispiel: NVRAM, erweitertes Keypad, RTC,
-  Power-Management, Touch, Sound/Mic, und — der für dieses ARM9-seitige
-  `dswifi9` relevante Teil — der Wireless-Manager-Server
-  (`wlmgrStartServer()`). Kein finlink-spezifischer Code nötig.
+- `arm9/` -- the actual finlink client (`arm9/source/main.c`), links
+  `finlink_core` in directly as source files (no `add_subdirectory()`
+  equivalent in a classic Makefile).
+- `arm7/` -- unmodified "default ARM7 core" from devkitPro's
+  `templates/combined` example: NVRAM, extended keypad, RTC, power
+  management, touch, sound/mic, and -- the part relevant to this ARM9
+  side's `dswifi9` -- the wireless manager server
+  (`wlmgrStartServer()`). No finlink-specific code needed.
 
-(`calico`'s `ds_rules` hat zwar einen eingebauten Default-ARM7-Mechanismus
-für genau diesen Fall — ein vorgefertigtes `calico/bin/ds7_maine.elf`
-verlinken statt selbst ein ARM7-ELF zu bauen —, aber das installierte
-`calico`-Paket enthielt in dieser Umgebung keine `bin/`-Binaries, nur
-`lib/`/`include/`/`share/`. Der Zwei-ELF-Weg über `templates/combined`
-umgeht das und ist zusätzlich der von devkitPro selbst dokumentierte Weg.)
+(`calico`'s `ds_rules` does have a built-in default-ARM7 mechanism for
+exactly this case -- linking a prebuilt `calico/bin/ds7_maine.elf` instead
+of building your own ARM7 ELF -- but the `calico` package installed in
+this environment shipped no `bin/` binaries, only `lib/`/`include/`/
+`share/`. The two-ELF route via `templates/combined` sidesteps that and is
+additionally the path devkitPro itself documents.)
 
-## Bekannte Einschränkungen
+## Known limitations
 
-- Nur GBA-Auflösung 240×160 unterstützt (hart codiert für statische
-  Puffergrößen statt malloc/realloc, siehe Kommentare in `main.c`) — ein
-  Frame mit abweichender Auflösung wird als Fehler gezählt, nicht
-  angezeigt.
-- Keine Fehlerbehandlung für einen vollen Empfangspuffer über einen
-  einzelnen (auch unkomprimierten) Videoframe hinaus — bei einem
-  fehlerhaften/böswilligen Server wird die Verbindung getrennt statt zu
-  überlaufen.
-- Menü/Einstellungen/GBA-Tasten-Overlay wie bei den anderen drei Clients
-  gibt es hier (noch) nicht — siehe "Umfang" oben.
+- Only GBA resolution 240×160 is supported (hardcoded for static buffer
+  sizes instead of malloc/realloc, see comments in `main.c`) -- a frame
+  with a different resolution is counted as an error, not displayed.
+- No error handling for a receive buffer filling up beyond a single
+  (even uncompressed) video frame -- with a broken/malicious server the
+  connection is dropped instead of overflowing.
+- No menu/settings/GBA-button overlay like the other three clients have
+  (yet) -- see "Scope" above.

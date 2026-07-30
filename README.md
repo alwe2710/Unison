@@ -1,56 +1,66 @@
 # finlink
 
-Generisches Client-Framework für den Dolphin GBA-Stream.
+Generic client framework for the Dolphin GBA stream.
 
-## Kontext
+## Context
 
-Im Fork [dolphin-gba-stream](https://github.com/) (Basis: `dolphin-emu/dolphin`) gibt es ein Feature, das
-die integrierte GBA-Emulation (`GBA::Core`, genutzt für GC↔GBA-Link-Cable-Spiele) per eigenem
-WebSocket-Protokoll an Browser-Clients streamt, statt Video/Audio/Input lokal zu behalten.
+The [dolphin-gba-stream](https://github.com/) fork (based on `dolphin-emu/dolphin`) has a feature
+that streams the built-in GBA emulation (`GBA::Core`, used for GC↔GBA Link Cable games) to browser
+clients over its own WebSocket protocol, instead of keeping video/audio/input local.
 
-Dieses Repository ist der Ausgangspunkt für ein **generelles Client-Framework** für diesen Stream —
-losgelöst von der aktuellen monolithischen, eingebetteten HTML/JS-Client-Implementierung auf
-C++-Server-Seite.
+This repository is the starting point for a **general client framework** for that stream —
+decoupled from the current monolithic, embedded HTML/JS client implementation on the C++ server
+side.
 
-### Serverseitige Architektur (C++, bereits vorhanden, nicht Gegenstand dieses Repos)
+### Server-side architecture (C++, already exists, not part of this repo)
 
-- **`StreamHost`** (`Source/Core/Core/HW/GBAStreamHost.h/.cpp`): eine Instanz pro GC-Port, der auf
-  „GBA (Client-Stream)“ (`CORE_GC_GBA_STREAM`) steht. Läuft auf Port 6801–6804, sendet Video
-  (RGB565 + raw-deflate) und Audio (PCM) an genau einen verbundenen Client, empfängt Button-States
-  zurück und speist sie via `ControllerEmu::SetInputOverrideFunction` in den GBA-Pad ein.
-- **`GBAStreamLobby`** (`GBAStreamLobby.h/.cpp`): referenzgezählter Singleton-Server auf festem
-  Port 6800, liefert die Picker-Seite (P1–P4) aus, unabhängig davon welcher GC-Port aktiv ist.
-- Gemeinsame Client-Seite liegt aktuell als ein einziger großer eingebetteter HTML/JS-String in
-  `GBAStreamClientPage.h` (`kGBAStreamClientHtml`, ein C++ `R"HTML(...)HTML"`-Rohstring), der von
-  beiden Servern ausgeliefert wird. Kein Build-Schritt, keine externen JS-Dependencies (bewusst so
-  gewählt, um serverseitigen Aufwand minimal zu halten).
+- **`StreamHost`** (`Source/Core/Core/HW/GBAStreamHost.h/.cpp`): one instance per GC port set to
+  "GBA (Client Stream)" (`CORE_GC_GBA_STREAM`). Runs on port 6801–6804, sends video (RGB565 +
+  raw-deflate) and audio (PCM) to exactly one connected client, receives button states back and
+  feeds them into the GBA pad via `ControllerEmu::SetInputOverrideFunction`.
+- **`GBAStreamLobby`** (`GBAStreamLobby.h/.cpp`): reference-counted singleton server on a fixed
+  port 6800, serves the picker page (P1–P4) regardless of which GC port is active.
+- The shared client side currently lives as one large embedded HTML/JS string in
+  `GBAStreamClientPage.h` (`kGBAStreamClientHtml`, a C++ `R"HTML(...)HTML"` raw string), served
+  by both servers. No build step, no external JS dependencies (deliberate, to keep server-side
+  overhead minimal).
 
-### Wire-Protokoll
+### Wire protocol
 
-Siehe [`docs/protocol.md`](docs/protocol.md) — Single Source of Truth, gegen die alle Clients
-implementieren.
+See [`docs/protocol.md`](docs/protocol.md) — the single source of truth every client implements
+against.
 
-## Ziel dieses Repos
+## Goal of this repo
 
-Ein eigenständiges, generelles Client-Framework für dieses Protokoll bauen — als Ablösung/Ergänzung
-zum eingebetteten HTML/JS-String auf Serverseite.
+Build a standalone, general client framework for this protocol — replacing/complementing the
+embedded HTML/JS string on the server side.
 
-## Architektur
+## Architecture
 
-Geteilte Protokoll-/Codec-Logik (WebSocket-Framing, raw-deflate-Inflate, RGB565-Konvertierung,
-PCM-Buffering, Input-Encoding) liegt in [`core/`](core/) als portable C-Library. Jede Plattform
-bekommt darüber eine dünne Shell für Netzwerk, Rendering, Audio-Ausgabe und Input-Polling, da diese
-Teile je nach Zielplattform grundverschieden sind:
+Shared protocol/codec logic (WebSocket framing, raw-deflate inflate, RGB565 conversion, PCM
+buffering, input encoding) lives in [`core/`](core/) as a portable C library. Each platform gets a
+thin shell on top of that for networking, rendering, audio output, and input polling, since those
+parts are fundamentally different per target platform:
 
-| Verzeichnis | Zielplattform | Toolchain | Status |
+| Directory | Target platform | Toolchain | Status |
 |---|---|---|---|
-| [`clients/android/`](clients/android/) | Android-App | Android SDK/NDK | rohe Demo (verbinden, Video, Audio, Input) |
-| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS Homebrew | devkitARM / libctru | funktionsfähig (verbinden, Video, Audio, Input, Discovery) |
-| [`clients/switch/`](clients/switch/) | Nintendo Switch Homebrew | devkitA64 / libnx | funktionsfähig (verbinden, Video, Audio, Input, Discovery) |
-| [`clients/nds/`](clients/nds/) | Nintendo DS Homebrew | devkitARM / libnds | **zurückgestellt**, siehe [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
+| [`clients/android/`](clients/android/) | Android app | Android SDK/NDK | working demo (connect, video, audio, input) |
+| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS homebrew | devkitARM / libctru | working (connect, video, audio, input, discovery) |
+| [`clients/switch/`](clients/switch/) | Nintendo Switch homebrew | devkitA64 / libnx | working (connect, video, audio, input, discovery) |
+| [`clients/nds/`](clients/nds/) | Nintendo DS homebrew | devkitARM / libnds | feasibility test client, see [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
+| [`clients/web/`](clients/web/) | Any browser | none (static HTML/WASM) | working (connect, video, audio, input) |
 
-Gemeinsames Logo für alle Clients: [`assets/logo/`](assets/logo/).
+Shared logo/icon source for every client: [`assets/logo/`](assets/logo/).
 
-Reihenfolge: Android, 3DS, Switch zuerst. Die NDS-WLAN-Hardware ist auf 1–2 Mbit/s begrenzt, was
-mit dem aktuellen Protokoll (Stereo-Audio allein braucht bereits ~1 Mbit/s) nicht ausreicht — Details
-und Optionen in der Machbarkeitsanalyse.
+## Localization
+
+Every client's UI text comes from a single source of truth,
+[`i18n/strings.json`](i18n/strings.json), generated per client by
+[`i18n/generate.py`](i18n/generate.py) — run that script after editing
+`strings.json` and commit the regenerated output (same pattern as the web
+client's `finlink_core.js`, see [`clients/web/README.md`](clients/web/README.md)).
+Supported languages: German, English, French, Italian, Spanish. Each client
+auto-selects one from the platform's own system language, falling back to
+English when that can't be determined or isn't one of the five, with a
+manual override in that client's own Settings screen. A string missing a
+translation for a given language falls back to English at generation time.
