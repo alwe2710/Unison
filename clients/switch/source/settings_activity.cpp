@@ -52,6 +52,12 @@ const char *labelForLanguagePref(Prefs::LanguagePref pref) {
         return strings::kLanguageGerman;
     case Prefs::LanguagePref::EN:
         return strings::kLanguageEnglish;
+    case Prefs::LanguagePref::FR:
+        return strings::kLanguageFrench;
+    case Prefs::LanguagePref::IT:
+        return strings::kLanguageItalian;
+    case Prefs::LanguagePref::ES:
+        return strings::kLanguageSpanish;
     default:
         return strings::kLanguageSystem;
     }

@@ -112,25 +112,45 @@ static bool g_prefAspectScale = false;
  * destination pixel already maps to exactly one source pixel. */
 static bool g_prefBilinear = false;
 
-/* 0 = System (default, resolves to German only if PersonalData->language
- * says so -- see applyLanguage() below), 1 = Deutsch, 2 = English. Same
- * "not persisted" caveat as the toggles above: resets to System (i.e.
- * re-reads the console's own language) on every launch. Toggled from
- * slotSelectMenu(); STR_* text updates immediately since strSetLanguage()
+/* -1 = System (default, resolves via PersonalData->language -- see
+ * applyLanguage() below), otherwise an explicit StrLang value picked from
+ * languageMenu(). Same "not persisted" caveat as the toggles above:
+ * resets to System (i.e. re-reads the console's own language) on every
+ * launch. STR_* text updates immediately since strSetLanguage()
  * (strings_generated.h) just repoints the same STR_FOO globals every
  * existing call site already reads. */
-static int g_prefLanguage = 0;
+static int g_prefLanguage = -1;
 
 static void applyLanguage(void) {
-    if (g_prefLanguage == 1) {
-        strSetLanguage(STR_LANG_DE);
+    if (g_prefLanguage >= 0) {
+        strSetLanguage((StrLang)g_prefLanguage);
         return;
     }
-    if (g_prefLanguage == 2) {
-        strSetLanguage(STR_LANG_EN);
-        return;
+    /* PersonalData->language (libnds nds/system.h): 0=Japanese,
+     * 1=English, 2=French, 3=German, 4=Italian, 5=Spanish, 6=Chinese,
+     * 7=Unknown/Reserved -- anything this app has no translation for
+     * (including Japanese/Chinese/Unknown) falls back to English, same
+     * policy as every other client. */
+    switch (PersonalData->language) {
+    case 3: strSetLanguage(STR_LANG_DE); break;
+    case 2: strSetLanguage(STR_LANG_FR); break;
+    case 4: strSetLanguage(STR_LANG_IT); break;
+    case 5: strSetLanguage(STR_LANG_ES); break;
+    default: strSetLanguage(STR_LANG_EN); break;
     }
-    strSetLanguage(PersonalData->language == 3 ? STR_LANG_DE : STR_LANG_EN);
+}
+
+/* Endonym for the current g_prefLanguage value, for slotSelectMenu()'s
+ * status line -- STR_LANGUAGE_SYSTEM for the -1 sentinel. */
+static const char *languagePrefLabel(void) {
+    switch (g_prefLanguage) {
+    case STR_LANG_DE: return STR_LANGUAGE_GERMAN;
+    case STR_LANG_EN: return STR_LANGUAGE_ENGLISH;
+    case STR_LANG_FR: return STR_LANGUAGE_FRENCH;
+    case STR_LANG_IT: return STR_LANGUAGE_ITALIAN;
+    case STR_LANG_ES: return STR_LANGUAGE_SPANISH;
+    default: return STR_LANGUAGE_SYSTEM;
+    }
 }
 
 /* GBA/mGBA's actual native audio rate (matches Dolphin fork's
@@ -968,18 +988,22 @@ static void languageMenu(void) {
         int prefValue;
         const char *label;
     };
-    struct LanguageOption options[3] = {
-        { 0, STR_LANGUAGE_SYSTEM },
-        { 1, STR_LANGUAGE_GERMAN },
-        { 2, STR_LANGUAGE_ENGLISH },
+    const int kOptionCount = 6;
+    struct LanguageOption options[6] = {
+        { -1, STR_LANGUAGE_SYSTEM },
+        { STR_LANG_DE, STR_LANGUAGE_GERMAN },
+        { STR_LANG_EN, STR_LANGUAGE_ENGLISH },
+        { STR_LANG_FR, STR_LANGUAGE_FRENCH },
+        { STR_LANG_IT, STR_LANGUAGE_ITALIAN },
+        { STR_LANG_ES, STR_LANGUAGE_SPANISH },
     };
     /* Sorted by the displayed label, not a fixed order -- "System" is
-     * localized like any other UI string, but "Deutsch"/"English" are
-     * fixed endonyms (see strings.json), so this only actually reorders
-     * relative to "System"/"Systeme"/... as more languages are added
-     * later. Plain insertion sort -- only 3 entries, not worth pulling in
-     * qsort() for. */
-    for (int i = 1; i < 3; i++) {
+     * localized like any other UI string, but every language name itself
+     * is a fixed endonym (see strings.json), so this only actually
+     * reorders relative to "System"/"Systeme"/... as more languages are
+     * added later. Plain insertion sort -- only six entries, not worth
+     * pulling in qsort() for. */
+    for (int i = 1; i < kOptionCount; i++) {
         struct LanguageOption key = options[i];
         int j = i - 1;
         while (j >= 0 && strcmp(options[j].label, key.label) > 0) {
@@ -990,7 +1014,7 @@ static void languageMenu(void) {
     }
 
     int cursor = 0;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < kOptionCount; i++) {
         if (options[i].prefValue == g_prefLanguage) {
             cursor = i;
         }
@@ -1001,7 +1025,7 @@ static void languageMenu(void) {
         if (dirty) {
             consoleClear();
             iprintf("%s\n\n", STR_SETTINGS_LANGUAGE);
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < kOptionCount; i++) {
                 iprintf("%s %s\n", i == cursor ? ">" : " ", options[i].label);
             }
             dirty = false;
@@ -1010,10 +1034,10 @@ static void languageMenu(void) {
         scanKeys();
         int keys = keysDown();
         if (keys & KEY_UP) {
-            cursor = (cursor + 2) % 3;
+            cursor = (cursor + kOptionCount - 1) % kOptionCount;
             dirty = true;
         } else if (keys & KEY_DOWN) {
-            cursor = (cursor + 1) % 3;
+            cursor = (cursor + 1) % kOptionCount;
             dirty = true;
         } else if (keys & KEY_A) {
             g_prefLanguage = options[cursor].prefValue;
@@ -1065,8 +1089,7 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     // Only actually visible when Skalierung is "ausgefuellt" -- centered
     // 1:1 has no scaling to filter, see g_prefBilinear's own comment.
     iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? STR_FILTER_ON : STR_FILTER_OFF);
-    iprintf("\x1b[20;0H%s: %s   ", STR_SETTINGS_LANGUAGE,
-             g_prefLanguage == 1 ? STR_LANGUAGE_GERMAN : g_prefLanguage == 2 ? STR_LANGUAGE_ENGLISH : STR_LANGUAGE_SYSTEM);
+    iprintf("\x1b[20;0H%s: %s   ", STR_SETTINGS_LANGUAGE, languagePrefLabel());
 
     for (;;) {
         swiWaitForVBlank();

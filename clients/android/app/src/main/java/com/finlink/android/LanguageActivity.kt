@@ -58,11 +58,9 @@ class LanguageActivity : LocalizedActivity() {
                         // strings.json), so this only actually reorders
                         // relative to "System"/"Système"/... as more
                         // languages are added later.
-                        val options = listOf(
-                            Prefs.LANGUAGE_SYSTEM to stringResource(R.string.language_system),
-                            "de" to stringResource(R.string.language_german),
-                            "en" to stringResource(R.string.language_english)
-                        ).sortedBy { it.second }
+                        val options = Prefs.LANGUAGES
+                            .map { it.value to stringResource(it.labelRes) }
+                            .sortedBy { it.second }
                         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                             for ((value, label) in options) {
                                 Row(

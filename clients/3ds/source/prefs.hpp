@@ -42,7 +42,7 @@ class Prefs {
     // main.cpp -- prefs.cpp itself stays free of 3ds.h/cfgu so it can stay
     // a plain, testable key=value file reader/writer) is German; DE/EN are
     // an explicit override from the Settings screen's language button.
-    enum class LanguagePref { SYSTEM, DE, EN };
+    enum class LanguagePref { SYSTEM, DE, EN, FR, IT, ES };
     LanguagePref language = LanguagePref::SYSTEM;
 
   private:

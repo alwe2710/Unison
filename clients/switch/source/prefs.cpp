@@ -24,6 +24,27 @@ constexpr const char *kBilinearKeyPrefix = "bilinear_video_filter.";
 bool defaultBilinearFor(const std::string &streamType) {
     return streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN";
 }
+
+// Keep in sync with i18n/strings.json's language set.
+Prefs::LanguagePref languagePrefFromCode(const std::string &code) {
+    if (code == "de") return Prefs::LanguagePref::DE;
+    if (code == "en") return Prefs::LanguagePref::EN;
+    if (code == "fr") return Prefs::LanguagePref::FR;
+    if (code == "it") return Prefs::LanguagePref::IT;
+    if (code == "es") return Prefs::LanguagePref::ES;
+    return Prefs::LanguagePref::SYSTEM;
+}
+
+const char *languagePrefCode(Prefs::LanguagePref pref) {
+    switch (pref) {
+    case Prefs::LanguagePref::DE: return "de";
+    case Prefs::LanguagePref::EN: return "en";
+    case Prefs::LanguagePref::FR: return "fr";
+    case Prefs::LanguagePref::IT: return "it";
+    case Prefs::LanguagePref::ES: return "es";
+    default: return "system";
+    }
+}
 } // namespace
 
 std::string Prefs::path() const {
@@ -62,13 +83,7 @@ void Prefs::load() {
 
     auto it = values.find("language");
     if (it != values.end()) {
-        if (it->second == "de") {
-            language = LanguagePref::DE;
-        } else if (it->second == "en") {
-            language = LanguagePref::EN;
-        } else {
-            language = LanguagePref::SYSTEM;
-        }
+        language = languagePrefFromCode(it->second);
     }
 }
 
@@ -82,23 +97,38 @@ void Prefs::save() {
     for (const auto &[key, value] : values) {
         out << key << "=" << value << "\n";
     }
-    out << "language=" << (language == LanguagePref::DE ? "de" : language == LanguagePref::EN ? "en" : "system") << "\n";
+    out << "language=" << languagePrefCode(language) << "\n";
 }
 
+// Prefs::LanguagePref::SYSTEM resolves to whichever of DE/FR/IT/ES the
+// console's own system language (setGetSystemLanguage()) matches --
+// anything else (including the call failing, or a system language this
+// app has no translation for) falls back to English, same policy as every
+// other client.
 strings::Lang resolveLanguage(const Prefs &prefs) {
-    if (prefs.language == Prefs::LanguagePref::DE) {
-        return strings::Lang::DE;
-    }
-    if (prefs.language == Prefs::LanguagePref::EN) {
-        return strings::Lang::EN;
+    switch (prefs.language) {
+    case Prefs::LanguagePref::DE: return strings::Lang::DE;
+    case Prefs::LanguagePref::EN: return strings::Lang::EN;
+    case Prefs::LanguagePref::FR: return strings::Lang::FR;
+    case Prefs::LanguagePref::IT: return strings::Lang::IT;
+    case Prefs::LanguagePref::ES: return strings::Lang::ES;
+    default: break;
     }
     strings::Lang result = strings::Lang::EN;
     if (R_SUCCEEDED(setInitialize())) {
         u64 languageCode = 0;
         if (R_SUCCEEDED(setGetSystemLanguage(&languageCode))) {
             SetLanguage setLang;
-            if (R_SUCCEEDED(setMakeLanguage(languageCode, &setLang)) && setLang == SetLanguage_DE) {
-                result = strings::Lang::DE;
+            if (R_SUCCEEDED(setMakeLanguage(languageCode, &setLang))) {
+                switch (setLang) {
+                case SetLanguage_DE: result = strings::Lang::DE; break;
+                case SetLanguage_FR:
+                case SetLanguage_FRCA: result = strings::Lang::FR; break;
+                case SetLanguage_IT: result = strings::Lang::IT; break;
+                case SetLanguage_ES:
+                case SetLanguage_ES419: result = strings::Lang::ES; break;
+                default: break;
+                }
             }
         }
         setExit();

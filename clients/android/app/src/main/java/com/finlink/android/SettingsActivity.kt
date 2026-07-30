@@ -104,11 +104,8 @@ class SettingsActivity : LocalizedActivity() {
                                     Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.titleMedium)
                                     Text(
                                         stringResource(
-                                            when (language) {
-                                                "de" -> R.string.language_german
-                                                "en" -> R.string.language_english
-                                                else -> R.string.language_system
-                                            }
+                                            Prefs.LANGUAGES.find { it.value == language }?.labelRes
+                                                ?: R.string.language_system
                                         ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -72,8 +72,9 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(PREF_ON_SCREEN_CONTROLS, true)
         set(value) = prefs.edit().putBoolean(PREF_ON_SCREEN_CONTROLS, value).apply()
 
-    /** "system" (default, follow the device locale -- see LocaleHelper),
-     * "de", or "en". A manual override from the Settings language picker. */
+    /** "system" (default, follow the device locale -- see LocaleHelper), or
+     * one of LANGUAGES' language codes. A manual override from the
+     * Settings language picker. */
     var language: String
         get() = prefs.getString(PREF_LANGUAGE, LANGUAGE_SYSTEM) ?: LANGUAGE_SYSTEM
         set(value) = prefs.edit().putString(PREF_LANGUAGE, value).apply()
@@ -113,5 +114,18 @@ class Prefs(context: Context) {
         private const val NO_KEYCODE = -1
 
         const val LANGUAGE_SYSTEM = "system"
+
+        /** Single source of truth for LanguageActivity's list and
+         * SettingsActivity's subtitle lookup -- keep in sync with
+         * i18n/strings.json's language set (and LocaleHelper.SUPPORTED). */
+        data class LanguageOption(val value: String, val labelRes: Int)
+        val LANGUAGES = listOf(
+            LanguageOption(LANGUAGE_SYSTEM, R.string.language_system),
+            LanguageOption("de", R.string.language_german),
+            LanguageOption("en", R.string.language_english),
+            LanguageOption("fr", R.string.language_french),
+            LanguageOption("it", R.string.language_italian),
+            LanguageOption("es", R.string.language_spanish)
+        )
     }
 }

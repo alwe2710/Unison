@@ -23,11 +23,15 @@ brls::View *LanguageActivity::createContentView() {
         { Prefs::LanguagePref::SYSTEM, strings::kLanguageSystem },
         { Prefs::LanguagePref::DE, strings::kLanguageGerman },
         { Prefs::LanguagePref::EN, strings::kLanguageEnglish },
+        { Prefs::LanguagePref::FR, strings::kLanguageFrench },
+        { Prefs::LanguagePref::IT, strings::kLanguageItalian },
+        { Prefs::LanguagePref::ES, strings::kLanguageSpanish },
     };
     // Sorted by the displayed label, not a fixed order -- "System" is
-    // localized like any other UI string, but "Deutsch"/"English" are
-    // fixed endonyms (see strings.json), so this only actually reorders
-    // relative to "System"/"Système"/... as more languages are added later.
+    // localized like any other UI string, but every language name itself
+    // is a fixed endonym (see strings.json), so this only actually
+    // reorders relative to "System"/"Système"/... as more languages are
+    // added later.
     std::sort(std::begin(options), std::end(options),
         [](const LanguageOption &a, const LanguageOption &b) { return strcmp(a.label, b.label) < 0; });
     for (const auto &option : options) {

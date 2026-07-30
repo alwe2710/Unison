@@ -55,6 +55,9 @@
     <string name="language_system">System</string>
     <string name="language_german">Deutsch</string>
     <string name="language_english">English</string>
+    <string name="language_french">Français</string>
+    <string name="language_italian">Italiano</string>
+    <string name="language_spanish">Español</string>
     <string name="console_gc_gba_link">GameCube (GBA-Link)</string>
     <string name="console_wiiu_gamepad">Wii U GamePad</string>
     <string name="console_n3ds_bottom_screen">3DS</string>

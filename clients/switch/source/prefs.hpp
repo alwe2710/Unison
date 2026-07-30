@@ -36,7 +36,7 @@ class Prefs {
     // own system language (setGetSystemLanguage(), read via
     // resolveLanguage() below) is German; DE/EN are an explicit override
     // from the Settings screen's language cell.
-    enum class LanguagePref { SYSTEM, DE, EN };
+    enum class LanguagePref { SYSTEM, DE, EN, FR, IT, ES };
     LanguagePref language = LanguagePref::SYSTEM;
 
   private:

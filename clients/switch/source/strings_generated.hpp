@@ -3,7 +3,7 @@
 
 namespace strings {
 
-enum class Lang { DE, EN };
+enum class Lang { DE, EN, FR, IT, ES };
 
 extern const char *kAppName;
 extern const char *kHostHint;
@@ -61,6 +61,9 @@ extern const char *kSettingsLanguage;
 extern const char *kLanguageSystem;
 extern const char *kLanguageGerman;
 extern const char *kLanguageEnglish;
+extern const char *kLanguageFrench;
+extern const char *kLanguageItalian;
+extern const char *kLanguageSpanish;
 extern const char *kConsoleGcGbaLink;
 extern const char *kConsoleWiiuGamepad;
 extern const char *kConsoleN3dsBottomScreen;

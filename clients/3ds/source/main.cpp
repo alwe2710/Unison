@@ -377,24 +377,33 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     }
 }
 
-// Prefs::LanguagePref::SYSTEM resolves to German only if the console's own
-// system language is German (CFGU_GetSystemLanguage) -- anything else,
-// including the call failing, falls back to English, same policy as every
-// other client. DE/EN are an explicit override from drawSettingsScreen()'s
-// language button below.
+// Prefs::LanguagePref::SYSTEM resolves to whichever of DE/FR/IT/ES the
+// console's own system language (CFGU_GetSystemLanguage) matches --
+// anything else (including the call failing, or a system language this
+// app has no translation for, e.g. Japanese) falls back to English, same
+// policy as every other client. An explicit DE/EN/FR/IT/ES is an override
+// from drawSettingsScreen()'s language button below.
 strings::Lang resolveLanguage(const Prefs &prefs) {
-    if (prefs.language == Prefs::LanguagePref::DE) {
-        return strings::Lang::DE;
-    }
-    if (prefs.language == Prefs::LanguagePref::EN) {
-        return strings::Lang::EN;
+    switch (prefs.language) {
+    case Prefs::LanguagePref::DE: return strings::Lang::DE;
+    case Prefs::LanguagePref::EN: return strings::Lang::EN;
+    case Prefs::LanguagePref::FR: return strings::Lang::FR;
+    case Prefs::LanguagePref::IT: return strings::Lang::IT;
+    case Prefs::LanguagePref::ES: return strings::Lang::ES;
+    default: break;
     }
     u8 sysLanguage = 0;
     if (R_SUCCEEDED(cfguInit())) {
         Result r = CFGU_GetSystemLanguage(&sysLanguage);
         cfguExit();
-        if (R_SUCCEEDED(r) && sysLanguage == CFG_LANGUAGE_DE) {
-            return strings::Lang::DE;
+        if (R_SUCCEEDED(r)) {
+            switch (sysLanguage) {
+            case CFG_LANGUAGE_DE: return strings::Lang::DE;
+            case CFG_LANGUAGE_FR: return strings::Lang::FR;
+            case CFG_LANGUAGE_IT: return strings::Lang::IT;
+            case CFG_LANGUAGE_ES: return strings::Lang::ES;
+            default: break;
+            }
         }
     }
     return strings::Lang::EN;
@@ -479,23 +488,29 @@ void drawLanguageScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
         { Prefs::LanguagePref::SYSTEM, strings::kLanguageSystem },
         { Prefs::LanguagePref::DE, strings::kLanguageGerman },
         { Prefs::LanguagePref::EN, strings::kLanguageEnglish },
+        { Prefs::LanguagePref::FR, strings::kLanguageFrench },
+        { Prefs::LanguagePref::IT, strings::kLanguageItalian },
+        { Prefs::LanguagePref::ES, strings::kLanguageSpanish },
     };
     // Sorted by the displayed label, not a fixed order -- "System" is
-    // localized like any other UI string, but "Deutsch"/"English" are
-    // fixed endonyms (see strings.json), so this only actually reorders
-    // relative to "System"/"Système"/... as more languages are added later.
+    // localized like any other UI string, but every language name itself
+    // is a fixed endonym (see strings.json), so this only actually
+    // reorders relative to "System"/"Système"/... as more languages are
+    // added later.
     std::sort(std::begin(options), std::end(options),
         [](const LanguageOption &a, const LanguageOption &b) { return strcmp(a.label, b.label) < 0; });
-    float y = 44.0f;
+    // Smaller row height/step than a 3-option list would need -- six rows
+    // have to fit in the 240px-tall bottom screen alongside the title.
+    float y = 40.0f;
     for (const auto &option : options) {
-        ui::Rect r { 8, y, 304, 32 };
+        ui::Rect r { 8, y, 304, 26 };
         if (ui::button(textBuf, touch, r, option.label)) {
             prefs->language = option.pref;
             prefs->save();
             applyLanguage(*prefs);
             *screenState = BottomScreenState::SETTINGS;
         }
-        y += 38.0f;
+        y += 30.0f;
     }
 }
 

@@ -318,19 +318,23 @@
 <script src="finlink_core.js"></script>
 <script>
 // STRINGS (strings_generated.js, generated from the central i18n/strings.json
-// -- see that file's own top comment) is now { de: {...}, en: {...} }, keyed
-// by the same {0}/{1} placeholder syntax the source JSON uses; t() picks the
-// current language and substitutes them at call time. args are stringified
-// via template-literal coercion, same as any other JS string concatenation.
+// -- see that file's own top comment) is now { de: {...}, en: {...}, ... },
+// keyed by the same {0}/{1} placeholder syntax the source JSON uses; t()
+// picks the current language and substitutes them at call time. args are
+// stringified via template-literal coercion, same as any other JS string
+// concatenation.
 //
-// currentLang: 'system' (default) resolves to 'de' only if the browser's own
-// language is German, else 'en' -- same "English if undetermined/
-// unsupported" policy as every other client -- overridable via the settings
-// panel's language picker (persisted in localStorage).
+// SUPPORTED_LANGS: keep in sync with i18n/strings.json's language set.
+// currentLang: 'system' (default) resolves to whichever of these the
+// browser's own language matches, else 'en' -- same "English if
+// undetermined/unsupported" policy as every other client -- overridable via
+// the settings panel's language picker (persisted in localStorage).
+const SUPPORTED_LANGS = ['de', 'en', 'fr', 'it', 'es'];
 let langPref = localStorage.getItem('finlinkWebLanguage') || 'system';
 function resolvedLang() {
-  if (langPref === 'de' || langPref === 'en') return langPref;
-  return (navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en';
+  if (SUPPORTED_LANGS.includes(langPref)) return langPref;
+  const sysLang = (navigator.language || '').toLowerCase().slice(0, 2);
+  return SUPPORTED_LANGS.includes(sysLang) ? sysLang : 'en';
 }
 let currentLang = resolvedLang();
 function setLangPref(pref) {
@@ -457,8 +461,13 @@ const languagePanel = document.getElementById('languagePanel');
 const languageOptionsList = document.getElementById('languageOptionsList');
 let languageReturnPanel = null;
 
+const LANGUAGE_OPTION_KEYS = {
+  system: 'language_system', de: 'language_german', en: 'language_english',
+  fr: 'language_french', it: 'language_italian', es: 'language_spanish',
+};
+
 function updateLanguageRowValues() {
-  const key = langPref === 'de' ? 'language_german' : langPref === 'en' ? 'language_english' : 'language_system';
+  const key = LANGUAGE_OPTION_KEYS[langPref] || 'language_system';
   document.getElementById('languageValueDesktop').textContent = t(key);
   document.getElementById('languageValueMobile').textContent = t(key);
 }
@@ -467,10 +476,10 @@ function renderLanguageOptions() {
   document.getElementById('languagePanelTitle').textContent = t('settings_language');
   languageOptionsList.innerHTML = '';
   // Sorted by the displayed label, not a fixed order -- "System" is
-  // localized like any other UI string, but "Deutsch"/"English" are fixed
-  // endonyms (see strings.json), so this only actually reorders relative
-  // to "System"/"Système"/... as more languages are added later.
-  const options = [['system', 'language_system'], ['de', 'language_german'], ['en', 'language_english']]
+  // localized like any other UI string, but every language name itself is
+  // a fixed endonym (see strings.json), so this only actually reorders
+  // relative to "System"/"Système"/... as more languages are added later.
+  const options = Object.entries(LANGUAGE_OPTION_KEYS)
       .sort((a, b) => t(a[1]).localeCompare(t(b[1])));
   for (const [pref, key] of options) {
     const btn = document.createElement('button');

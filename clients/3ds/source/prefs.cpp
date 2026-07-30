@@ -25,6 +25,27 @@ constexpr const char *kBilinearKeyPrefix = "bilinear_video_filter.";
 bool defaultBilinearFor(const std::string &streamType) {
     return streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN";
 }
+
+// Keep in sync with i18n/strings.json's language set.
+Prefs::LanguagePref languagePrefFromCode(const std::string &code) {
+    if (code == "de") return Prefs::LanguagePref::DE;
+    if (code == "en") return Prefs::LanguagePref::EN;
+    if (code == "fr") return Prefs::LanguagePref::FR;
+    if (code == "it") return Prefs::LanguagePref::IT;
+    if (code == "es") return Prefs::LanguagePref::ES;
+    return Prefs::LanguagePref::SYSTEM;
+}
+
+const char *languagePrefCode(Prefs::LanguagePref pref) {
+    switch (pref) {
+    case Prefs::LanguagePref::DE: return "de";
+    case Prefs::LanguagePref::EN: return "en";
+    case Prefs::LanguagePref::FR: return "fr";
+    case Prefs::LanguagePref::IT: return "it";
+    case Prefs::LanguagePref::ES: return "es";
+    default: return "system";
+    }
+}
 } // namespace
 
 Prefs::Prefs() {
@@ -70,13 +91,7 @@ void Prefs::load() {
 
     auto langIt = values.find("language");
     if (langIt != values.end()) {
-        if (langIt->second == "de") {
-            language = LanguagePref::DE;
-        } else if (langIt->second == "en") {
-            language = LanguagePref::EN;
-        } else {
-            language = LanguagePref::SYSTEM;
-        }
+        language = languagePrefFromCode(langIt->second);
     }
 }
 
@@ -90,5 +105,5 @@ void Prefs::save() {
         out << kBilinearKeyPrefix << streamType << "=" << (value ? "1" : "0") << "\n";
     }
     out << "bottom_screen_video=" << (bottomScreenVideo ? "1" : "0") << "\n";
-    out << "language=" << (language == LanguagePref::DE ? "de" : language == LanguagePref::EN ? "en" : "system") << "\n";
+    out << "language=" << languagePrefCode(language) << "\n";
 }
