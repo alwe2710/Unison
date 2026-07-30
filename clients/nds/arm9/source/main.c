@@ -41,6 +41,7 @@
 #include <errno.h>
 
 #include "beacon_discovery.h"
+#include "strings_generated.h"
 #include "finlink/endian.h"
 #include "finlink/handshake.h"
 #include "finlink/inflate.h"
@@ -110,6 +111,27 @@ static bool g_prefAspectScale = false;
  * (blitFrame() with g_prefAspectScale off) has no scaling to filter, every
  * destination pixel already maps to exactly one source pixel. */
 static bool g_prefBilinear = false;
+
+/* 0 = System (default, resolves to German only if PersonalData->language
+ * says so -- see applyLanguage() below), 1 = Deutsch, 2 = English. Same
+ * "not persisted" caveat as the toggles above: resets to System (i.e.
+ * re-reads the console's own language) on every launch. Toggled from
+ * slotSelectMenu(); STR_* text updates immediately since strSetLanguage()
+ * (strings_generated.h) just repoints the same STR_FOO globals every
+ * existing call site already reads. */
+static int g_prefLanguage = 0;
+
+static void applyLanguage(void) {
+    if (g_prefLanguage == 1) {
+        strSetLanguage(STR_LANG_DE);
+        return;
+    }
+    if (g_prefLanguage == 2) {
+        strSetLanguage(STR_LANG_EN);
+        return;
+    }
+    strSetLanguage(PersonalData->language == 3 ? STR_LANG_DE : STR_LANG_EN);
+}
 
 /* GBA/mGBA's actual native audio rate (matches Dolphin fork's
  * GBAStreamHost's own m_audio_sample_rate default, GBAStreamHost.h) --
@@ -639,8 +661,8 @@ static void runSession(const char *hostIn, int portIn) {
 
     int fd;
     if (!connectAndHandshake(host, port, &fd)) {
-        iprintf("Verbindung fehlgeschlagen.\n");
-        iprintf("\nTaste druecken fuer Menue.\n");
+        iprintf("%s\n", STR_STATUS_CONNECT_FAILED);
+        iprintf("\n%s\n", STR_PRESS_KEY_FOR_MENU);
         while (true) {
             swiWaitForVBlank();
             scanKeys();
@@ -661,8 +683,9 @@ static void runSession(const char *hostIn, int portIn) {
         if (fd >= 0) {
             closesocket(fd);
         }
-        iprintf("Handshake fehlgeschlagen:\n%s\n", handshakeFailReason);
-        iprintf("\nTaste druecken fuer Menue.\n");
+        iprintf(STR_HANDSHAKE_FAILED, handshakeFailReason);
+        iprintf("\n");
+        iprintf("\n%s\n", STR_PRESS_KEY_FOR_MENU);
         while (true) {
             swiWaitForVBlank();
             scanKeys();
@@ -699,7 +722,7 @@ static void runSession(const char *hostIn, int portIn) {
     audioRingReset();
 
     consoleClear();
-    iprintf("Verbunden. X+Y halten zum Beenden.\n\n");
+    iprintf("%s. %s\n\n", STR_STATUS_CONNECTED, STR_EXIT_HOLD_HINT);
     iprintf("Video: -- fps  -- KB/s\n");
     iprintf("Audio: -- fps  -- KB/s\n");
     iprintf("Frames total: 0   Fehler: 0\n");
@@ -870,11 +893,13 @@ static void runSession(const char *hostIn, int portIn) {
 disconnected:
     closesocket(fd);
     if (disconnectReason != NULL) {
-        iprintf("\nGetrennt: %s\n", disconnectReason);
+        iprintf("\n");
+        iprintf(STR_STATUS_DISCONNECTED_REASON, disconnectReason);
+        iprintf("\n");
     } else {
-        iprintf("\nGetrennt.\n");
+        iprintf("\n%s\n", STR_STATUS_DISCONNECTED);
     }
-    iprintf("Taste druecken fuer Menue.\n");
+    iprintf("%s\n", STR_PRESS_KEY_FOR_MENU);
     while (true) {
         swiWaitForVBlank();
         scanKeys();
@@ -912,9 +937,9 @@ static void onKeyboardKeyPressed(int key) {
 
 static void promptForIp(char outIp[16]) {
     consoleClear();
-    iprintf("finlink NDS - Machbarkeitstest\n\n");
-    iprintf("IP-Adresse des Servers eingeben:\n");
-    iprintf("(z.B. 192.168.1.100)\n\n");
+    iprintf("%s NDS - Machbarkeitstest\n\n", STR_APP_NAME);
+    iprintf("%s\n", STR_IP_PROMPT_TITLE);
+    iprintf("(%s)\n\n", STR_HOST_HINT_EXAMPLE);
     outIp[0] = '\0';
     iscanf("%15s", outIp);
 }
@@ -938,9 +963,10 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
                            const char *streamType) {
     const bool multiSlot = streamTypeIsMultiSlot(streamType);
     consoleClear();
-    iprintf("finlink NDS - Machbarkeitstest\n\n");
+    iprintf("%s NDS - Machbarkeitstest\n\n", STR_APP_NAME);
     iprintf("Server: %s%s\n", serverIp, autoDiscovered ? " (gefunden)" : " (manuell)");
-    iprintf("Eigene IP: %s\n\n", ownIp);
+    iprintf(STR_DISCOVERY_OWN_IP, ownIp);
+    iprintf("\n\n");
     if (multiSlot) {
         iprintf("Slot waehlen:\n");
         iprintf(" A = Slot 1 (Port 6801)\n");
@@ -952,23 +978,26 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
          * probing PLAYER_BASE_PORT+0..3 against a server that was never
          * Dolphin doesn't find "free"/"occupied" slots, just four
          * unreachable ports, so this doesn't show that picker at all. */
-        iprintf(" A = Verbinden\n\n\n\n\n");
+        iprintf("%s\n\n\n\n\n", STR_CONNECT_HINT_SLOT);
     }
-    iprintf(" SELECT = Server erneut suchen\n");
-    iprintf(" R = IP manuell eingeben\n");
-    iprintf(" L = Bildschirm umschalten\n");
-    iprintf(" HOCH = Skalierung umschalten\n");
-    iprintf(" RUNTER = Filterung umschalten\n");
-    iprintf(" START = Beenden\n\n");
+    iprintf(" %s\n", STR_CONNECT_HINT_RESEARCH);
+    iprintf(" %s\n", STR_CONNECT_HINT_MANUAL);
+    iprintf(" L = %s\n", STR_SCREEN_TOGGLE);
+    iprintf(" HOCH = %s\n", STR_SCALE_TOGGLE);
+    iprintf(" RUNTER = %s\n", STR_FILTER_TOGGLE);
+    iprintf(" LINKS = %s\n", STR_SETTINGS_LANGUAGE);
+    iprintf(" %s\n\n", STR_CONNECT_HINT_QUIT);
     /* Only affects single-screen stream types (GC_GBA_LINK today) -- a
      * stream_type that's itself a dual-screen source's secondary screen
      * always goes to this client's bottom screen regardless, so this
      * setting is only actually consulted in that case. See runSession(). */
-    iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
-    iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? "ausgefuellt" : "1:1");
+    iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? STR_SCREEN_BOTTOM : STR_SCREEN_TOP);
+    iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? STR_SCALE_FILL : STR_SCALE_1TO1);
     // Only actually visible when Skalierung is "ausgefuellt" -- centered
     // 1:1 has no scaling to filter, see g_prefBilinear's own comment.
-    iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? "an" : "aus");
+    iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? STR_FILTER_ON : STR_FILTER_OFF);
+    iprintf("\x1b[20;0H%s: %s   ", STR_SETTINGS_LANGUAGE,
+             g_prefLanguage == 1 ? STR_LANGUAGE_GERMAN : g_prefLanguage == 2 ? STR_LANGUAGE_ENGLISH : STR_LANGUAGE_SYSTEM);
 
     for (;;) {
         swiWaitForVBlank();
@@ -984,15 +1013,24 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
         if (keys & KEY_R) return -3;
         if (keys & KEY_L) {
             g_prefBottomScreen = !g_prefBottomScreen;
-            iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
+            iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? STR_SCREEN_BOTTOM : STR_SCREEN_TOP);
         }
         if (keys & KEY_UP) {
             g_prefAspectScale = !g_prefAspectScale;
-            iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? "ausgefuellt" : "1:1");
+            iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? STR_SCALE_FILL : STR_SCALE_1TO1);
         }
         if (keys & KEY_DOWN) {
             g_prefBilinear = !g_prefBilinear;
-            iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? "an" : "aus");
+            iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? STR_FILTER_ON : STR_FILTER_OFF);
+        }
+        if (keys & KEY_LEFT) {
+            g_prefLanguage = (g_prefLanguage + 1) % 3;
+            applyLanguage();
+            /* Every STR_* line already printed above this loop (hints,
+             * headers, ...) needs to change too, not just this row -- a
+             * full re-render is simplest on a sequential iprintf console,
+             * unlike the single-line ANSI-positioned patches above. */
+            return slotSelectMenu(ownIp, serverIp, autoDiscovered, streamType);
         }
         if (keys & KEY_START) return -1;
     }
@@ -1013,14 +1051,18 @@ static void drawServerList(const BeaconScan *scan) {
             const finlink_beacon *b = &scan->servers[i].beacon;
             iprintf(" %s = %s%s                              \n", labels[i],
                      b->game_title[0] ? b->game_title : b->host,
-                     scan->servers[i].compatible ? "" : " (inkompatibel)");
+                     scan->servers[i].compatible ? "" : STR_DISCOVERY_INCOMPATIBLE_SUFFIX);
             shown++;
         } else {
             iprintf("                                              \n");
         }
     }
-    iprintf("\x1b[%d;0H%s", 5 + BEACON_MAX_SERVERS,
-             shown == 0 ? "(Suche laeuft...)                  \n" : "                                    \n");
+    // %-40s: left-justified, space-padded to 40 columns regardless of the
+    // string's actual length -- STR_DISCOVERY_SEARCHING_PLACEHOLDER is a
+    // different length than the hand-counted-spaces literal this replaced,
+    // so a fixed count of trailing spaces would no longer reliably clear
+    // the row when this line's content shrinks back down.
+    iprintf("\x1b[%d;0H%-40s\n", 5 + BEACON_MAX_SERVERS, shown == 0 ? STR_DISCOVERY_SEARCHING_PLACEHOLDER : "");
 }
 
 /* Live UDP-beacon server picker (beacon_discovery.h/.c), replacing the old
@@ -1040,11 +1082,12 @@ static void drawServerList(const BeaconScan *scan) {
 static int serverSelectMenu(BeaconScan *scan, const char *ownIp, char *outHost, size_t outHostCap,
                              char *outStreamType, int *outHandshakePort) {
     consoleClear();
-    iprintf("finlink NDS - Machbarkeitstest\n\n");
-    iprintf("Eigene IP: %s\n\n", ownIp);
-    iprintf("Gefundene Server:\n");
+    iprintf("%s NDS - Machbarkeitstest\n\n", STR_APP_NAME);
+    iprintf(STR_DISCOVERY_OWN_IP, ownIp);
+    iprintf("\n\n");
+    iprintf("%s\n", STR_DISCOVERY_FOUND_HEADER);
     drawServerList(scan);
-    iprintf("\x1b[%d;0H R = IP manuell eingeben\n START = Beenden\n", 6 + BEACON_MAX_SERVERS);
+    iprintf("\x1b[%d;0H %s\n %s\n", 6 + BEACON_MAX_SERVERS, STR_CONNECT_HINT_MANUAL, STR_CONNECT_HINT_QUIT);
 
     for (;;) {
         swiWaitForVBlank();
@@ -1081,6 +1124,8 @@ int main(void) {
     consoleDemoInit();
     keyboardDemoInit()->OnKeyPressed = onKeyboardKeyPressed; /* see promptForIp() */
 
+    applyLanguage(); /* before any STR_* text is ever printed */
+
     /* No soundbank (no mod/sample playback, only the raw PCM stream below)
      * -- same "unusual setup" as examples/nds/audio/maxmod/streaming's own
      * reference. Opened once here, for the app's whole lifetime: the
@@ -1100,12 +1145,12 @@ int main(void) {
     mmAudioStream.manual = true; /* pulled explicitly via mmStreamUpdate(), see runSession()'s tick loop */
     mmStreamOpen(&mmAudioStream);
 
-    iprintf("finlink NDS - Machbarkeitstest\n\n");
-    iprintf("Verbinde WLAN (WFC)...\n");
+    iprintf("%s NDS - Machbarkeitstest\n\n", STR_APP_NAME);
+    iprintf("%s\n", STR_WIFI_CONNECTING);
 
     if (!Wifi_InitDefault(WFC_CONNECT)) {
-        iprintf("WLAN-Verbindung fehlgeschlagen.\n");
-        iprintf("(WFC-Zugangsdaten in den DS-Systemeinstellungen pruefen.)\n");
+        iprintf("%s\n", STR_WIFI_FAILED);
+        iprintf("%s\n", STR_WIFI_FAILED_HINT);
         while (true) {
             swiWaitForVBlank();
             scanKeys();

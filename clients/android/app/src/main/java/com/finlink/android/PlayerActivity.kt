@@ -13,7 +13,6 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -80,7 +79,7 @@ import java.nio.ByteBuffer
  * Stays landscape-locked (AndroidManifest.xml) unlike Menu/Settings: the GBA
  * stream itself is a fixed wide aspect ratio.
  */
-class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
+class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
 
     private lateinit var prefs: Prefs
 

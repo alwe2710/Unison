@@ -5,6 +5,7 @@
 #include "discovery.hpp"
 #include "player_activity.hpp"
 #include "settings_activity.hpp"
+#include "strings_generated.hpp"
 #include "thread_utils.hpp"
 
 namespace {
@@ -38,15 +39,15 @@ brls::View *MenuActivity::createContentView() {
 
     hostInput = new brls::InputCell();
     hostInput->init(
-        "Host", "", [](std::string) {}, "z.B. 192.168.1.5", "IP-Adresse des Streaming-Hosts");
+        "Host", "", [](std::string) {}, strings::kHostHintExample, "IP-Adresse des Streaming-Hosts");
     column->addView(hostInput);
 
     auto *connectCell = new brls::DetailCell();
-    connectCell->setText("Verbinden");
+    connectCell->setText(strings::kMenuConnect);
     connectCell->registerClickAction([this](brls::View *) {
         std::string host = hostInput->getValue();
         if (host.empty()) {
-            statusLabel->setText("Bitte zuerst einen Host eingeben.");
+            statusLabel->setText(strings::kLobbyHostRequired);
             return true;
         }
         runSearch(host);
@@ -75,14 +76,14 @@ brls::View *MenuActivity::createContentView() {
     column->addView(slotRow);
 
     statusLabel = new brls::Label();
-    statusLabel->setText("Nicht verbunden.");
+    statusLabel->setText(strings::kStatusDisconnected);
     statusLabel->setMarginTop(8);
     column->addView(statusLabel);
 
     addDivider(column);
 
     discoveryStatusLabel = new brls::Label();
-    discoveryStatusLabel->setText("Suche nach Servern...");
+    discoveryStatusLabel->setText(strings::kDiscoverySearchingPlaceholder);
     column->addView(discoveryStatusLabel);
 
     discoveredList = new brls::Box();
@@ -99,7 +100,7 @@ brls::View *MenuActivity::createContentView() {
     addDivider(column);
 
     auto *settingsCell = new brls::DetailCell();
-    settingsCell->setText("Einstellungen");
+    settingsCell->setText(strings::kSettings);
     settingsCell->registerClickAction([](brls::View *) {
         brls::Application::pushActivity(new SettingsActivity());
         return true;
@@ -111,7 +112,7 @@ brls::View *MenuActivity::createContentView() {
     scroll->setContentView(column);
 
     auto *frame = new brls::AppletFrame(scroll);
-    frame->setTitle("finlink");
+    frame->setTitle(strings::kAppName);
 
     beaconListener.start([this]() { brls::sync([this]() { refreshDiscoveredCells(); }); });
 
@@ -134,7 +135,7 @@ void MenuActivity::refreshDiscoveredCells() {
         const auto &srv = servers[i];
         std::string label = srv.gameTitle.empty() ? srv.host : srv.gameTitle;
         if (!srv.compatible) {
-            label += " (inkompatibel)";
+            label += strings::kDiscoveryIncompatibleSuffix;
         }
         cell->setText(label);
         cell->setVisibility(brls::Visibility::VISIBLE);
@@ -162,7 +163,7 @@ void MenuActivity::refreshDiscoveredCells() {
             return true;
         });
     }
-    discoveryStatusLabel->setText(servers.empty() ? "Suche nach Servern..." : "Gefundene Server:");
+    discoveryStatusLabel->setText(servers.empty() ? strings::kDiscoverySearchingPlaceholder : strings::kDiscoveryFoundHeader);
 }
 
 void MenuActivity::runSearch(const std::string &host) {
@@ -173,7 +174,7 @@ void MenuActivity::runSearch(const std::string &host) {
     for (auto *button : slotButtons) {
         button->setVisibility(brls::Visibility::GONE);
     }
-    statusLabel->setText("Suche...");
+    statusLabel->setText(strings::kDiscoveryScanning);
 
     thread_utils::spawnDetached([this, host]() {
         std::array<std::optional<bool>, kPlayerSlotCount> occupied;
@@ -203,7 +204,7 @@ void MenuActivity::runSearch(const std::string &host) {
                 }
             }
 
-            statusLabel->setText(anyFree ? "Freien Slot wählen." : "Kein freier Slot auf diesem Host.");
+            statusLabel->setText(anyFree ? strings::kLobbyPick : strings::kLobbyNoneConfigured);
         });
     });
 }

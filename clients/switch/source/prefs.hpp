@@ -3,6 +3,8 @@
 #include <map>
 #include <string>
 
+#include "strings_generated.hpp"
+
 // Settings, read/written from SettingsActivity and read by PlayerActivity.
 // Persisted as a flat key=value text file on the SD card -- there's no
 // SharedPreferences equivalent in libnx, and the one setting left here
@@ -30,9 +32,24 @@ class Prefs {
     bool bilinearFor(const std::string &streamType) const;
     void setBilinearFor(const std::string &streamType, bool value);
 
+    // SYSTEM (default) resolves to strings::Lang::DE only if the console's
+    // own system language (setGetSystemLanguage(), read via
+    // resolveLanguage() below) is German; DE/EN are an explicit override
+    // from the Settings screen's language cell.
+    enum class LanguagePref { SYSTEM, DE, EN };
+    LanguagePref language = LanguagePref::SYSTEM;
+
   private:
     std::map<std::string, std::string> values;
 
     void load();
     std::string path() const;
 };
+
+// Anything other than an explicit DE/EN override falls back to English,
+// including the system-language query failing -- same policy as every
+// other client. Defined here (not main.cpp) since both main.cpp (once, at
+// startup) and settings_activity.cpp (whenever the user cycles the
+// language cell) need it.
+strings::Lang resolveLanguage(const Prefs &prefs);
+void applyLanguage(const Prefs &prefs);

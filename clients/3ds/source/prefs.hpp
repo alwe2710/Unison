@@ -37,6 +37,14 @@ class Prefs {
     // finlink_stream_type_prefers_secondary_screen() (finlink/handshake.h).
     bool bottomScreenVideo = false;
 
+    // SYSTEM (default) resolves to strings::Lang::DE only if the 3DS's own
+    // system language (CFGU_GetSystemLanguage, read once at startup in
+    // main.cpp -- prefs.cpp itself stays free of 3ds.h/cfgu so it can stay
+    // a plain, testable key=value file reader/writer) is German; DE/EN are
+    // an explicit override from the Settings screen's language button.
+    enum class LanguagePref { SYSTEM, DE, EN };
+    LanguagePref language = LanguagePref::SYSTEM;
+
   private:
     void load();
 

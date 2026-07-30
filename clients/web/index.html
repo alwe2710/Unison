@@ -159,6 +159,8 @@
   .filter-rows{display:flex;flex-direction:column;gap:8px;width:100%;align-items:center}
   .pill{font-family:var(--font-body);font-size:11.5px;font-weight:700;border:none;cursor:pointer;
         padding:7px 14px;border-radius:999px;background:var(--accent);color:var(--accent-ink)}
+  .pill.inactive{background:var(--surface-2);color:var(--muted)}
+  .language-row{display:flex;gap:8px}
   input.switch{appearance:none;-webkit-appearance:none;width:34px;height:20px;border-radius:999px;
                background:var(--surface-2);position:relative;cursor:pointer;margin:0;
                flex-shrink:0}
@@ -247,6 +249,8 @@
   </table>
   <div class="menu-label">Bilineare Filterung</div>
   <div id="filterRowsDesktop" class="filter-rows"></div>
+  <div class="menu-label">Sprache</div>
+  <div id="languageRowDesktop" class="language-row"></div>
   <button id="closeSettings">Schließen</button>
 </div>
 <div id="touchControls">
@@ -282,13 +286,42 @@
   </label>
   <div class="menu-label">Bilineare Filterung</div>
   <div id="filterRowsMobile" class="filter-rows"></div>
+  <div class="menu-label">Sprache</div>
+  <div id="languageRowMobile" class="language-row"></div>
   <div class="menu-label">Gamecontroller-Belegung</div>
   <div id="gamepadBindingsList"></div>
   <button id="closeMenu">Schließen</button>
 </div>
 </div>
+<script src="strings_generated.js"></script>
 <script src="finlink_core.js"></script>
 <script>
+// STRINGS (strings_generated.js, generated from the central i18n/strings.json
+// -- see that file's own top comment) is now { de: {...}, en: {...} }, keyed
+// by the same {0}/{1} placeholder syntax the source JSON uses; t() picks the
+// current language and substitutes them at call time. args are stringified
+// via template-literal coercion, same as any other JS string concatenation.
+//
+// currentLang: 'system' (default) resolves to 'de' only if the browser's own
+// language is German, else 'en' -- same "English if undetermined/
+// unsupported" policy as every other client -- overridable via the settings
+// panel's language picker (persisted in localStorage).
+let langPref = localStorage.getItem('finlinkWebLanguage') || 'system';
+function resolvedLang() {
+  if (langPref === 'de' || langPref === 'en') return langPref;
+  return (navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en';
+}
+let currentLang = resolvedLang();
+function setLangPref(pref) {
+  langPref = pref;
+  localStorage.setItem('finlinkWebLanguage', pref);
+  currentLang = resolvedLang();
+}
+function t(key, ...args) {
+  const text = (STRINGS[currentLang] && STRINGS[currentLang][key]) || STRINGS.en[key];
+  return text.replace(/\{(\d+)\}/g, (_, i) => args[i]);
+}
+
 // Any touch-capable device is treated as mobile: fullscreen video, on-screen
 // overlay instead of the keyboard-rebind panel, and the hamburger menu for
 // optional gamepad binding -- detected up front (not just once connected)
@@ -318,10 +351,10 @@ const wasmModulePromise = FinlinkCore();
 // art), bilinear for the other three (already-upscaled/higher-effective-
 // resolution renders that read better smoothed).
 const KNOWN_STREAM_TYPES = [
-  ['GC_GBA_LINK', 'GameCube (GBA-Link)'],
-  ['WIIU_GAMEPAD', 'Wii U GamePad'],
-  ['N3DS_BOTTOM_SCREEN', '3DS'],
-  ['NDS_BOTTOM_SCREEN', 'DS'],
+  ['GC_GBA_LINK', t('console_gc_gba_link')],
+  ['WIIU_GAMEPAD', t('console_wiiu_gamepad')],
+  ['N3DS_BOTTOM_SCREEN', t('console_n3ds_bottom_screen')],
+  ['NDS_BOTTOM_SCREEN', t('console_nds_bottom_screen')],
 ];
 function defaultBilinearFor(streamType) {
   return streamType === 'WIIU_GAMEPAD' || streamType === 'N3DS_BOTTOM_SCREEN' || streamType === 'NDS_BOTTOM_SCREEN';
@@ -393,6 +426,28 @@ function renderFilterRows(containerId) {
 renderFilterRows('filterRowsDesktop');
 renderFilterRows('filterRowsMobile');
 
+// System/Deutsch/English pills, System (default) following resolvedLang()
+// -- see t()'s own top comment. Re-renders both panels' rows on click so
+// whichever one is/isn't currently visible stays in sync either way.
+function renderLanguageRows(containerId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  const options = [['system', 'language_system'], ['de', 'language_german'], ['en', 'language_english']];
+  for (const [pref, key] of options) {
+    const btn = document.createElement('button');
+    btn.className = 'pill' + (langPref === pref ? '' : ' inactive');
+    btn.textContent = t(key);
+    btn.onclick = () => {
+      setLangPref(pref);
+      renderLanguageRows('languageRowDesktop');
+      renderLanguageRows('languageRowMobile');
+    };
+    container.appendChild(btn);
+  }
+}
+renderLanguageRows('languageRowDesktop');
+renderLanguageRows('languageRowMobile');
+
 connectForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const host = hostInput.value.trim();
@@ -401,7 +456,7 @@ connectForm.addEventListener('submit', (e) => {
   localStorage.setItem('finlinkLastHost', host);
   localStorage.setItem('finlinkLastPort', String(port));
   connectErrorEl.textContent = '';
-  connectStatusEl.textContent = 'Verbinde...';
+  connectStatusEl.textContent = t('status_connecting');
   connectSubmitEl.disabled = true;
   // Created here (inside the submit handler's call chain, itself triggered
   // by a user gesture) so the browser's autoplay policy -- which requires
@@ -525,9 +580,9 @@ function showGame() {
 function connect(connectHost, connectPort) {
   ws = new WebSocket('ws://' + connectHost + ':' + connectPort + '/');
   ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { connectStatusEl.textContent = 'Handshake...'; statusEl.textContent = 'handshake...'; };
-  ws.onclose = () => { if (gameEl.style.display === 'flex') statusEl.textContent = 'disconnected'; };
-  ws.onerror = () => { if (gameEl.style.display !== 'flex') fail('Verbindung fehlgeschlagen.'); };
+  ws.onopen = () => { connectStatusEl.textContent = t('status_handshake'); statusEl.textContent = t('status_handshake'); };
+  ws.onclose = () => { if (gameEl.style.display === 'flex') statusEl.textContent = t('status_disconnected'); };
+  ws.onerror = () => { if (gameEl.style.display !== 'flex') fail(t('status_connect_failed')); };
   // Text frames (typeof ev.data === 'string', always true for a WS text
   // message regardless of ws.binaryType, which only affects *binary*
   // messages) are the app-level handshake (finlink/handshake.h); binary
@@ -584,7 +639,7 @@ function showSlotPicker(slotCount) {
   connectEl.style.display = 'none';
   lobbyEl.style.display = 'flex';
   lobbyButtonsEl.innerHTML = '';
-  lobbyStatusEl.textContent = 'Spieler wählen:';
+  lobbyStatusEl.textContent = t('lobby_pick_player');
   for (let i = 0; i < slotCount; i++) {
     const label = wasmModule.ccall('finlink_wasm_hello_slot_label', 'string', ['number'], [i]);
     const occupied = wasmModule.ccall('finlink_wasm_hello_slot_occupied', 'number', ['number'], [i]);
@@ -599,7 +654,7 @@ function showSlotPicker(slotCount) {
         (occupied ? 'belegt' : 'frei') + '</span></span>' +
         '<span class="dot"></span>';
     btn.onclick = () => {
-      lobbyStatusEl.textContent = 'Verbinde...';
+      lobbyStatusEl.textContent = t('status_connecting');
       sendHelloAck(index);
     };
     lobbyButtonsEl.appendChild(btn);
@@ -672,7 +727,7 @@ function handleHandshakeMessage(text) {
         return;
       }
       showGame();
-      statusEl.textContent = 'connected';
+      statusEl.textContent = t('status_connected');
       sendPing();
       return;
     }
@@ -994,7 +1049,7 @@ if (isMobile) {
     if (activeGamepadIndex === null) {
       const hint = document.createElement('div');
       hint.className = 'hint';
-      hint.textContent = 'Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.';
+      hint.textContent = t('key_bindings_no_gamepad');
       gamepadListEl.appendChild(hint);
     }
     for (const [name] of BUTTONS) {
@@ -1003,12 +1058,12 @@ if (isMobile) {
       const label = document.createElement('span');
       label.textContent = name + ': ' +
           (gamepadBindings[name] !== undefined ? ('Knopf ' + gamepadBindings[name]) :
-                                                  'nicht belegt');
+                                                  t('settings_unbound'));
       const btn = document.createElement('button');
       btn.className = 'pill';
-      btn.textContent = 'Belegen';
+      btn.textContent = t('settings_bind');
       btn.onclick = () => {
-        btn.textContent = 'Drücke einen Knopf...';
+        btn.textContent = t('key_bindings_press_button');
         rebindGamepadButton(name, renderGamepadBindingsList);
       };
       row.appendChild(label);
@@ -1042,9 +1097,9 @@ if (!isMobile) {
       keyCell.textContent = bindings[name];
       const actionCell = document.createElement('td');
       const btn = document.createElement('button');
-      btn.textContent = 'Belegen';
+      btn.textContent = t('settings_bind');
       btn.onclick = () => {
-        btn.textContent = 'Taste drücken...';
+        btn.textContent = t('settings_press_key');
         const onKey = (e) => {
           e.preventDefault();
           bindings[name] = e.code;

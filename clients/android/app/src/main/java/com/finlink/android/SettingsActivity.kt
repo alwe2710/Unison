@@ -2,7 +2,6 @@ package com.finlink.android
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -27,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
@@ -39,15 +39,17 @@ import androidx.compose.ui.unit.dp
  * should follow however the device is actually held.
  */
 @OptIn(ExperimentalMaterial3Api::class)
-class SettingsActivity : ComponentActivity() {
+class SettingsActivity : LocalizedActivity() {
 
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
+    private var language by mutableStateOf(Prefs.LANGUAGE_SYSTEM)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
+        language = prefs.language
 
         setContent {
             FinlinkTheme {
@@ -75,6 +77,40 @@ class SettingsActivity : ComponentActivity() {
                                         prefs.onScreenControlsEnabled = it
                                     }
                                 )
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+                            HorizontalDivider()
+                            Spacer(Modifier.height(16.dp))
+
+                            // Three-way pick (not just "German"/"English"):
+                            // "System" lets the user get back to following
+                            // the device locale after having overridden it.
+                            // LocalizedActivity.onResume() recreates this
+                            // (and every other open Activity) once the
+                            // resolved language actually changes, so the
+                            // whole UI re-renders in the new language
+                            // immediately.
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    stringResource(R.string.settings_language),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                for ((value, labelRes) in listOf(
+                                    Prefs.LANGUAGE_SYSTEM to R.string.language_system,
+                                    "de" to R.string.language_german,
+                                    "en" to R.string.language_english
+                                )) {
+                                    TextButton(onClick = {
+                                        language = value
+                                        prefs.language = value
+                                    }) {
+                                        Text(
+                                            stringResource(labelRes),
+                                            fontWeight = if (language == value) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                }
                             }
 
                             Spacer(Modifier.height(16.dp))

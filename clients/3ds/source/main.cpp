@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <malloc.h>
 #include <mutex>
 #include <optional>
@@ -37,6 +38,7 @@
 #include "gba_buttons.hpp"
 #include "prefs.hpp"
 #include "session.hpp"
+#include "strings_generated.hpp"
 #include "ui.hpp"
 #include "video_tex.hpp"
 
@@ -59,19 +61,43 @@ constexpr int kExitHoldTicksRequired = 36;
 // Every stream_type docs/protocol.md currently defines ("Stream-Typen"),
 // for the per-console antialiasing list in drawSettingsScreen() --
 // Prefs::bilinearFor()/setBilinearFor() key off the same raw strings, this
-// is just the fixed set + a human-readable label for each.
+// is just the fixed set + a human-readable label for each. streamType-only
+// (not the label itself) so this can stay constexpr: the strings::kConsoleXxx
+// globals it used to embed directly are runtime-mutable now (repointed by
+// strings::setLanguage()), so the label is resolved fresh via
+// labelForStreamType() below instead of being baked in once at compile time.
 struct StreamTypeEntry {
     const char *streamType;
-    const char *label;
 };
 constexpr StreamTypeEntry kKnownStreamTypes[] = {
-    { "GC_GBA_LINK", "GameCube (GBA-Link)" },
-    { "WIIU_GAMEPAD", "Wii U GamePad" },
-    { "N3DS_BOTTOM_SCREEN", "3DS" },
-    { "NDS_BOTTOM_SCREEN", "DS" },
+    { "GC_GBA_LINK" },
+    { "WIIU_GAMEPAD" },
+    { "N3DS_BOTTOM_SCREEN" },
+    { "NDS_BOTTOM_SCREEN" },
 };
 
+const char *labelForStreamType(const char *streamType) {
+    if (strcmp(streamType, "GC_GBA_LINK") == 0) {
+        return strings::kConsoleGcGbaLink;
+    }
+    if (strcmp(streamType, "WIIU_GAMEPAD") == 0) {
+        return strings::kConsoleWiiuGamepad;
+    }
+    if (strcmp(streamType, "N3DS_BOTTOM_SCREEN") == 0) {
+        return strings::kConsoleN3dsBottomScreen;
+    }
+    return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
+}
+
 enum class BottomScreenState { MENU, SETTINGS };
+
+// strings::kStatusError ("Fehler: %s") applied -- small helper since this
+// is needed at both onDisconnected call sites below.
+std::string formatError(const std::string &reason) {
+    char buf[192];
+    snprintf(buf, sizeof(buf), strings::kStatusError, reason.c_str());
+    return buf;
+}
 
 // Everything the background search/discovery threads write, read by the
 // main loop each frame. One coarse mutex: updates are infrequent (once
@@ -81,7 +107,7 @@ struct MenuState {
 
     std::string hostText;
     bool searching = false;
-    std::string statusText = "Nicht verbunden.";
+    std::string statusText = strings::kStatusDisconnected;
     std::array<std::optional<bool>, kPlayerSlotCount> slotOccupied {};
     bool pickerVisible = false;
     std::string lastSearchedHost;
@@ -101,7 +127,7 @@ void runSearch(MenuState *menu, std::string host) {
         }
         menu->searching = true;
         menu->pickerVisible = false;
-        menu->statusText = "Suche...";
+        menu->statusText = strings::kDiscoveryScanning;
     }
 
     std::thread([menu, host]() {
@@ -131,11 +157,11 @@ void runSearch(MenuState *menu, std::string host) {
         // show the same "kein freier Slot" message, which made a dead
         // connection look identical to a genuinely full host.
         if (anyFree) {
-            menu->statusText = "Freien Slot waehlen.";
+            menu->statusText = strings::kLobbyPick;
         } else if (anyReachable) {
-            menu->statusText = "Kein freier Slot auf diesem Host.";
+            menu->statusText = strings::kLobbyNoneConfigured;
         } else {
-            menu->statusText = "Host nicht erreichbar (Port 6801-6804).";
+            menu->statusText = strings::kLobbyHostUnreachable;
         }
     }).detach();
 }
@@ -147,7 +173,7 @@ std::string promptForHost(const std::string &initial) {
     SwkbdState swkbd;
     char buf[64];
     swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, sizeof(buf) - 1);
-    swkbdSetHintText(&swkbd, "IP-Adresse, z.B. 192.168.1.5");
+    swkbdSetHintText(&swkbd, strings::kHostHintExample);
     if (!initial.empty()) {
         swkbdSetInitialText(&swkbd, initial.c_str());
     }
@@ -184,7 +210,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
 
     ui::Rect hostRect { 8, 8, 240, 28 };
     ui::drawRect(hostRect, ui::kColorButtonDisabled);
-    ui::drawText(textBuf, hostText.empty() ? "Host eingeben..." : hostText.c_str(), hostRect.x + 8, hostRect.y + 6,
+    ui::drawText(textBuf, hostText.empty() ? strings::kHostHint : hostText.c_str(), hostRect.x + 8, hostRect.y + 6,
                  0.5f, hostText.empty() ? ui::kColorTextDim : ui::kColorText);
     if (touch.tappedIn(hostRect)) {
         // Deferred to main()'s loop, right after C3D_FrameEnd() -- see
@@ -194,7 +220,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     }
 
     ui::Rect connectRect { 252, 8, 60, 28 };
-    if (ui::button(textBuf, touch, connectRect, "Los", !searching && !hostText.empty())) {
+    if (ui::button(textBuf, touch, connectRect, strings::kMenuConnect, !searching && !hostText.empty())) {
         runSearch(menu, hostText);
     }
 
@@ -239,7 +265,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                             [connected, menu](std::string reason) {
                                 *connected = false;
                                 std::lock_guard<std::mutex> l(menu->mutex);
-                                menu->statusText = "Fehler: " + reason;
+                                menu->statusText = formatError(reason);
                             },
                     });
             }
@@ -254,7 +280,14 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     // perfectly healthy network where nothing just happens to answer --
     // this line is the difference.
     std::string myIp = discovery::localIpString();
-    std::string netLine = myIp.empty() ? "Kein Netzwerk" : ("IP: " + myIp);
+    std::string netLine;
+    if (myIp.empty()) {
+        netLine = strings::kDiscoveryNoNetwork;
+    } else {
+        char buf[80];
+        snprintf(buf, sizeof(buf), strings::kDiscoveryOwnIp, myIp.c_str());
+        netLine = buf;
+    }
     ui::drawText(textBuf, netLine.c_str(), 190, 74, 0.38f, myIp.empty() ? ui::kColorButtonHeld : ui::kColorTextDim);
 
     // No manual "search" trigger -- a server announces itself via UDP
@@ -262,8 +295,8 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     // BeaconListener (running continuously in the background, started/
     // stopped alongside socInit()/socExit() in main()) always has whatever
     // it's heard lately.
-    ui::drawText(textBuf, discoveredServers.empty() ? "Suche nach Servern..." : "Gefundene Server:", 8, 100, 0.42f,
-                 ui::kColorTextDim);
+    ui::drawText(textBuf, discoveredServers.empty() ? strings::kDiscoverySearchingPlaceholder : strings::kDiscoveryFoundHeader,
+                 8, 100, 0.42f, ui::kColorTextDim);
 
     int shown = 0;
     for (const auto &srv : discoveredServers) {
@@ -273,7 +306,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
         ui::Rect r { 8, 118.0f + shown * 22.0f, 304, 20 };
         std::string label = srv.gameTitle.empty() ? srv.host : srv.gameTitle;
         if (!srv.compatible) {
-            label += " (inkompatibel)";
+            label += strings::kDiscoveryIncompatibleSuffix;
         }
         if (ui::button(textBuf, touch, r, label.c_str(), srv.compatible)) {
             if (srv.streamType == "GC_GBA_LINK") {
@@ -324,7 +357,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                             [connected, menu](std::string reason) {
                                 *connected = false;
                                 std::lock_guard<std::mutex> l(menu->mutex);
-                                menu->statusText = "Fehler: " + reason;
+                                menu->statusText = formatError(reason);
                             },
                     });
             }
@@ -333,30 +366,78 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     }
     if (static_cast<int>(discoveredServers.size()) > shown) {
         char more[32];
-        snprintf(more, sizeof(more), "+%d weitere", static_cast<int>(discoveredServers.size()) - shown);
+        snprintf(more, sizeof(more), strings::kDiscoveryMoreServers, static_cast<int>(discoveredServers.size()) - shown);
         ui::drawText(textBuf, more, 8, 118.0f + shown * 22.0f, 0.4f, ui::kColorTextDim);
     }
 
     ui::Rect settingsRect { 8, 210, 304, 24 };
-    if (ui::button(textBuf, touch, settingsRect, "Einstellungen")) {
+    if (ui::button(textBuf, touch, settingsRect, strings::kSettings)) {
         *screenState = BottomScreenState::SETTINGS;
     }
 }
 
-void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
-    ui::drawText(textBuf, "Einstellungen", 8, 8, 0.55f, ui::kColorText);
+// Prefs::LanguagePref::SYSTEM resolves to German only if the console's own
+// system language is German (CFGU_GetSystemLanguage) -- anything else,
+// including the call failing, falls back to English, same policy as every
+// other client. DE/EN are an explicit override from drawSettingsScreen()'s
+// language button below.
+strings::Lang resolveLanguage(const Prefs &prefs) {
+    if (prefs.language == Prefs::LanguagePref::DE) {
+        return strings::Lang::DE;
+    }
+    if (prefs.language == Prefs::LanguagePref::EN) {
+        return strings::Lang::EN;
+    }
+    u8 sysLanguage = 0;
+    if (R_SUCCEEDED(cfguInit())) {
+        Result r = CFGU_GetSystemLanguage(&sysLanguage);
+        cfguExit();
+        if (R_SUCCEEDED(r) && sysLanguage == CFG_LANGUAGE_DE) {
+            return strings::Lang::DE;
+        }
+    }
+    return strings::Lang::EN;
+}
 
-    ui::drawText(textBuf, "Bild auf unterem Bildschirm", 8, 44, 0.45f, ui::kColorText);
+void applyLanguage(const Prefs &prefs) {
+    strings::setLanguage(resolveLanguage(prefs));
+}
+
+void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
+    ui::drawText(textBuf, strings::kSettings, 8, 8, 0.55f, ui::kColorText);
+
+    ui::drawText(textBuf, strings::kSettingsBottomScreenVideo, 8, 44, 0.45f, ui::kColorText);
     ui::Rect t3 { 250, 40, 60, 28 };
     if (ui::toggle(touch, t3, prefs->bottomScreenVideo)) {
         prefs->bottomScreenVideo = !prefs->bottomScreenVideo;
         prefs->save();
     }
     // Only affects single-screen stream types (GC_GBA_LINK today) -- see
-    // this file's own top comment and useBottomForVideo in main().
-    ui::drawText(textBuf, "(wirkungslos bei Streams, die selbst schon",
-                 8, 72, 0.36f, ui::kColorTextDim);
-    ui::drawText(textBuf, "ein Zweitbildschirm-Inhalt sind)", 8, 88, 0.36f, ui::kColorTextDim);
+    // this file's own top comment and useBottomForVideo in main(). One
+    // line (not the old two-line split) since the hint text is now a
+    // single central string (strings::kSettingsBottomScreenVideoHint) --
+    // a smaller scale than the two-line version used keeps it fitting the
+    // 320px-wide bottom screen.
+    ui::drawText(textBuf, strings::kSettingsBottomScreenVideoHint, 8, 72, 0.32f, ui::kColorTextDim);
+
+    // Cycles System -> Deutsch -> English -> System; re-resolves and
+    // re-applies immediately so every string on screen (including this
+    // button's own label) updates the instant it's tapped. Fits in the gap
+    // between the hint above and the antialiasing header below rather than
+    // claiming a whole new row of its own -- the 240px-tall bottom screen
+    // is already tight (see backRect below).
+    ui::drawText(textBuf, strings::kSettingsLanguage, 8, 84, 0.4f, ui::kColorTextDim);
+    const char *languageLabel = prefs->language == Prefs::LanguagePref::DE ? strings::kLanguageGerman
+                               : prefs->language == Prefs::LanguagePref::EN ? strings::kLanguageEnglish
+                                                                             : strings::kLanguageSystem;
+    ui::Rect languageRect { 200, 80, 104, 20 };
+    if (ui::button(textBuf, touch, languageRect, languageLabel)) {
+        prefs->language = prefs->language == Prefs::LanguagePref::SYSTEM ? Prefs::LanguagePref::DE
+                         : prefs->language == Prefs::LanguagePref::DE    ? Prefs::LanguagePref::EN
+                                                                          : Prefs::LanguagePref::SYSTEM;
+        prefs->save();
+        applyLanguage(*prefs);
+    }
 
     // Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
     // stream_type rather than one global toggle -- GBA/DS pixel art and a
@@ -367,10 +448,10 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     // so there's no single "current" stream_type to key off anyway --
     // whichever type is actually connected to later just reads whatever
     // was configured here in advance (see main()'s onConnected handling).
-    ui::drawText(textBuf, "Bilineare Filterung:", 8, 104, 0.4f, ui::kColorTextDim);
+    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 104, 0.4f, ui::kColorTextDim);
     float y = 122.0f;
     for (const auto &entry : kKnownStreamTypes) {
-        ui::drawText(textBuf, entry.label, 8, y + 4, 0.38f, ui::kColorText);
+        ui::drawText(textBuf, labelForStreamType(entry.streamType), 8, y + 4, 0.38f, ui::kColorText);
         ui::Rect r { 250, y, 60, 20 };
         bool bilinear = prefs->bilinearFor(entry.streamType);
         if (ui::toggle(touch, r, bilinear)) {
@@ -381,7 +462,7 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     }
 
     ui::Rect backRect { 8, 210, 304, 24 };
-    if (ui::button(textBuf, touch, backRect, "Zurueck")) {
+    if (ui::button(textBuf, touch, backRect, strings::kBack)) {
         *screenState = BottomScreenState::MENU;
     }
 }
@@ -417,6 +498,7 @@ int main(int argc, char *argv[]) {
     C2D_TextBuf textBuf = C2D_TextBufNew(4096);
 
     Prefs prefs;
+    applyLanguage(prefs);
     MenuState menu;
     GbaSession session;
     VideoTex videoTex;
@@ -507,9 +589,9 @@ int main(int argc, char *argv[]) {
         if (connected && videoTex.hasFrame()) {
             videoTex.drawFitted(0, 0, videoTargetWidth, 240);
         } else {
-            ui::drawText(textBuf, "finlink", 150, 100, 0.9f, ui::kColorText);
+            ui::drawText(textBuf, strings::kAppName, 150, 100, 0.9f, ui::kColorText);
             if (connected) {
-                ui::drawText(textBuf, "Warte auf Bild...", 130, 140, 0.5f, ui::kColorTextDim);
+                ui::drawText(textBuf, strings::kWaitingForImage, 130, 140, 0.5f, ui::kColorTextDim);
             }
         }
 
@@ -517,7 +599,7 @@ int main(int argc, char *argv[]) {
         C2D_SceneBegin(uiTarget);
 
         if (connected) {
-            ui::drawText(textBuf, "Verbunden", 8, 90, 0.55f, ui::kColorText);
+            ui::drawText(textBuf, strings::kStatusConnected, 8, 90, 0.55f, ui::kColorText);
             // Temporary debug line while tracking down the garbled-video
             // report on Cemu's WIIU_GAMEPAD stream (854x480, never
             // exercised by this client before) -- shows exactly what
@@ -527,10 +609,10 @@ int main(int argc, char *argv[]) {
             snprintf(dbg, sizeof(dbg), "Debug: %ux%u (Stream: %s)", videoTex.debugFrameWidth(),
                       videoTex.debugFrameHeight(), connectedStreamType.c_str());
             ui::drawText(textBuf, dbg, 8, 108, 0.36f, ui::kColorButtonHeld);
-            ui::drawText(textBuf, "Physische Tasten sind aktiv.", 8, 130, 0.42f, ui::kColorTextDim);
-            ui::drawText(textBuf, "X+Y halten zum Trennen.", 8, 150, 0.42f, ui::kColorTextDim);
+            ui::drawText(textBuf, strings::kStatusPhysicalInputActive, 8, 130, 0.42f, ui::kColorTextDim);
+            ui::drawText(textBuf, strings::kExitHoldHint, 8, 150, 0.42f, ui::kColorTextDim);
             ui::Rect disconnectRect { 8, 206, 304, 26 };
-            if (ui::button(textBuf, touch, disconnectRect, "Trennen")) {
+            if (ui::button(textBuf, touch, disconnectRect, strings::kDisconnect)) {
                 session.disconnect();
                 connected = false;
             }

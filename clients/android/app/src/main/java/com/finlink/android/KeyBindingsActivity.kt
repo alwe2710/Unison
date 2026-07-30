@@ -2,7 +2,6 @@ package com.finlink.android
 
 import android.os.Bundle
 import android.view.KeyEvent
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,7 +44,7 @@ import androidx.compose.ui.unit.dp
  * [BindTarget].
  */
 @OptIn(ExperimentalMaterial3Api::class)
-class KeyBindingsActivity : ComponentActivity() {
+class KeyBindingsActivity : LocalizedActivity() {
 
     private sealed class BindTarget {
         data class Gba(val button: GbaButton) : BindTarget()

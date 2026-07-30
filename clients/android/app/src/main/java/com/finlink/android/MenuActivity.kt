@@ -2,7 +2,6 @@ package com.finlink.android
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -90,7 +89,7 @@ private data class DiscoveredServer(
  * stream view, so it should follow however the device is actually held.
  */
 @OptIn(ExperimentalMaterial3Api::class)
-class MenuActivity : ComponentActivity() {
+class MenuActivity : LocalizedActivity() {
 
     private var hostText by mutableStateOf("")
     private var searching by mutableStateOf(false)

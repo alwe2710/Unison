@@ -1,11 +1,13 @@
 #include "player_activity.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <malloc.h>
 
 #include "frame_poller.hpp"
 #include "gba_buttons.hpp"
+#include "strings_generated.hpp"
 
 namespace {
 constexpr float kExitHoldSeconds = 0.6f;
@@ -47,7 +49,7 @@ brls::View *PlayerActivity::createContentView() {
     root->addView(videoView);
 
     statusLabel = new brls::Label();
-    statusLabel->setText("Verbinde...");
+    statusLabel->setText(strings::kStatusConnecting);
     statusLabel->setTextColor(nvgRGB(255, 255, 255));
     statusLabel->detach();
     statusLabel->setWidth(400);
@@ -110,7 +112,9 @@ brls::View *PlayerActivity::createContentView() {
                             showDisconnectDialog(reason);
                         } else {
                             statusLabel->setVisibility(brls::Visibility::VISIBLE);
-                            statusLabel->setText("Fehler: " + reason);
+                            char buf[192];
+                            snprintf(buf, sizeof(buf), strings::kStatusError, reason.c_str());
+                            statusLabel->setText(buf);
                         }
                     });
                 },
@@ -120,7 +124,7 @@ brls::View *PlayerActivity::createContentView() {
 }
 
 void PlayerActivity::showDisconnectDialog(const std::string &reason) {
-    auto *dialog = new brls::Dialog("Verbindung verloren\n" + reason);
+    auto *dialog = new brls::Dialog(std::string(strings::kStreamLostTitle) + "\n" + reason);
     dialog->setCancelable(false);
     dialog->addButton("OK", [this]() { brls::Application::popActivity(); });
     dialog->open();

@@ -1,6 +1,9 @@
 #include "settings_activity.hpp"
 
+#include <cstring>
 #include <iterator>
+
+#include "strings_generated.hpp"
 
 namespace {
 // Same on/off color convention as the Switch's own system settings: gray
@@ -14,23 +17,54 @@ constexpr NVGcolor kColorOn = { { { 0.0f / 255.0f, 195.0f / 255.0f, 195.0f / 255
 // Every stream_type docs/protocol.md currently defines ("Stream-Typen"),
 // mirrored in menu_activity.cpp's own kStreamTypeGcGbaLink -- Prefs::
 // bilinearFor()/setBilinearFor() key off the same raw strings, this is
-// just the fixed set + a human-readable label for each row below.
+// just the fixed set + streamType only (not the label itself): the
+// strings::kConsoleXxx globals it used to embed directly are runtime-
+// mutable now (repointed by strings::setLanguage()), so the label is
+// resolved fresh via labelForStreamType() below instead of being baked in
+// once at compile time (which is also why this can stay constexpr at all).
 struct StreamTypeEntry {
     const char *streamType;
-    const char *label;
 };
 constexpr StreamTypeEntry kKnownStreamTypes[] = {
-    { "GC_GBA_LINK", "GameCube (GBA-Link)" },
-    { "WIIU_GAMEPAD", "Wii U GamePad" },
-    { "N3DS_BOTTOM_SCREEN", "3DS" },
-    { "NDS_BOTTOM_SCREEN", "DS" },
+    { "GC_GBA_LINK" },
+    { "WIIU_GAMEPAD" },
+    { "N3DS_BOTTOM_SCREEN" },
+    { "NDS_BOTTOM_SCREEN" },
 };
+
+const char *labelForStreamType(const char *streamType) {
+    if (strcmp(streamType, "GC_GBA_LINK") == 0) {
+        return strings::kConsoleGcGbaLink;
+    }
+    if (strcmp(streamType, "WIIU_GAMEPAD") == 0) {
+        return strings::kConsoleWiiuGamepad;
+    }
+    if (strcmp(streamType, "N3DS_BOTTOM_SCREEN") == 0) {
+        return strings::kConsoleN3dsBottomScreen;
+    }
+    return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
+}
+
+const char *labelForLanguagePref(Prefs::LanguagePref pref) {
+    switch (pref) {
+    case Prefs::LanguagePref::DE:
+        return strings::kLanguageGerman;
+    case Prefs::LanguagePref::EN:
+        return strings::kLanguageEnglish;
+    default:
+        return strings::kLanguageSystem;
+    }
+}
 } // namespace
 
 void SettingsActivity::updateFilterCellUI(int index) {
     bool on = prefs.bilinearFor(kKnownStreamTypes[index].streamType);
-    filterCells[index]->setDetailText(on ? "Ein" : "Aus");
+    filterCells[index]->setDetailText(on ? strings::kFilterOn : strings::kFilterOff);
     filterCells[index]->setDetailTextColor(on ? kColorOn : kColorOff);
+}
+
+void SettingsActivity::updateLanguageCellUI() {
+    languageCell->setDetailText(labelForLanguagePref(prefs.language));
 }
 
 brls::View *SettingsActivity::createContentView() {
@@ -39,14 +73,35 @@ brls::View *SettingsActivity::createContentView() {
     column->setAlignItems(brls::AlignItems::STRETCH);
     column->setPadding(24, 32, 24, 32);
 
-    auto *header = new brls::Label();
-    header->setText("Bilineare Filterung");
+    languageCell = new brls::DetailCell();
+    languageCell->setText(strings::kSettingsLanguage);
+    languageCell->registerClickAction([this](brls::View *) {
+        prefs.language = prefs.language == Prefs::LanguagePref::SYSTEM ? Prefs::LanguagePref::DE
+                        : prefs.language == Prefs::LanguagePref::DE    ? Prefs::LanguagePref::EN
+                                                                        : Prefs::LanguagePref::SYSTEM;
+        prefs.save();
+        applyLanguage(prefs);
+        updateLanguageCellUI();
+        languageCell->setText(strings::kSettingsLanguage);
+        header->setText(strings::kSettingsAntialiasing);
+        frame->setTitle(strings::kSettings);
+        for (int i = 0; i < static_cast<int>(std::size(kKnownStreamTypes)); i++) {
+            filterCells[i]->setText(labelForStreamType(kKnownStreamTypes[i].streamType));
+            updateFilterCellUI(i);
+        }
+        return true;
+    });
+    updateLanguageCellUI();
+    column->addView(languageCell);
+
+    header = new brls::Label();
+    header->setText(strings::kSettingsAntialiasing);
     header->setFontSize(16);
     column->addView(header);
 
     for (int i = 0; i < static_cast<int>(std::size(kKnownStreamTypes)); i++) {
         auto *cell = new brls::DetailCell();
-        cell->setText(kKnownStreamTypes[i].label);
+        cell->setText(labelForStreamType(kKnownStreamTypes[i].streamType));
         cell->registerClickAction([this, i](brls::View *) {
             prefs.setBilinearFor(kKnownStreamTypes[i].streamType, !prefs.bilinearFor(kKnownStreamTypes[i].streamType));
             prefs.save();
@@ -62,7 +117,7 @@ brls::View *SettingsActivity::createContentView() {
     scroll->setGrow(1.0f);
     scroll->setContentView(column);
 
-    auto *frame = new brls::AppletFrame(scroll);
-    frame->setTitle("Einstellungen");
+    frame = new brls::AppletFrame(scroll);
+    frame->setTitle(strings::kSettings);
     return frame;
 }

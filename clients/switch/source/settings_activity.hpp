@@ -25,5 +25,17 @@ class SettingsActivity : public brls::Activity {
     // see its own constructor), so every known type gets its own row.
     std::array<brls::DetailCell *, 4> filterCells {};
 
+    // Cycles System -> Deutsch -> English -> System on click, same pattern
+    // as the filter cells above. Updates this screen's own visible text
+    // immediately (header, filter rows, its own detail text); an activity
+    // already open underneath this one (MenuActivity) picks up the new
+    // language the next time the app is launched, since borealis keeps a
+    // pushed activity's view tree alive rather than recreating it when a
+    // child activity above it is popped.
+    brls::DetailCell *languageCell = nullptr;
+    brls::Label *header = nullptr;
+    brls::AppletFrame *frame = nullptr;
+
     void updateFilterCellUI(int index);
+    void updateLanguageCellUI();
 };

@@ -6,6 +6,7 @@
 #include <switch.h>
 
 #include "menu_activity.hpp"
+#include "prefs.hpp"
 
 int main(int argc, char *argv[]) {
     (void)argc;
@@ -31,6 +32,11 @@ int main(int argc, char *argv[]) {
     // Application::init() into pushActivity() without this call looked
     // like.
     plInitialize(PlServiceType_User);
+
+    // Before Application::init(), since borealis reads label text off the
+    // strings::kFoo globals as soon as the first Activity's
+    // createContentView() runs.
+    applyLanguage(Prefs());
 
     if (!brls::Application::init()) {
         brls::Logger::error("Unable to init Borealis application");

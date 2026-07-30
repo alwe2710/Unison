@@ -67,6 +67,17 @@ void Prefs::load() {
     if (it != values.end()) {
         bottomScreenVideo = it->second == "1";
     }
+
+    auto langIt = values.find("language");
+    if (langIt != values.end()) {
+        if (langIt->second == "de") {
+            language = LanguagePref::DE;
+        } else if (langIt->second == "en") {
+            language = LanguagePref::EN;
+        } else {
+            language = LanguagePref::SYSTEM;
+        }
+    }
 }
 
 void Prefs::save() {
@@ -79,4 +90,5 @@ void Prefs::save() {
         out << kBilinearKeyPrefix << streamType << "=" << (value ? "1" : "0") << "\n";
     }
     out << "bottom_screen_video=" << (bottomScreenVideo ? "1" : "0") << "\n";
+    out << "language=" << (language == LanguagePref::DE ? "de" : language == LanguagePref::EN ? "en" : "system") << "\n";
 }

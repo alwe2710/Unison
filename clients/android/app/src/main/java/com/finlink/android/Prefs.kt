@@ -72,6 +72,12 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(PREF_ON_SCREEN_CONTROLS, true)
         set(value) = prefs.edit().putBoolean(PREF_ON_SCREEN_CONTROLS, value).apply()
 
+    /** "system" (default, follow the device locale -- see LocaleHelper),
+     * "de", or "en". A manual override from the Settings language picker. */
+    var language: String
+        get() = prefs.getString(PREF_LANGUAGE, LANGUAGE_SYSTEM) ?: LANGUAGE_SYSTEM
+        set(value) = prefs.edit().putString(PREF_LANGUAGE, value).apply()
+
     /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
      * filtering (crisp/pixelated upscale). Per stream_type ("GC_GBA_LINK",
      * "WIIU_GAMEPAD", ...) rather than one global toggle -- see
@@ -103,6 +109,9 @@ class Prefs(context: Context) {
             streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN"
 
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
+        private const val PREF_LANGUAGE = "language"
         private const val NO_KEYCODE = -1
+
+        const val LANGUAGE_SYSTEM = "system"
     }
 }

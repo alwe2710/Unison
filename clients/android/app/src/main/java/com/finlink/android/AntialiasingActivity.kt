@@ -1,7 +1,6 @@
 package com.finlink.android
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +37,7 @@ import androidx.compose.ui.unit.dp
  * itself (see its EXTRA_STREAM_TYPE / MenuActivity.launchPlayer()).
  */
 @OptIn(ExperimentalMaterial3Api::class)
-class AntialiasingActivity : ComponentActivity() {
+class AntialiasingActivity : LocalizedActivity() {
 
     private data class ConsoleFilterRow(val streamType: String, val labelRes: Int, val bilinear: Boolean)
 

@@ -3,6 +3,8 @@
 #include <fstream>
 #include <sys/stat.h>
 
+#include <switch.h>
+
 namespace {
 constexpr const char *kDir = "sdmc:/switch/finlink";
 constexpr const char *kFile = "sdmc:/switch/finlink/settings.cfg";
@@ -57,6 +59,17 @@ void Prefs::load() {
         }
         values[line.substr(0, eq)] = line.substr(eq + 1);
     }
+
+    auto it = values.find("language");
+    if (it != values.end()) {
+        if (it->second == "de") {
+            language = LanguagePref::DE;
+        } else if (it->second == "en") {
+            language = LanguagePref::EN;
+        } else {
+            language = LanguagePref::SYSTEM;
+        }
+    }
 }
 
 void Prefs::save() {
@@ -69,4 +82,30 @@ void Prefs::save() {
     for (const auto &[key, value] : values) {
         out << key << "=" << value << "\n";
     }
+    out << "language=" << (language == LanguagePref::DE ? "de" : language == LanguagePref::EN ? "en" : "system") << "\n";
+}
+
+strings::Lang resolveLanguage(const Prefs &prefs) {
+    if (prefs.language == Prefs::LanguagePref::DE) {
+        return strings::Lang::DE;
+    }
+    if (prefs.language == Prefs::LanguagePref::EN) {
+        return strings::Lang::EN;
+    }
+    strings::Lang result = strings::Lang::EN;
+    if (R_SUCCEEDED(setInitialize())) {
+        u64 languageCode = 0;
+        if (R_SUCCEEDED(setGetSystemLanguage(&languageCode))) {
+            SetLanguage setLang;
+            if (R_SUCCEEDED(setMakeLanguage(languageCode, &setLang)) && setLang == SetLanguage_DE) {
+                result = strings::Lang::DE;
+            }
+        }
+        setExit();
+    }
+    return result;
+}
+
+void applyLanguage(const Prefs &prefs) {
+    strings::setLanguage(resolveLanguage(prefs));
 }
