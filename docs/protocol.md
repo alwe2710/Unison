@@ -291,9 +291,11 @@ The client's reply:
   `hello.audio` was already absent (a stream type without audio) — in that case there's nothing to
   negotiate here.
 - `video_mode`: optional, `"tiles"` (TILES delta-encoding + frame dedup, see "Frame semantics
-  (video dedup)" below) or `"legacy"` (always a full, non-tiled frame, no dedup — the original
-  behavior, kept as a fallback a user can pick). Absent entirely for any client that predates this
-  field; a server should treat that the same as `"tiles"`.
+  (video dedup)" below), `"legacy"` (always a full, non-tiled frame, no dedup — the original
+  behavior, kept as a fallback a user can pick), or `"h264"`/`"h265"` (a real video codec bitstream
+  instead of raw pixels — see "Keyframe discipline" below and `FINLINK_VIDEO_FORMAT_H264`/`_H265`
+  in [`protocol.h`](../core/include/finlink/protocol.h)). Absent entirely for any client that
+  predates this field; a server should treat that the same as `"tiles"`.
 
 ### `session_ready` (server → client)
 
@@ -599,6 +601,30 @@ Reference implementation of both this and `FINLINK_VIDEO_FORMAT_TILES` (see
 8×8 tiles, returning "unchanged" for the dedup case above and a TILES-formatted payload otherwise,
 so a server doesn't have to hand-roll either behavior itself. Used by the `WIIU_GAMEPAD`
 (Cemu) server as of this revision; other forks can adopt the same function.
+
+## Keyframe discipline (H.264/H265)
+
+`FINLINK_VIDEO_FORMAT_H264`/`_H265` (`video_mode` `"h264"`/`"h265"`) carry a continuous
+encoder/decoder bitstream, not an independently-decodable frame like TILES/legacy/INDEXED —
+each `compressed_data` is one or more Annex-B NAL units (`00 00 00 01`-prefixed), fed directly to
+a platform video decoder (e.g. Android's `MediaCodec`, `video/avc`/`video/hevc`) instead of
+`finlink_inflate_raw()`/`finlink_decode_video_frame()`. The decoder keeps reference-frame state
+across calls that must never desync from the encoder's, unlike TILES (which re-derives its diff
+fresh every frame against the last frame *actually sent*, self-correcting automatically) or legacy
+(where every frame is already complete on its own).
+
+A server implementing these modes must therefore:
+
+- Force a keyframe (IDR) for the first frame of every session — same convention TILES/legacy
+  already follow, so a client always has something valid to start decoding from.
+- Force a keyframe periodically thereafter (a fixed cadence — e.g. every ~60 frames at a ~20fps
+  capture rate, roughly every 3 seconds — is a reasonable default, mirroring typical live-streaming
+  GOP sizing) as a self-healing measure: if any frame is ever silently dropped (a transient send
+  failure, a timeout), the very next forced keyframe bounds how long the picture can show
+  corruption for, rather than requiring a full reconnect to recover.
+- Still elide a pixel-identical frame entirely (send nothing) the same way TILES dedup does — the
+  client keeps showing its last decoded picture, which needs no protocol support since finlink
+  never sends frame timestamps.
 
 ## HTTP
 

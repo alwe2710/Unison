@@ -46,7 +46,20 @@ typedef enum {
 
 /* Bitmask selected per-frame by the server (whichever is cheapest for that
  * frame) describing the decompressed block's layout -- see
- * finlink_decode_video_frame(). All four combinations must be handled. */
+ * finlink_decode_video_frame(). All four combinations of INDEXED/TILES must
+ * be handled.
+ *
+ * H264/H265 are mutually exclusive with INDEXED/TILES (and with each
+ * other): when either is set, compressed_data is NOT raw-deflate at all --
+ * it is a raw Annex-B NAL byte stream (start-code `00 00 00 01` prefixed)
+ * straight from the server's encoder, fed directly to a platform video
+ * decoder (e.g. Android's MediaCodec, video/avc or video/hevc) instead of
+ * finlink_inflate_raw()/finlink_decode_video_frame(). Unlike TILES, which
+ * self-corrects every frame against the previous one, an H264/H265 stream
+ * carries decoder-side reference-frame state that must never desync from
+ * the encoder's -- see docs/protocol.md's "Keyframe discipline" section for
+ * the periodic forced-keyframe convention that bounds how long a dropped
+ * frame can cause visible corruption for. */
 typedef enum {
     /* Pixels are palette indices (1 byte each) preceded by a palette,
      * instead of raw u16le RGB565. */
@@ -60,14 +73,22 @@ typedef enum {
      * previous frame yet for the server to diff against, and it doubles
      * as the keyframe clients need to have painted something onto their
      * framebuffer before trusting a tile patch. */
-    FINLINK_VIDEO_FORMAT_TILES = 1 << 1
+    FINLINK_VIDEO_FORMAT_TILES = 1 << 1,
+    /* compressed_data is a raw H.264 Annex-B bitstream (see this enum's own
+     * comment above). */
+    FINLINK_VIDEO_FORMAT_H264 = 1 << 2,
+    /* compressed_data is a raw H.265/HEVC Annex-B bitstream. */
+    FINLINK_VIDEO_FORMAT_H265 = 1 << 3
 } finlink_video_format;
 
 /* Video header (type=1). compressed_data points into the caller's buffer
- * (no copy) and is a raw-deflate compressed block whose content depends on
- * `format` -- see finlink_video_format. Decompress with
- * finlink_inflate_raw() (size it with finlink_video_max_inflated_size()),
- * then decode with finlink_decode_video_frame(). */
+ * (no copy). For INDEXED/TILES (or neither -- a full frame), it's a
+ * raw-deflate compressed block whose content depends on `format` -- see
+ * finlink_video_format. Decompress with finlink_inflate_raw() (size it with
+ * finlink_video_max_inflated_size()), then decode with
+ * finlink_decode_video_frame(). For H264/H265, it's an Annex-B bitstream fed
+ * directly to a platform video decoder instead -- see finlink_video_format's
+ * own comment. */
 typedef struct {
     uint32_t width;
     uint32_t height;
