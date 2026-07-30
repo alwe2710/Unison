@@ -634,6 +634,7 @@ static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width
         AMediaCodec_delete(codec);
         return;
     }
+
     s->video_codec = codec;
     s->video_codec_format = format;
 }
@@ -683,6 +684,7 @@ static void handle_h264_h265_video_message(finlink_session *s, const finlink_vid
     // with render=false (discarded, not displayed) before moving on.
     AMediaCodecBufferInfo info;
     ssize_t pendingIdx = -1;
+    int droppedCount = 0;
     for (;;) {
         const ssize_t outIdx = AMediaCodec_dequeueOutputBuffer(s->video_codec, &info, 0);
         if (outIdx < 0) {
@@ -690,11 +692,20 @@ static void handle_h264_h265_video_message(finlink_session *s, const finlink_vid
         }
         if (pendingIdx >= 0) {
             AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, false);
+            droppedCount++;
         }
         pendingIdx = outIdx;
     }
     if (pendingIdx >= 0) {
         AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, true);
+    }
+
+    // Temporary diagnostic (see the "verzögert nach dem Intro"
+    // investigation): a nonzero droppedCount here means the decoder had
+    // multiple frames backed up and ready at once -- i.e. it fell behind
+    // and is catching up, exactly the kind of backlog that reads as lag.
+    if (droppedCount > 0) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "finlink video decode backlog: dropped %d stale ready frame(s)", droppedCount);
     }
 }
 
