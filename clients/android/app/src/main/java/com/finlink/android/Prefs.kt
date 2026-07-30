@@ -79,14 +79,14 @@ class Prefs(context: Context) {
         get() = prefs.getString(PREF_LANGUAGE, LANGUAGE_SYSTEM) ?: LANGUAGE_SYSTEM
         set(value) = prefs.edit().putString(PREF_LANGUAGE, value).apply()
 
-    /** true = ask the server (hello_ack.video_mode = "legacy") for the
-     * original, always-full-frame video encoding instead of the default
-     * TILES delta-encoding + dedup ("tiles") -- a fallback in case TILES
-     * ever misbehaves for a given server/network. Servers that don't
-     * implement the negotiation at all just ignore the field either way. */
-    var legacyVideoMode: Boolean
-        get() = prefs.getBoolean(PREF_LEGACY_VIDEO_MODE, false)
-        set(value) = prefs.edit().putBoolean(PREF_LEGACY_VIDEO_MODE, value).apply()
+    /** One of VIDEO_MODES' values, sent verbatim as hello_ack.video_mode
+     * during the handshake (see docs/protocol.md) -- a manual override from
+     * the Settings video mode picker, same shape as `language` above.
+     * Servers that don't implement the negotiation at all just ignore the
+     * field either way. */
+    var videoMode: String
+        get() = prefs.getString(PREF_VIDEO_MODE, VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
+        set(value) = prefs.edit().putString(PREF_VIDEO_MODE, value).apply()
 
     /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
      * filtering (crisp/pixelated upscale). Per stream_type ("GC_GBA_LINK",
@@ -120,7 +120,7 @@ class Prefs(context: Context) {
 
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
         private const val PREF_LANGUAGE = "language"
-        private const val PREF_LEGACY_VIDEO_MODE = "legacy_video_mode"
+        private const val PREF_VIDEO_MODE = "video_mode"
         private const val NO_KEYCODE = -1
 
         const val LANGUAGE_SYSTEM = "system"
@@ -136,6 +136,21 @@ class Prefs(context: Context) {
             LanguageOption("fr", R.string.language_french),
             LanguageOption("it", R.string.language_italian),
             LanguageOption("es", R.string.language_spanish)
+        )
+
+        const val VIDEO_MODE_DEFAULT = "tiles"
+
+        /** Single source of truth for VideoModeActivity's list and
+         * SettingsActivity's subtitle lookup, same pattern as LANGUAGES
+         * above -- keep in sync with docs/protocol.md's hello_ack.video_mode.
+         * Declared in a fixed, deliberate order (VideoModeActivity doesn't
+         * sort this list the way LanguageActivity sorts LANGUAGES by label,
+         * since these aren't endonyms): recommended default first, fallback
+         * modes after, in the order a user should reach for them. */
+        data class VideoModeOption(val value: String, val labelRes: Int)
+        val VIDEO_MODES = listOf(
+            VideoModeOption(VIDEO_MODE_DEFAULT, R.string.video_mode_tiles),
+            VideoModeOption("legacy", R.string.video_mode_legacy)
         )
     }
 }

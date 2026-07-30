@@ -56,10 +56,10 @@ class GbaStreamClient(private val listener: Listener) {
     private var nativeHandle: Long = 0
 
     /** Spawns a background native thread; connect result arrives via onConnected/onDisconnected.
-     * legacyVideo requests the server's hello_ack.video_mode = "legacy" fallback (Prefs.legacyVideoMode) --
+     * videoMode is sent verbatim as hello_ack.video_mode (Prefs.videoMode, one of Prefs.VIDEO_MODES) --
      * see docs/protocol.md; servers that don't implement the negotiation just ignore it. */
-    fun connect(host: String, port: Int, legacyVideo: Boolean = false) {
-        nativeHandle = nativeConnect(host, port, legacyVideo, listener)
+    fun connect(host: String, port: Int, videoMode: String = Prefs.VIDEO_MODE_DEFAULT) {
+        nativeHandle = nativeConnect(host, port, videoMode, listener)
     }
 
     /** Cheap: just records the latest key state, the native session loop sends it.
@@ -128,7 +128,7 @@ class GbaStreamClient(private val listener: Listener) {
         }
     }
 
-    private external fun nativeConnect(host: String, port: Int, legacyVideo: Boolean, listener: Listener): Long
+    private external fun nativeConnect(host: String, port: Int, videoMode: String, listener: Listener): Long
     private external fun nativeSendInput(handle: Long, keyMask: Int)
     private external fun nativeSendTouch(handle: Long, pressed: Boolean, x: Int, y: Int)
     private external fun nativeSendExtendedInput(

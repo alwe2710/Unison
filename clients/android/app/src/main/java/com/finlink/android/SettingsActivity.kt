@@ -41,14 +41,14 @@ class SettingsActivity : LocalizedActivity() {
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var language by mutableStateOf(Prefs.LANGUAGE_SYSTEM)
-    private var legacyVideoMode by mutableStateOf(false)
+    private var videoMode by mutableStateOf(Prefs.VIDEO_MODE_DEFAULT)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         language = prefs.language
-        legacyVideoMode = prefs.legacyVideoMode
+        videoMode = prefs.videoMode
 
         setContent {
             FinlinkTheme {
@@ -83,30 +83,33 @@ class SettingsActivity : LocalizedActivity() {
 
                             HorizontalDivider()
 
-                            // Sent to the server as hello_ack.video_mode at
-                            // the next connection's handshake (see
-                            // docs/protocol.md) -- a fallback to the
-                            // original always-full-frame encoding, in case
-                            // TILES delta-encoding/dedup ever misbehaves.
-                            // Only WIIU_GAMEPAD (Cemu) honors it today;
-                            // servers that don't recognize the field just
-                            // ignore it, so this is harmless to leave off
-                            // for every other stream type.
+                            // Own sub-screen (VideoModeActivity), same
+                            // whole-row-navigates treatment as the language
+                            // row below -- sent to the server as
+                            // hello_ack.video_mode at the next connection's
+                            // handshake (see docs/protocol.md). Only
+                            // WIIU_GAMEPAD (Cemu) honors it today; servers
+                            // that don't recognize the field just ignore it.
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-                            ) {
-                                Text(
-                                    stringResource(R.string.settings_legacy_video),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Switch(
-                                    checked = legacyVideoMode,
-                                    onCheckedChange = {
-                                        legacyVideoMode = it
-                                        prefs.legacyVideoMode = it
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        startActivity(Intent(this@SettingsActivity, VideoModeActivity::class.java))
                                     }
-                                )
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.settings_video_mode), style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        stringResource(
+                                            Prefs.VIDEO_MODES.find { it.value == videoMode }?.labelRes
+                                                ?: R.string.video_mode_tiles
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
 
                             HorizontalDivider()
@@ -201,5 +204,6 @@ class SettingsActivity : LocalizedActivity() {
     override fun onResume() {
         super.onResume()
         language = prefs.language
+        videoMode = prefs.videoMode
     }
 }
