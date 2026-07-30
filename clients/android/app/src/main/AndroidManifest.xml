@@ -15,6 +15,11 @@
          encoder-side change. Normal (non-runtime) permission, granted at
          install time. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- WifiLock.acquire() itself enforces this permission too, in
+         addition to CHANGE_WIFI_STATE: missing it crashed
+         PlayerActivity.onCreate() with a SecurityException the moment a
+         stream was opened. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Needed for the menu's GET /status polling and discovery sweep
          (java.net.HttpURLConnection in MenuActivity), which, unlike the
