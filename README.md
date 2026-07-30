@@ -5,11 +5,7 @@ streaming a console's screen, audio, and input between an emulator and a remote 
 
 ## Context
 
-finlink started as a feature of the [dolphin-gba-stream](https://github.com/) fork (based on
-`dolphin-emu/dolphin`) that streams Dolphin's built-in GBA emulation (`GBA::Core`, used for
-GC↔GBA Link Cable games) to browser clients instead of keeping video/audio/input local. The same
-protocol is now implemented by forks of three more emulators, each streaming a different
-console/screen:
+finlink is implemented by forks of four emulators, each streaming a different console/screen:
 
 | Emulator fork | `stream_type` | What it streams |
 |---|---|---|
@@ -27,19 +23,13 @@ Every fork follows the same general shape, under its own project's naming:
 
 - A **lobby** server on a fixed port 6800 handles the connection handshake (see
   [`docs/protocol.md`](docs/protocol.md#endpoints)), independent of which stream slot ends up
-  serving the client. In dolphin-gba-stream specifically, this is `GBAStreamLobby`
-  (`GBAStreamLobby.h/.cpp`), a reference-counted singleton.
+  serving the client. In dolphin-gba-stream, this is `GBAStreamLobby` (`GBAStreamLobby.h/.cpp`), a
+  reference-counted singleton.
 - A **stream host** server, one instance per active slot, sends video (RGB565 + raw-deflate) and
   audio (PCM, where the stream type has audio) to exactly one connected client and receives input
-  back. In dolphin-gba-stream specifically, this is `StreamHost`
-  (`Source/Core/Core/HW/GBAStreamHost.h/.cpp`), one instance per GC port set to "GBA (Client
-  Stream)" (`CORE_GC_GBA_STREAM`), running on ports 6801–6804.
-- Historically, the shared client side lived as one large embedded HTML/JS string served directly
-  by the emulator (dolphin-gba-stream's `GBAStreamClientPage.h`/`kGBAStreamClientHtml`, a C++
-  `R"HTML(...)HTML"` raw string) — no build step, no external JS dependencies, deliberately, to
-  keep server-side overhead minimal. This repo's [`clients/web/`](clients/web/) is what replaces
-  that, generalized to work against any of the four forks above (see
-  [`clients/web/README.md`](clients/web/README.md)).
+  back. In dolphin-gba-stream, this is `StreamHost` (`Source/Core/Core/HW/GBAStreamHost.h/.cpp`),
+  one instance per GC port set to "GBA (Client Stream)" (`CORE_GC_GBA_STREAM`), running on ports
+  6801–6804.
 
 ### Wire protocol
 
@@ -48,8 +38,8 @@ implements against.
 
 ## Goal of this repo
 
-Build a standalone, general client framework for this protocol, shared across all four emulator
-forks — decoupled from any one of them shipping its own embedded client.
+Provide a standalone, general client framework for this protocol, shared across all four emulator
+forks.
 
 ## Architecture
 
