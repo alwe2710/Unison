@@ -4,7 +4,7 @@
 #include <cstring>
 
 namespace {
-constexpr int kTexSize = 256;
+constexpr int kTexSize = 1024;
 }
 
 VideoTex::VideoTex() {

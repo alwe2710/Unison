@@ -6,15 +6,22 @@
 
 #include <citro2d.h>
 
-// GBA video frame as a citro2d-drawable texture. The PICA200 GPU only
-// takes power-of-two texture dimensions, so this always allocates a
-// 256x256 RGB565 texture and only ever draws the top-left
-// frameWidth x frameHeight sub-rectangle of it via a Tex3DS_SubTexture --
-// the GBA's native 240x160 comfortably fits. RGB565 is uploaded directly
-// (no RGBA8 conversion, unlike clients/switch/source/video_view.cpp's
-// NanoVG path): citro3d's GPU_RGB565 texture format matches the wire
-// format exactly, and skipping that conversion matters a lot more on the
-// 3DS's much weaker ARM11 CPU than on the Switch's.
+// Video frame (any connected stream type, not just GBA -- see main.cpp's
+// discovered-server dispatch) as a citro2d-drawable texture. The PICA200
+// GPU only takes power-of-two texture dimensions up to 1024x1024 (its
+// hardware limit), so this always allocates a 1024x1024 RGB565 texture
+// and only ever draws the top-left frameWidth x frameHeight sub-rectangle
+// of it via a Tex3DS_SubTexture. Comfortably fits every stream type this
+// app actually connects to today (GBA's 240x160, Cemu's WIIU_GAMEPAD
+// 854x480, Azahar's own N3DS_BOTTOM_SCREEN) -- upload() still clamps to
+// this size defensively for anything larger (e.g. melonDS's
+// NDS_BOTTOM_SCREEN at a high OpenGL scale factor), which crops rather
+// than corrupts, but isn't a real target resolution for this client.
+// RGB565 is uploaded directly (no RGBA8 conversion, unlike
+// clients/switch/source/video_view.cpp's NanoVG path): citro3d's
+// GPU_RGB565 texture format matches the wire format exactly, and skipping
+// that conversion matters a lot more on the 3DS's much weaker ARM11 CPU
+// than on the Switch's.
 class VideoTex {
   public:
     VideoTex();
@@ -46,6 +53,17 @@ class VideoTex {
         return frameWidth > 0 && frameHeight > 0;
     }
 
+    // Debug only (see main.cpp's "Verbunden" status text) -- the
+    // width/height actually decoded into the currently-shown frame, to
+    // tell apart "server sent something other than we assumed" from a
+    // client-side upload/draw bug without needing a real crash log.
+    uint32_t debugFrameWidth() const {
+        return frameWidth;
+    }
+    uint32_t debugFrameHeight() const {
+        return frameHeight;
+    }
+
     // Draws scaled to fit within (x,y,w,h), aspect-preserved and centered,
     // like the other clients' ContentScale.Fit-equivalent behavior.
     void drawFitted(float x, float y, float w, float h) const;
@@ -61,5 +79,5 @@ class VideoTex {
     bool frameDirty = false;
 
     uint32_t frameWidth = 0, frameHeight = 0;
-    std::vector<uint8_t> staging; // 256x256 RGB565 staging buffer for C3D_TexUpload
+    std::vector<uint8_t> staging; // 1024x1024 RGB565 staging buffer for C3D_TexUpload
 };

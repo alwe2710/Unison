@@ -347,6 +347,24 @@ GbaSession::~GbaSession() {
 }
 
 void GbaSession::connect(std::string host, int port, Listener l) {
+    if (thread.joinable()) {
+        // A previous attempt's background thread can have exited on its
+        // own (handshake failure, peer closed the connection) without
+        // anyone calling disconnect() -- main.cpp only does that from the
+        // user-initiated "Trennen"/X+Y-hold paths, not from the
+        // onConnected/onDisconnected callbacks, and this GbaSession is one
+        // long-lived object reused for every connection attempt the app
+        // ever makes (unlike Android/Switch, which construct a fresh one
+        // per connection and so never reach this). Move-assigning
+        // std::thread onto an already-joinable one calls std::terminate()
+        // -- silently killing the whole process with no exception/crash
+        // screen, matching a "connect just crashes back to the launcher,
+        // no error message" report exactly. By the time a caller can reach
+        // this line again, the old thread has already run its last
+        // callback and is at (or past) its own `return`, so this join
+        // finishes essentially instantly -- never a real stall.
+        thread.join();
+    }
     listener = std::move(l);
     stop.store(false);
     thread = std::thread(&GbaSession::threadMain, this, std::move(host), port);

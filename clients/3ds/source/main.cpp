@@ -261,11 +261,58 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
             label += " (inkompatibel)";
         }
         if (ui::button(textBuf, touch, r, label.c_str(), srv.compatible)) {
-            {
-                std::lock_guard<std::mutex> lock(menu->mutex);
-                menu->hostText = srv.host;
+            if (srv.streamType == "GC_GBA_LINK") {
+                // Only GC_GBA_LINK has more than one slot (docs/protocol.md)
+                // -- runSearch() probes PLAYER_BASE_PORT+0..3 for occupancy
+                // and shows the P1-P4 picker below, exactly like tapping
+                // "Los" after typing this same host manually would.
+                {
+                    std::lock_guard<std::mutex> lock(menu->mutex);
+                    menu->hostText = srv.host;
+                }
+                runSearch(menu, srv.host);
+            } else {
+                // Every other stream type is single-client and connects
+                // straight to the beacon's own handshake_port instead --
+                // probing PLAYER_BASE_PORT+0..3 against a server that was
+                // never Dolphin doesn't find "free"/"occupied" slots, just
+                // four unreachable ports (matches the Android/Switch
+                // clients' own MenuActivity/discovery dispatch).
+                {
+                    std::lock_guard<std::mutex> lock(menu->mutex);
+                    menu->hostText = srv.host;
+                }
+                *connectedHost = srv.host;
+                // videoTex is one long-lived object shared across every
+                // connection this app makes -- without resetting it here,
+                // reconnecting would keep showing the previous stream's
+                // last frame until the new one's first (always full) frame
+                // arrives (same reasoning as the P1-P4 picker's own connect
+                // call below).
+                videoTex->reset();
+                session->connect(srv.host, srv.handshakePort,
+                    GbaSession::Listener {
+                        .onConnected =
+                            [connected, connectedStreamType](std::string streamType) {
+                                *connectedStreamType = std::move(streamType);
+                                *connected = true;
+                            },
+                        .onVideoFrame =
+                            [videoTex](uint32_t w, uint32_t h, std::vector<uint8_t> rgb) {
+                                videoTex->setFrame(w, h, rgb);
+                            },
+                        .onAudioFrame =
+                            [audio](uint32_t rate, uint8_t ch, std::vector<int16_t> pcm) {
+                                audio->play(rate, ch, std::move(pcm));
+                            },
+                        .onDisconnected =
+                            [connected, menu](std::string reason) {
+                                *connected = false;
+                                std::lock_guard<std::mutex> l(menu->mutex);
+                                menu->statusText = "Fehler: " + reason;
+                            },
+                    });
             }
-            runSearch(menu, srv.host);
         }
         shown++;
     }
@@ -425,8 +472,17 @@ int main(int argc, char *argv[]) {
 
         if (connected) {
             ui::drawText(textBuf, "Verbunden", 8, 90, 0.55f, ui::kColorText);
-            ui::drawText(textBuf, "Physische Tasten sind aktiv.", 8, 120, 0.42f, ui::kColorTextDim);
-            ui::drawText(textBuf, "X+Y halten zum Trennen.", 8, 140, 0.42f, ui::kColorTextDim);
+            // Temporary debug line while tracking down the garbled-video
+            // report on Cemu's WIIU_GAMEPAD stream (854x480, never
+            // exercised by this client before) -- shows exactly what
+            // width/height made it through decode, to tell a client-side
+            // upload/draw bug apart from a server/negotiation mismatch.
+            char dbg[48];
+            snprintf(dbg, sizeof(dbg), "Debug: %ux%u (Stream: %s)", videoTex.debugFrameWidth(),
+                      videoTex.debugFrameHeight(), connectedStreamType.c_str());
+            ui::drawText(textBuf, dbg, 8, 108, 0.36f, ui::kColorButtonHeld);
+            ui::drawText(textBuf, "Physische Tasten sind aktiv.", 8, 130, 0.42f, ui::kColorTextDim);
+            ui::drawText(textBuf, "X+Y halten zum Trennen.", 8, 150, 0.42f, ui::kColorTextDim);
             ui::Rect disconnectRect { 8, 206, 304, 26 };
             if (ui::button(textBuf, touch, disconnectRect, "Trennen")) {
                 session.disconnect();
