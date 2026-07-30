@@ -13,8 +13,15 @@ add_library(finlink_android SHARED
 )
 
 find_library(log-lib log)
+# mediandk: NDK AMediaCodec (H.264/H265 hardware decode). android:
+# ANativeWindow_fromSurface(), to hand MediaCodec's Surface-mode output the
+# TextureView-backed window it renders into.
+find_library(mediandk-lib mediandk)
+find_library(android-lib android)
 
 target_link_libraries(finlink_android
     finlink_core
     ${log-lib}
+    ${mediandk-lib}
+    ${android-lib}
 )

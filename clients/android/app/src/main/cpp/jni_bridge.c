@@ -7,7 +7,11 @@
 // clients/<platform>/.
 
 #include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #include <errno.h>
+#include <media/NdkMediaCodec.h>
+#include <media/NdkMediaFormat.h>
 #include <jni.h>
 #include <netdb.h>
 #include <poll.h>
@@ -142,6 +146,32 @@ typedef struct {
     size_t pending_mic_audio_cap;
     uint32_t pending_mic_sample_rate;
     atomic_bool mic_enabled;
+    // H.264/H265 decode (FINLINK_VIDEO_FORMAT_H264/_H265, see
+    // handle_video_message()'s format branch) -- video_window is set from
+    // Kotlin's main thread via nativeSetVideoSurface() as soon as
+    // PlayerScreen's TextureView surface becomes available, while
+    // video_codec is created lazily by the session thread on the first
+    // h264/h265 frame it sees (once a window exists to configure against);
+    // video_window_mutex guards video_window since those are two different
+    // threads. video_codec itself is only ever touched by the session
+    // thread, so it needs no lock of its own.
+    pthread_mutex_t video_window_mutex;
+    ANativeWindow *video_window;
+    AMediaCodec *video_codec;
+    // Which of the two format bits video_codec was configured for -- if a
+    // later message ever carries the other one (shouldn't happen mid
+    // session, but cheap to guard), the codec is torn down and recreated
+    // rather than fed the wrong MIME type's bitstream.
+    uint8_t video_codec_format;
+    // Set (from Kotlin's main thread, nativeSetVideoSurface) whenever the
+    // window changes for any reason, including a rotation/recreation that
+    // replaces an already-configured codec's target -- the session thread
+    // is the only thing allowed to touch video_codec itself, so this flag
+    // (not video_codec directly) is what crosses threads: ensure_video_codec()
+    // checks and clears it, tearing down and lazily rebuilding the codec
+    // against the new window on the next frame rather than continuing to
+    // render into a surface that's since been destroyed.
+    atomic_bool video_window_changed;
 } finlink_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -338,6 +368,15 @@ static bool receive_one_ws_frame(finlink_session *s, byte_buf *buf, finlink_ws_f
 typedef struct {
     bool ok;
     char reason[160];
+    // From hello.video.width/height -- known at handshake time regardless
+    // of which video_mode ends up negotiated, unlike a decoded frame's
+    // dimensions (never available at all for h264/h265, since those bypass
+    // onVideoFrame entirely, see handle_h264_h265_video_message()). Used
+    // for touch-coordinate mapping (Listener.onConnected), which therefore
+    // no longer needs to wait for -- or depend on -- the first decoded
+    // frame.
+    int32_t width;
+    int32_t height;
     // Which client->server input shape to use for this session -- derived
     // from the server's own hello.input_encoding (protocol.h), not guessed
     // client-side, since manual host entry has no beacon to read a
@@ -505,6 +544,8 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         }
 
         if (!ready.has_redirect) {
+            result.width = (int32_t)ready.video.width;
+            result.height = (int32_t)ready.video.height;
             result.ok = true;
             return result;
         }
@@ -534,6 +575,129 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
     return result;
 }
 
+// Lazily (re)creates s->video_codec for hdr's format bit -- a no-op if it's
+// already configured for that same bit. Surface mode (the ANativeWindow
+// handed in via nativeSetVideoSurface(), guarded by video_window_mutex
+// since it's set from Kotlin's main thread): MediaCodec composites decoded
+// frames straight into the TextureView's Surface with no CPU pixel copy,
+// bypassing the rgb565/onVideoFrame path entirely for h264/h265 -- see
+// handle_h264_h265_video_message() below. If no surface has been set yet
+// (PlayerScreen's TextureView isn't ready), this silently does nothing and
+// the caller drops the frame -- normal for the first handful of frames of a
+// session, self-resolving once the surface arrives and a later frame
+// (or the periodic forced keyframe, see docs/protocol.md's "Keyframe
+// discipline") gets the decoder started.
+static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width, int32_t height) {
+    // atomic_exchange (not just a read) so this is the one place that
+    // consumes the flag -- video_codec itself is only ever touched here, on
+    // the session thread, never from nativeSetVideoSurface() directly.
+    const bool windowChanged = atomic_exchange(&s->video_window_changed, false);
+    if (s->video_codec && s->video_codec_format == format && !windowChanged) {
+        return;
+    }
+    if (s->video_codec) {
+        AMediaCodec_stop(s->video_codec);
+        AMediaCodec_delete(s->video_codec);
+        s->video_codec = NULL;
+    }
+
+    pthread_mutex_lock(&s->video_window_mutex);
+    ANativeWindow *window = s->video_window;
+    if (window) {
+        ANativeWindow_acquire(window);
+    }
+    pthread_mutex_unlock(&s->video_window_mutex);
+    if (!window) {
+        return;
+    }
+
+    const char *mime = (format & FINLINK_VIDEO_FORMAT_H264) ? "video/avc" : "video/hevc";
+    AMediaCodec *codec = AMediaCodec_createDecoderByType(mime);
+    if (!codec) {
+        ANativeWindow_release(window);
+        return;
+    }
+
+    AMediaFormat *fmt = AMediaFormat_new();
+    AMediaFormat_setString(fmt, AMEDIAFORMAT_KEY_MIME, mime);
+    AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_WIDTH, width);
+    AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_HEIGHT, height);
+    const media_status_t configureStatus = AMediaCodec_configure(codec, fmt, window, NULL, 0);
+    AMediaFormat_delete(fmt);
+    // AMediaCodec_configure() acquires its own reference to the window --
+    // this call's own temporary reference (taken under the lock above,
+    // since the window could otherwise be released from under us between
+    // the unlock and this configure call) is no longer needed either way.
+    ANativeWindow_release(window);
+
+    if (configureStatus != AMEDIA_OK || AMediaCodec_start(codec) != AMEDIA_OK) {
+        AMediaCodec_delete(codec);
+        return;
+    }
+    s->video_codec = codec;
+    s->video_codec_format = format;
+}
+
+// FINLINK_VIDEO_FORMAT_H264/_H265: hdr->compressed_data is a raw Annex-B NAL
+// stream straight from the server's encoder (see docs/protocol.md's
+// "Keyframe discipline"), not raw-deflate -- fed directly to MediaCodec
+// instead of finlink_inflate_raw()/finlink_decode_video_frame(). Queuing one
+// input buffer and draining whatever output is already ready are both
+// non-blocking (0 timeout): this runs on the network/session thread
+// alongside socket polling and input sending, so it must never stall
+// waiting on the decoder.
+static void handle_h264_h265_video_message(finlink_session *s, const finlink_video_header *hdr) {
+    ensure_video_codec(s, hdr->format, (int32_t)hdr->width, (int32_t)hdr->height);
+    if (!s->video_codec) {
+        return;
+    }
+
+    const ssize_t inIdx = AMediaCodec_dequeueInputBuffer(s->video_codec, 0);
+    if (inIdx >= 0) {
+        size_t bufSize = 0;
+        uint8_t *buf = AMediaCodec_getInputBuffer(s->video_codec, inIdx, &bufSize);
+        if (buf && hdr->compressed_size <= bufSize) {
+            memcpy(buf, hdr->compressed_data, hdr->compressed_size);
+            AMediaCodec_queueInputBuffer(s->video_codec, inIdx, 0, hdr->compressed_size, 0, 0);
+        } else {
+            // NAL didn't fit the buffer MediaCodec handed us -- shouldn't
+            // happen at this resolution/bitrate, but queue an empty buffer
+            // rather than feed the decoder a truncated NAL.
+            AMediaCodec_queueInputBuffer(s->video_codec, inIdx, 0, 0, 0, 0);
+        }
+    }
+    // No dropped-input-buffer case handled here (inIdx < 0, meaning the
+    // decoder's input queue is momentarily full): the NAL for this message
+    // is simply not queued, same "skip this frame" spirit as the rest of
+    // this codebase's video path -- the next forced keyframe self-heals it.
+
+    // Drains every output buffer that's already ready, but only ever
+    // renders the LAST one: releasing several buffers back-to-back with
+    // render=true pushes frames into the Surface faster than the display
+    // can composite them, which on at least one real device showed up as
+    // visible tearing/interleaving between two frames' content -- and,
+    // since a network stall can leave several NALs queued up for the
+    // decoder to catch up on all at once, rendering every one of them in
+    // sequence instead of skipping to the newest is exactly the kind of
+    // backlog that reads as added lag. Any older ready buffer is released
+    // with render=false (discarded, not displayed) before moving on.
+    AMediaCodecBufferInfo info;
+    ssize_t pendingIdx = -1;
+    for (;;) {
+        const ssize_t outIdx = AMediaCodec_dequeueOutputBuffer(s->video_codec, &info, 0);
+        if (outIdx < 0) {
+            break;
+        }
+        if (pendingIdx >= 0) {
+            AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, false);
+        }
+        pendingIdx = outIdx;
+    }
+    if (pendingIdx >= 0) {
+        AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, true);
+    }
+}
+
 // `inflate_out`/`inflate_out_cap` is scratch space for finlink_inflate_raw()'s
 // output, whose content depends on hdr.format (raw/indexed pixels, whole
 // frame or only changed tiles -- see finlink/protocol.h) --
@@ -549,6 +713,11 @@ static void handle_video_message(JNIEnv *env, finlink_session *s, jmethodID on_v
                                   size_t *inflate_out_cap, uint8_t **rgb565_out, size_t *rgb565_out_cap) {
     finlink_video_header hdr;
     if (finlink_parse_video_header(payload, payload_size, &hdr) != FINLINK_OK) {
+        return;
+    }
+
+    if (hdr.format & (FINLINK_VIDEO_FORMAT_H264 | FINLINK_VIDEO_FORMAT_H265)) {
+        handle_h264_h265_video_message(s, &hdr);
         return;
     }
 
@@ -915,7 +1084,7 @@ static void *client_thread_main(void *arg) {
     (*s->jvm)->AttachCurrentThread(s->jvm, &env, NULL);
 
     jclass listener_class = (*env)->GetObjectClass(env, s->listener);
-    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZ)V");
+    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZII)V");
     jmethodID on_video = (*env)->GetMethodID(env, listener_class, "onVideoFrame", "(II[B)V");
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
     jmethodID on_text_input_request =
@@ -949,7 +1118,8 @@ static void *client_thread_main(void *arg) {
     atomic_store(&s->extended_input, hs.extended_input);
     atomic_store(&s->has_buttons, hs.has_buttons);
     (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
-                            (jboolean)hs.has_buttons, (jboolean)hs.extended_input);
+                            (jboolean)hs.has_buttons, (jboolean)hs.extended_input, (jint)hs.width,
+                            (jint)hs.height);
     run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf);
     byte_buf_free(&buf);
 
@@ -1003,6 +1173,8 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     atomic_init(&s->text_response_dirty, false);
     pthread_mutex_init(&s->pending_mic_audio_mutex, NULL);
     atomic_init(&s->mic_enabled, false);
+    pthread_mutex_init(&s->video_window_mutex, NULL);
+    atomic_init(&s->video_window_changed, false);
 
     if (pthread_create(&s->thread, NULL, client_thread_main, s) != 0) {
         LOGE("pthread_create failed");
@@ -1012,6 +1184,38 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     }
 
     return (jlong)(intptr_t)s;
+}
+
+// Called from Kotlin's main thread once PlayerScreen's TextureView surface
+// becomes available (TextureView.SurfaceTextureListener.onSurfaceTextureAvailable)
+// or is destroyed (onSurfaceTextureDestroyed, surface=null). Sets
+// video_window_changed so the session thread's ensure_video_codec() tears
+// down and lazily rebuilds the codec against the new window on the next
+// h264/h265 frame, rather than continuing to render into a surface that's
+// since been destroyed -- see that flag's own comment for why this can't
+// just touch video_codec directly from here.
+JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSetVideoSurface(JNIEnv *env,
+                                                                                        jobject thiz,
+                                                                                        jlong handle,
+                                                                                        jobject surface) {
+    (void)thiz;
+    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    if (!s) {
+        return;
+    }
+
+    ANativeWindow *window = surface ? ANativeWindow_fromSurface(env, surface) : NULL;
+
+    pthread_mutex_lock(&s->video_window_mutex);
+    ANativeWindow *old = s->video_window;
+    s->video_window = window;
+    pthread_mutex_unlock(&s->video_window_mutex);
+
+    atomic_store(&s->video_window_changed, true);
+
+    if (old) {
+        ANativeWindow_release(old);
+    }
 }
 
 JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendInput(JNIEnv *env,
@@ -1197,5 +1401,16 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect
     free(s->pending_text_response_text);
     pthread_mutex_destroy(&s->pending_mic_audio_mutex);
     free(s->pending_mic_audio);
+    // Safe to touch these without the mutex: the session thread (the only
+    // other thing that could race on video_codec, and the only other
+    // reader of video_window) already stopped, per pthread_join() above.
+    if (s->video_codec) {
+        AMediaCodec_stop(s->video_codec);
+        AMediaCodec_delete(s->video_codec);
+    }
+    if (s->video_window) {
+        ANativeWindow_release(s->video_window);
+    }
+    pthread_mutex_destroy(&s->video_window_mutex);
     free(s);
 }

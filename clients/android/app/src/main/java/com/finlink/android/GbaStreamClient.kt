@@ -25,7 +25,14 @@ class GbaStreamClient(private val listener: Listener) {
         // N3DS_BOTTOM_SCREEN -- buttons AND circle pad/analog sticks).
         // hasSticks distinguishes those last two; only ever true alongside
         // hasButtons.
-        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean)
+        //
+        // width/height are session_ready.video's final (possibly
+        // downscaled) resolution -- known here regardless of which
+        // video_mode ends up negotiated, unlike onVideoFrame's own
+        // width/height (never called at all for h264/h265, see
+        // PlayerActivity.onVideoFrame's own comment). This is what touch
+        // input coordinate mapping should use.
+        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
         // The server's own on-screen software keyboard (e.g. Cemu's swkbd)
@@ -60,6 +67,17 @@ class GbaStreamClient(private val listener: Listener) {
      * see docs/protocol.md; servers that don't implement the negotiation just ignore it. */
     fun connect(host: String, port: Int, videoMode: String = Prefs.VIDEO_MODE_DEFAULT) {
         nativeHandle = nativeConnect(host, port, videoMode, listener)
+    }
+
+    /** Hands the TextureView's Surface (see PlayerScreen's video layer) down
+     * to native code, which wraps it as an ANativeWindow for MediaCodec's
+     * Surface-mode output -- only meaningful for FINLINK_VIDEO_FORMAT_H264/
+     * _H265 frames (see jni_bridge.c's ensure_video_codec()); harmless,
+     * just unused, for tiles/legacy sessions. Pass null when the surface is
+     * destroyed (e.g. TextureView.SurfaceTextureListener.onSurfaceTextureDestroyed). */
+    fun setVideoSurface(surface: android.view.Surface?) {
+        val handle = nativeHandle
+        if (handle != 0L) nativeSetVideoSurface(handle, surface)
     }
 
     /** Cheap: just records the latest key state, the native session loop sends it.
@@ -129,6 +147,7 @@ class GbaStreamClient(private val listener: Listener) {
     }
 
     private external fun nativeConnect(host: String, port: Int, videoMode: String, listener: Listener): Long
+    private external fun nativeSetVideoSurface(handle: Long, surface: android.view.Surface?)
     private external fun nativeSendInput(handle: Long, keyMask: Int)
     private external fun nativeSendTouch(handle: Long, pressed: Boolean, x: Int, y: Int)
     private external fun nativeSendExtendedInput(

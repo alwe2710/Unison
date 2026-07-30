@@ -51,6 +51,8 @@ extern const char *kSettingsOnScreenControls;
 extern const char *kSettingsAntialiasing;
 extern const char *kSettingsVideoMode;
 extern const char *kVideoModeTiles;
+extern const char *kVideoModeH264;
+extern const char *kVideoModeH265;
 extern const char *kVideoModeLegacy;
 extern const char *kSettingsBilinearFilterHeader;
 extern const char *kSettingsKeyBindings;

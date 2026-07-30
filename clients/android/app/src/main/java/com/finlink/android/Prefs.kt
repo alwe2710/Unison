@@ -150,6 +150,8 @@ class Prefs(context: Context) {
         data class VideoModeOption(val value: String, val labelRes: Int)
         val VIDEO_MODES = listOf(
             VideoModeOption(VIDEO_MODE_DEFAULT, R.string.video_mode_tiles),
+            VideoModeOption("h264", R.string.video_mode_h264),
+            VideoModeOption("h265", R.string.video_mode_h265),
             VideoModeOption("legacy", R.string.video_mode_legacy)
         )
     }

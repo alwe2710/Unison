@@ -50,6 +50,8 @@ static const char *STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeige
 static const char *STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
 static const char *STR_SETTINGS_VIDEO_MODE = "Videomodus";
 static const char *STR_VIDEO_MODE_TILES = "Standard (komprimiert)";
+static const char *STR_VIDEO_MODE_H264 = "H.264";
+static const char *STR_VIDEO_MODE_H265 = "H.265";
 static const char *STR_VIDEO_MODE_LEGACY = "Alter Modus (unkomprimiert)";
 static const char *STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
 static const char *STR_SETTINGS_KEY_BINDINGS = "Tastenzuweisungen";
@@ -153,6 +155,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
         STR_SETTINGS_VIDEO_MODE = "Videomodus";
         STR_VIDEO_MODE_TILES = "Standard (komprimiert)";
+        STR_VIDEO_MODE_H264 = "H.264";
+        STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Alter Modus (unkomprimiert)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
         STR_SETTINGS_KEY_BINDINGS = "Tastenzuweisungen";
@@ -251,6 +255,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Bilinear filtering";
         STR_SETTINGS_VIDEO_MODE = "Video mode";
         STR_VIDEO_MODE_TILES = "Default (compressed)";
+        STR_VIDEO_MODE_H264 = "H.264";
+        STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Legacy (uncompressed)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilinear filtering instead of nearest-neighbor, per connected console.";
         STR_SETTINGS_KEY_BINDINGS = "Key bindings";
@@ -349,6 +355,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtrage bilinéaire";
         STR_SETTINGS_VIDEO_MODE = "Mode vidéo";
         STR_VIDEO_MODE_TILES = "Standard (compressé)";
+        STR_VIDEO_MODE_H264 = "H.264";
+        STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Classique (non compressé)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.";
         STR_SETTINGS_KEY_BINDINGS = "Assignation des touches";
@@ -447,6 +455,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtro bilineare";
         STR_SETTINGS_VIDEO_MODE = "Modalità video";
         STR_VIDEO_MODE_TILES = "Standard (compresso)";
+        STR_VIDEO_MODE_H264 = "H.264";
+        STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Classica (non compressa)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtro bilineare invece del vicino più prossimo, per console collegata.";
         STR_SETTINGS_KEY_BINDINGS = "Associazione tasti";
@@ -545,6 +555,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtrado bilineal";
         STR_SETTINGS_VIDEO_MODE = "Modo de vídeo";
         STR_VIDEO_MODE_TILES = "Estándar (comprimido)";
+        STR_VIDEO_MODE_H264 = "H.264";
+        STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Clásico (sin comprimir)";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtrado bilineal en lugar de vecino más cercano, por consola conectada.";
         STR_SETTINGS_KEY_BINDINGS = "Asignación de teclas";

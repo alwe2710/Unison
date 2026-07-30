@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -13,6 +14,8 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -59,6 +62,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import java.nio.ByteBuffer
 
@@ -124,6 +128,14 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // TouchOverlay/ExtendedControlsOverlay for what each switches to.
     private var touchMode by mutableStateOf(false)
     private var hasButtonsMode by mutableStateOf(false)
+    // session_ready.video's final resolution (GbaStreamClient.Listener.
+    // onConnected) -- known regardless of negotiated video_mode, unlike
+    // videoBitmap's own width/height (only ever set for tiles/legacy, see
+    // onVideoFrame's comment below). TouchOverlay uses these instead of
+    // videoBitmap?.width/height so touch input works the same way for an
+    // h264/h265 session, where videoBitmap is never populated at all.
+    private var streamWidth by mutableStateOf(0)
+    private var streamHeight by mutableStateOf(0)
     // Distinguishes melonDS's "touch_and_buttons" (buttons, no analog
     // sticks -- the DS has none on real hardware) from Azahar's
     // "n3ds_touch_and_buttons" (buttons AND circle pad/analog sticks).
@@ -243,6 +255,20 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     private fun PlayerScreen() {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
             Box(modifier = Modifier.fillMaxSize()) {
+                // Bottom-most layer: MediaCodec's Surface-mode H.264/H265
+                // output composites directly into this TextureView's
+                // Surface (see GbaStreamClient.setVideoSurface(),
+                // jni_bridge.c's ensure_video_codec()) -- no CPU pixel copy,
+                // and no onVideoFrame callback at all for that path. Always
+                // present (regardless of negotiated video_mode): for
+                // tiles/legacy, nothing ever renders into it and the Image
+                // below simply covers it; for h264/h265, videoBitmap is
+                // never set (see onVideoFrame's own comment) so the Image
+                // block below never emits, letting this show through
+                // instead. Either way there's no need to track which mode
+                // is actually active here.
+                VideoSurfaceView(modifier = Modifier.fillMaxSize())
+
                 videoBitmap?.let { bitmap ->
                     Image(
                         bitmap = bitmap.asImageBitmap(),
@@ -254,21 +280,19 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                         filterQuality = if (bilinearVideoFilter) FilterQuality.Low else FilterQuality.None,
                         modifier = Modifier.fillMaxSize()
                     )
+                }
 
-                    // Touch mode's only input method -- not gated on
-                    // onScreenControlsEnabled (that preference is about the
-                    // optional GBA button overlay below; a touch-based
-                    // stream has no other way to provide input at all, so
-                    // there's nothing to make optional here). Sized/aligned
-                    // to this exact Image via the shared Box, and mapped
-                    // through bitmap's own native pixel size -- always the
-                    // current frame's actual dimensions (320x240 for
-                    // N3DS_BOTTOM_SCREEN, 256x192 for NDS_BOTTOM_SCREEN,
-                    // 854x480 for WIIU_GAMEPAD, ...), so this needs no
-                    // per-stream-type table of its own.
-                    if (touchMode) {
-                        TouchOverlay(bitmap.width, bitmap.height, modifier = Modifier.fillMaxSize())
-                    }
+                // Touch mode's only input method -- not gated on
+                // onScreenControlsEnabled (that preference is about the
+                // optional GBA button overlay below; a touch-based stream
+                // has no other way to provide input at all, so there's
+                // nothing to make optional here). Uses streamWidth/Height
+                // (session_ready.video, known at connect time) rather than
+                // videoBitmap's own dimensions, since videoBitmap is never
+                // set at all for an h264/h265 session -- see
+                // streamWidth/streamHeight's own comment.
+                if (touchMode && streamWidth > 0 && streamHeight > 0) {
+                    TouchOverlay(streamWidth, streamHeight, modifier = Modifier.fillMaxSize())
                 }
 
                 // Only shown before the stream is actually up (connecting,
@@ -461,6 +485,40 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
      * pointer whichever way it later moves (Compose tracks it by ID, not by
      * current position), so a slide off one button's bounds never reaches
      * the neighboring button's own, never-started gesture. */
+    /** Backs the H.264/H265 render target -- see PlayerScreen's own comment
+     * on why this is always present regardless of negotiated video_mode.
+     * TextureView (not SurfaceView): a SurfaceView's own Surface lives in a
+     * separate compositor layer with special Z-order handling that fights
+     * Compose's normal child ordering inside a Box, where this needs to sit
+     * strictly *below* the Image/overlay Composables layered on top of it
+     * in PlayerScreen -- TextureView is regular View content Compose can
+     * order like anything else, at some compositing cost that doesn't
+     * matter here. */
+    @Composable
+    private fun VideoSurfaceView(modifier: Modifier = Modifier) {
+        AndroidView(
+            modifier = modifier,
+            factory = { context ->
+                TextureView(context).apply {
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                            client?.setVideoSurface(Surface(st))
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
+
+                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                            client?.setVideoSurface(null)
+                            return true // this View released the SurfaceTexture itself, not the caller.
+                        }
+
+                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                    }
+                }
+            }
+        )
+    }
+
     /** The whole visible video area doubles as the touch surface: press,
      * drag, and release all map 1:1 to finlink_touch_state's pressed/x/y
      * (protocol.h) via sendMappedTouch() below. One continuous gesture like
@@ -955,12 +1013,14 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // before touching Compose state. onAudioFrame is the one exception --
     // writing to AudioTrack from a background thread is exactly what it's for.
 
-    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean) {
+    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int) {
         runOnUiThread {
             connected = true
             touchMode = isTouch
             hasButtonsMode = hasButtons
             hasSticksMode = hasSticks
+            streamWidth = width
+            streamHeight = height
         }
     }
 

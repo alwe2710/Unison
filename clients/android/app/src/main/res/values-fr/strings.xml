@@ -45,6 +45,8 @@
     <string name="settings_antialiasing">Filtrage bilinéaire</string>
     <string name="settings_video_mode">Mode vidéo</string>
     <string name="video_mode_tiles">Standard (compressé)</string>
+    <string name="video_mode_h264">H.264</string>
+    <string name="video_mode_h265">H.265</string>
     <string name="video_mode_legacy">Classique (non compressé)</string>
     <string name="settings_bilinear_filter_header">Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.</string>
     <string name="settings_key_bindings">Assignation des touches</string>

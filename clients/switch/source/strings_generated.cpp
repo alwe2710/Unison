@@ -49,6 +49,8 @@ const char *kSettingsOnScreenControls = "On-Screen-Controls anzeigen";
 const char *kSettingsAntialiasing = "Bilineare Filterung";
 const char *kSettingsVideoMode = "Videomodus";
 const char *kVideoModeTiles = "Standard (komprimiert)";
+const char *kVideoModeH264 = "H.264";
+const char *kVideoModeH265 = "H.265";
 const char *kVideoModeLegacy = "Alter Modus (unkomprimiert)";
 const char *kSettingsBilinearFilterHeader = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
 const char *kSettingsKeyBindings = "Tastenzuweisungen";
@@ -149,6 +151,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Bilineare Filterung";
         kSettingsVideoMode = "Videomodus";
         kVideoModeTiles = "Standard (komprimiert)";
+        kVideoModeH264 = "H.264";
+        kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Alter Modus (unkomprimiert)";
         kSettingsBilinearFilterHeader = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
         kSettingsKeyBindings = "Tastenzuweisungen";
@@ -247,6 +251,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Bilinear filtering";
         kSettingsVideoMode = "Video mode";
         kVideoModeTiles = "Default (compressed)";
+        kVideoModeH264 = "H.264";
+        kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Legacy (uncompressed)";
         kSettingsBilinearFilterHeader = "Bilinear filtering instead of nearest-neighbor, per connected console.";
         kSettingsKeyBindings = "Key bindings";
@@ -345,6 +351,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtrage bilinéaire";
         kSettingsVideoMode = "Mode vidéo";
         kVideoModeTiles = "Standard (compressé)";
+        kVideoModeH264 = "H.264";
+        kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Classique (non compressé)";
         kSettingsBilinearFilterHeader = "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.";
         kSettingsKeyBindings = "Assignation des touches";
@@ -443,6 +451,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtro bilineare";
         kSettingsVideoMode = "Modalità video";
         kVideoModeTiles = "Standard (compresso)";
+        kVideoModeH264 = "H.264";
+        kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Classica (non compressa)";
         kSettingsBilinearFilterHeader = "Filtro bilineare invece del vicino più prossimo, per console collegata.";
         kSettingsKeyBindings = "Associazione tasti";
@@ -541,6 +551,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtrado bilineal";
         kSettingsVideoMode = "Modo de vídeo";
         kVideoModeTiles = "Estándar (comprimido)";
+        kVideoModeH264 = "H.264";
+        kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Clásico (sin comprimir)";
         kSettingsBilinearFilterHeader = "Filtrado bilineal en lugar de vecino más cercano, por consola conectada.";
         kSettingsKeyBindings = "Asignación de teclas";

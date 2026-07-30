@@ -54,6 +54,8 @@
   "settings_antialiasing": {"de": "Bilineare Filterung", "en": "Bilinear filtering", "fr": "Filtrage bilinéaire", "it": "Filtro bilineare", "es": "Filtrado bilineal"},
   "settings_video_mode": {"de": "Videomodus", "en": "Video mode", "fr": "Mode vidéo", "it": "Modalità video", "es": "Modo de vídeo"},
   "video_mode_tiles": {"de": "Standard (komprimiert)", "en": "Default (compressed)", "fr": "Standard (compressé)", "it": "Standard (compresso)", "es": "Estándar (comprimido)"},
+  "video_mode_h264": {"de": "H.264", "en": "H.264", "fr": "H.264", "it": "H.264", "es": "H.264"},
+  "video_mode_h265": {"de": "H.265", "en": "H.265", "fr": "H.265", "it": "H.265", "es": "H.265"},
   "video_mode_legacy": {"de": "Alter Modus (unkomprimiert)", "en": "Legacy (uncompressed)", "fr": "Classique (non compressé)", "it": "Classica (non compressa)", "es": "Clásico (sin comprimir)"},
   "settings_bilinear_filter_header": {"de": "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.", "en": "Bilinear filtering instead of nearest-neighbor, per connected console.", "fr": "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.", "it": "Filtro bilineare invece del vicino più prossimo, per console collegata.", "es": "Filtrado bilineal en lugar de vecino más cercano, por consola conectada."},
   "settings_key_bindings": {"de": "Tastenzuweisungen", "en": "Key bindings", "fr": "Assignation des touches", "it": "Associazione tasti", "es": "Asignación de teclas"},
