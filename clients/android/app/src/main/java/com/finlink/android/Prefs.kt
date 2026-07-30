@@ -73,19 +73,36 @@ class Prefs(context: Context) {
         set(value) = prefs.edit().putBoolean(PREF_ON_SCREEN_CONTROLS, value).apply()
 
     /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
-     * filtering (crisp/pixelated upscale, the default). The GBA's native
-     * 240x160 framebuffer is upscaled a lot to fill the screen, so this is
-     * the usual "smooth vs. pixelated" toggle emulators offer for that. */
-    var bilinearVideoFilter: Boolean
-        get() = prefs.getBoolean(PREF_BILINEAR_VIDEO_FILTER, false)
-        set(value) = prefs.edit().putBoolean(PREF_BILINEAR_VIDEO_FILTER, value).apply()
+     * filtering (crisp/pixelated upscale). Per stream_type ("GC_GBA_LINK",
+     * "WIIU_GAMEPAD", ...) rather than one global toggle -- see
+     * SettingsActivity's per-console list and PlayerActivity's
+     * EXTRA_STREAM_TYPE (MenuActivity knows the stream_type before
+     * launching PlayerActivity either way). A type not yet explicitly set
+     * by the user falls back to defaultBilinearFor(): GC_GBA_LINK's GBA
+     * output is native-resolution pixel art (nearest-neighbor looks
+     * right), while WIIU_GAMEPAD/N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN are
+     * already-upscaled/higher-effective-resolution renders that read
+     * better smoothed. */
+    fun bilinearFor(streamType: String): Boolean =
+        prefs.getBoolean(prefKeyForBilinear(streamType), defaultBilinearFor(streamType))
+
+    fun setBilinearFor(streamType: String, value: Boolean) {
+        prefs.edit().putBoolean(prefKeyForBilinear(streamType), value).apply()
+    }
 
     private fun prefKeyFor(button: GbaButton) = "keybind_${button.prefKey}"
     private fun prefKeyFor(button: ExtButton) = "extkeybind_${button.prefKey}"
+    private fun prefKeyForBilinear(streamType: String) = "bilinear_video_filter.$streamType"
 
     companion object {
+        /** See bilinearFor()'s own comment. Anything not in this set
+         * (including "" -- manual host:port entry, whose real stream_type
+         * isn't known until the handshake's hello) defaults to nearest,
+         * same as GC_GBA_LINK. */
+        private fun defaultBilinearFor(streamType: String): Boolean =
+            streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN"
+
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
-        private const val PREF_BILINEAR_VIDEO_FILTER = "bilinear_video_filter"
         private const val NO_KEYCODE = -1
     }
 }

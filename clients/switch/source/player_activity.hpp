@@ -29,7 +29,13 @@
 // as an on-screen hint.
 class PlayerActivity : public brls::Activity {
   public:
-    PlayerActivity(std::string host, int port);
+    // streamType is whatever MenuActivity already knew before launching
+    // this activity (the discovered beacon's stream_type, or
+    // kStreamTypeGcGbaLink for the P1-P4 picker/manual-IP paths, which are
+    // GC_GBA_LINK-only by construction) -- used only to look up this
+    // connection's antialiasing preference (Prefs::bilinearFor(), set from
+    // SettingsActivity's per-stream-type list), not sent anywhere.
+    PlayerActivity(std::string host, int port, std::string streamType);
     ~PlayerActivity() override;
 
     brls::View *createContentView() override;
@@ -37,6 +43,7 @@ class PlayerActivity : public brls::Activity {
   private:
     std::string host;
     int port;
+    std::string streamType;
 
     Prefs prefs;
     GbaSession session;

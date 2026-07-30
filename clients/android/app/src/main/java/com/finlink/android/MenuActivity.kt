@@ -161,7 +161,11 @@ class MenuActivity : ComponentActivity() {
                                         Button(
                                             onClick = {
                                                 lastSearchedHost?.let {
-                                                    launchPlayer(it, GbaStreamClient.PLAYER_BASE_PORT + index)
+                                                    launchPlayer(
+                                                        it,
+                                                        GbaStreamClient.PLAYER_BASE_PORT + index,
+                                                        GbaStreamClient.STREAM_TYPE_GC_GBA_LINK
+                                                    )
                                                 }
                                             },
                                             enabled = state == SlotState.FREE,
@@ -210,7 +214,7 @@ class MenuActivity : ComponentActivity() {
                                                     hostText = server.host
                                                     runSearch(server.host)
                                                 } else {
-                                                    launchPlayer(server.host, server.handshakePort)
+                                                    launchPlayer(server.host, server.handshakePort, server.streamType)
                                                 }
                                             }
                                         },
@@ -246,10 +250,11 @@ class MenuActivity : ComponentActivity() {
         }
     }
 
-    private fun launchPlayer(host: String, port: Int) {
+    private fun launchPlayer(host: String, port: Int, streamType: String) {
         val intent = Intent(this, PlayerActivity::class.java)
         intent.putExtra(PlayerActivity.EXTRA_HOST, host)
         intent.putExtra(PlayerActivity.EXTRA_PORT, port)
+        intent.putExtra(PlayerActivity.EXTRA_STREAM_TYPE, streamType)
         startActivity(intent)
     }
 
@@ -276,7 +281,13 @@ class MenuActivity : ComponentActivity() {
         if (colonIndex > 0) {
             val port = raw.substring(colonIndex + 1).toIntOrNull()
             if (port != null) {
-                launchPlayer(raw.substring(0, colonIndex), port)
+                // Unlike the two paths above, the actual stream_type here is
+                // genuinely unknown until the handshake's own hello message
+                // arrives (no beacon, no lobby probe) -- passed through as
+                // "" (Prefs.bilinearFor("") -- and every other client's own
+                // manual-entry path has the same limitation for whatever
+                // stream-type-dependent behavior it has.
+                launchPlayer(raw.substring(0, colonIndex), port, "")
                 return
             }
         }

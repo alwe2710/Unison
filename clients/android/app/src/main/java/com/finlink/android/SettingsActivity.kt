@@ -30,10 +30,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 /**
- * On-screen-controls toggle, display options, and a navigation entry into
- * KeyBindingsActivity (its own screen now -- see that class for why it was
- * split out of here). This screen no longer touches key bindings directly
- * at all, so it no longer needs dispatchKeyEvent interception either.
+ * On-screen-controls toggle and navigation entries into KeyBindingsActivity
+ * and AntialiasingActivity (their own screens now -- see those classes for
+ * why they were split out of here). This screen no longer touches key
+ * bindings or per-console filter state directly at all.
  *
  * No fixed orientation (see AndroidManifest.xml): this is a form, so it
  * should follow however the device is actually held.
@@ -43,13 +43,11 @@ class SettingsActivity : ComponentActivity() {
 
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
-    private var bilinearVideoFilter by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
-        bilinearVideoFilter = prefs.bilinearVideoFilter
 
         setContent {
             FinlinkTheme {
@@ -83,30 +81,29 @@ class SettingsActivity : ComponentActivity() {
                             HorizontalDivider()
                             Spacer(Modifier.height(16.dp))
 
-                            Text(stringResource(R.string.settings_display), style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    stringResource(R.string.settings_bilinear_filter),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Switch(
-                                    checked = bilinearVideoFilter,
-                                    onCheckedChange = {
-                                        bilinearVideoFilter = it
-                                        prefs.bilinearVideoFilter = it
-                                    }
-                                )
-                            }
-
-                            Spacer(Modifier.height(16.dp))
-                            HorizontalDivider()
-                            Spacer(Modifier.height(16.dp))
-
                             // Whole-row tap target (system-settings-list-item
                             // style), not a separate "open" button off to the
                             // side -- the row's own click, not just an inner
-                            // element's, is what navigates.
+                            // element's, is what navigates. Same treatment
+                            // for both sub-screens.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        startActivity(Intent(this@SettingsActivity, AntialiasingActivity::class.java))
+                                    }
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Text(
+                                    stringResource(R.string.settings_antialiasing),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            HorizontalDivider()
+
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier

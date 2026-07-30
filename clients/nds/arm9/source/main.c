@@ -100,6 +100,17 @@ static bool g_prefBottomScreen = false;
  * stretching to fill both axes independently. See blitFrame(). */
 static bool g_prefAspectScale = false;
 
+/* false (default) = nearest-neighbor upscale in blitFrameScaled() (crisp/
+ * pixelated), true = bilinear (smooth) -- same "per console" preference
+ * the other four clients offer, collapsed to a single toggle here rather
+ * than a per-stream-type map: this client only ever accepts GC_GBA_LINK's
+ * fixed 240x160 GBA resolution (see runSession()'s hdr.width/height check),
+ * so there's only ever one stream_type this setting could apply to in
+ * practice. Only affects blitFrameScaled() -- the centered-1:1 default
+ * (blitFrame() with g_prefAspectScale off) has no scaling to filter, every
+ * destination pixel already maps to exactly one source pixel. */
+static bool g_prefBilinear = false;
+
 /* GBA/mGBA's actual native audio rate (matches Dolphin fork's
  * GBAStreamHost's own m_audio_sample_rate default, GBAStreamHost.h) --
  * fixed at maxmod stream-open time (main()), not per-session, since
@@ -179,16 +190,75 @@ static inline uint16_t rgb565ToNds(uint16_t px) {
     return RGB15(r, g >> 1, b) | BIT(15);
 }
 
+/* 2D bilinear blend of the four RGB565 pixels surrounding a fractional
+ * source position, wx/wy each 0..255 fixed-point (256 == "fully the next
+ * pixel", only reachable at the rightmost/bottommost edge where p10==p00
+ * or p01==p00 anyway -- blending a pixel with itself is a no-op). Unpacks
+ * each 5-6-5 channel, interpolates independently, repacks -- multiplies
+ * and shifts only, no division (see blitFrameScaled()'s own comment on
+ * ARM9 having no hardware divider). */
+static uint16_t bilinearBlend(uint16_t p00, uint16_t p10, uint16_t p01, uint16_t p11, int wx, int wy) {
+    int r00 = (p00 >> 11) & 0x1F, g00 = (p00 >> 5) & 0x3F, b00 = p00 & 0x1F;
+    int r10 = (p10 >> 11) & 0x1F, g10 = (p10 >> 5) & 0x3F, b10 = p10 & 0x1F;
+    int r01 = (p01 >> 11) & 0x1F, g01 = (p01 >> 5) & 0x3F, b01 = p01 & 0x1F;
+    int r11 = (p11 >> 11) & 0x1F, g11 = (p11 >> 5) & 0x3F, b11 = p11 & 0x1F;
+
+    int r0 = r00 + (((r10 - r00) * wx) >> 8);
+    int r1 = r01 + (((r11 - r01) * wx) >> 8);
+    int r = r0 + (((r1 - r0) * wy) >> 8);
+
+    int g0 = g00 + (((g10 - g00) * wx) >> 8);
+    int g1 = g01 + (((g11 - g01) * wx) >> 8);
+    int g = g0 + (((g1 - g0) * wy) >> 8);
+
+    int b0 = b00 + (((b10 - b00) * wx) >> 8);
+    int b1 = b01 + (((b11 - b01) * wx) >> 8);
+    int b = b0 + (((b1 - b0) * wy) >> 8);
+
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
 /* Uniform-scale variant of blitFrame() below -- see g_prefAspectScale's own
  * comment for the exact target size (256x170, screen-width-bound). Nearest-
- * neighbor: column source indices only depend on x (not y), so they're
- * precomputed once per call into colSrc[] instead of one integer division
- * per pixel -- ARM9 has no hardware divider, so this turns ~43,520
- * divisions into ~426. */
+ * neighbor (g_prefBilinear off, the default): column source indices only
+ * depend on x (not y), so they're precomputed once per call into colSrc[]
+ * instead of one integer division per pixel -- ARM9 has no hardware
+ * divider, so this turns ~43,520 divisions into ~426. Bilinear
+ * (g_prefBilinear on) follows the identical "precompute the per-column
+ * part once, not per pixel" budget, just with a source pixel pair +
+ * fixed-point weight per column instead of a single index -- still no
+ * per-pixel division, see bilinearBlend() above. */
 static void blitFrameScaled(const uint8_t *rgb565) {
     const int scaledW = 256;
     const int scaledH = (GBA_H * scaledW) / GBA_W; /* 170 */
     const int offY = (192 - scaledH) / 2;
+
+    if (g_prefBilinear) {
+        static int colSrc0[256], colSrc1[256], colWeight[256];
+        for (int x = 0; x < scaledW; x++) {
+            int srcXFixed = (x * GBA_W * 256) / scaledW;
+            colSrc0[x] = srcXFixed >> 8;
+            colSrc1[x] = colSrc0[x] + 1 < GBA_W ? colSrc0[x] + 1 : colSrc0[x];
+            colWeight[x] = srcXFixed & 0xFF;
+        }
+        for (int y = 0; y < scaledH; y++) {
+            int srcYFixed = (y * GBA_H * 256) / scaledH;
+            int srcY0 = srcYFixed >> 8;
+            int srcY1 = srcY0 + 1 < GBA_H ? srcY0 + 1 : srcY0;
+            int wY = srcYFixed & 0xFF;
+            const uint8_t *row0 = rgb565 + (size_t)srcY0 * GBA_W * 2;
+            const uint8_t *row1 = rgb565 + (size_t)srcY1 * GBA_W * 2;
+            uint16_t *dstRow = VRAM_A + (size_t)(y + offY) * 256;
+            for (int x = 0; x < scaledW; x++) {
+                uint16_t p00 = finlink_read_u16le(row0 + (size_t)colSrc0[x] * 2);
+                uint16_t p10 = finlink_read_u16le(row0 + (size_t)colSrc1[x] * 2);
+                uint16_t p01 = finlink_read_u16le(row1 + (size_t)colSrc0[x] * 2);
+                uint16_t p11 = finlink_read_u16le(row1 + (size_t)colSrc1[x] * 2);
+                dstRow[x] = rgb565ToNds(bilinearBlend(p00, p10, p01, p11, colWeight[x], wY));
+            }
+        }
+        return;
+    }
 
     static int colSrc[256];
     for (int x = 0; x < scaledW; x++) {
@@ -888,6 +958,7 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     iprintf(" R = IP manuell eingeben\n");
     iprintf(" L = Bildschirm umschalten\n");
     iprintf(" HOCH = Skalierung umschalten\n");
+    iprintf(" RUNTER = Filterung umschalten\n");
     iprintf(" START = Beenden\n\n");
     /* Only affects single-screen stream types (GC_GBA_LINK today) -- a
      * stream_type that's itself a dual-screen source's secondary screen
@@ -895,6 +966,9 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
      * setting is only actually consulted in that case. See runSession(). */
     iprintf("\x1b[17;0HBildschirm: %s   ", g_prefBottomScreen ? "unten" : "oben");
     iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? "ausgefuellt" : "1:1");
+    // Only actually visible when Skalierung is "ausgefuellt" -- centered
+    // 1:1 has no scaling to filter, see g_prefBilinear's own comment.
+    iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? "an" : "aus");
 
     for (;;) {
         swiWaitForVBlank();
@@ -915,6 +989,10 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
         if (keys & KEY_UP) {
             g_prefAspectScale = !g_prefAspectScale;
             iprintf("\x1b[18;0HSkalierung: %s   ", g_prefAspectScale ? "ausgefuellt" : "1:1");
+        }
+        if (keys & KEY_DOWN) {
+            g_prefBilinear = !g_prefBilinear;
+            iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? "an" : "aus");
         }
         if (keys & KEY_START) return -1;
     }

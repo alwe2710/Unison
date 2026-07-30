@@ -215,7 +215,12 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         extKeyCodeToButton = prefs.extKeyBindingsByKeyCode()
         keyCodeToExtBitFromGba = prefs.sharedExtButtonBitsByKeyCode()
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
-        bilinearVideoFilter = prefs.bilinearVideoFilter
+        // "" (manual host:port entry, see MenuActivity) reads as
+        // Prefs.bilinearFor("")'s own not-yet-configured default (false,
+        // nearest-neighbor) -- the real stream_type isn't known until the
+        // handshake's hello message in that case, same limitation every
+        // other client's manual-entry path already has.
+        bilinearVideoFilter = prefs.bilinearFor(intent.getStringExtra(EXTRA_STREAM_TYPE) ?: "")
 
         setContent {
             FinlinkTheme {
@@ -1184,6 +1189,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
     companion object {
         const val EXTRA_HOST = "host"
+        const val EXTRA_STREAM_TYPE = "stream_type"
         const val EXTRA_PORT = "port"
     }
 }

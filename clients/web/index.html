@@ -156,6 +156,7 @@
             cursor:default}
   #gamepadBindingsList{display:flex;flex-direction:column;gap:8px;width:100%;align-items:center}
   #gamepadBindingsList .hint{font-size:12px;color:var(--muted);max-width:280px}
+  .filter-rows{display:flex;flex-direction:column;gap:8px;width:100%;align-items:center}
   .pill{font-family:var(--font-body);font-size:11.5px;font-weight:700;border:none;cursor:pointer;
         padding:7px 14px;border-radius:999px;background:var(--accent);color:var(--accent-ink)}
   input.switch{appearance:none;-webkit-appearance:none;width:34px;height:20px;border-radius:999px;
@@ -244,6 +245,8 @@
     <thead><tr><th>Taste</th><th>Belegung</th><th></th></tr></thead>
     <tbody id="settingsTableBody"></tbody>
   </table>
+  <div class="menu-label">Bilineare Filterung</div>
+  <div id="filterRowsDesktop" class="filter-rows"></div>
   <button id="closeSettings">Schließen</button>
 </div>
 <div id="touchControls">
@@ -277,6 +280,8 @@
     <span>Touch-Overlay anzeigen</span>
     <input type="checkbox" class="switch" id="toggleOverlay">
   </label>
+  <div class="menu-label">Bilineare Filterung</div>
+  <div id="filterRowsMobile" class="filter-rows"></div>
   <div class="menu-label">Gamecontroller-Belegung</div>
   <div id="gamepadBindingsList"></div>
   <button id="closeMenu">Schließen</button>
@@ -304,6 +309,39 @@ if (isMobile) document.body.classList.add('mobile');
 const FINLINK_PROTOCOL_VERSION = 2;
 const wasmModulePromise = FinlinkCore();
 
+// Antialiasing (bilinear vs. nearest-neighbor canvas upscale), configured
+// per stream_type rather than one global toggle -- GBA/DS pixel art and a
+// Wii U GamePad's higher-effective-resolution render suit different
+// filtering. KNOWN_STREAM_TYPES is docs/protocol.md's fixed set
+// ("Stream-Typen"); a type not yet explicitly set falls back to
+// defaultBilinearFor(): nearest for GC_GBA_LINK (native-resolution pixel
+// art), bilinear for the other three (already-upscaled/higher-effective-
+// resolution renders that read better smoothed).
+const KNOWN_STREAM_TYPES = [
+  ['GC_GBA_LINK', 'GameCube (GBA-Link)'],
+  ['WIIU_GAMEPAD', 'Wii U GamePad'],
+  ['N3DS_BOTTOM_SCREEN', '3DS'],
+  ['NDS_BOTTOM_SCREEN', 'DS'],
+];
+function defaultBilinearFor(streamType) {
+  return streamType === 'WIIU_GAMEPAD' || streamType === 'N3DS_BOTTOM_SCREEN' || streamType === 'NDS_BOTTOM_SCREEN';
+}
+const filterPrefs = JSON.parse(localStorage.getItem('finlinkWebBilinearByStreamType') || '{}');
+function bilinearFor(streamType) {
+  return streamType in filterPrefs ? !!filterPrefs[streamType] : defaultBilinearFor(streamType);
+}
+function setBilinearFor(streamType, value) {
+  filterPrefs[streamType] = value;
+  localStorage.setItem('finlinkWebBilinearByStreamType', JSON.stringify(filterPrefs));
+}
+// Module scope (not beginSession-local): set from the most recent hello
+// once connected, but also read by the settings/menu panels' filter row
+// onchange handlers below, which exist (and are usable) before any
+// connection -- toggling a row for the type that happens to be currently
+// connected takes effect immediately; any other row just updates
+// filterPrefs for next time.
+let currentStreamType = '';
+
 const connectEl = document.getElementById('connect');
 const connectStatusEl = document.getElementById('connectStatus');
 const connectErrorEl = document.getElementById('connectError');
@@ -322,6 +360,38 @@ const gameEl = document.getElementById('game');
 const params = new URLSearchParams(location.search);
 hostInput.value = params.get('host') || localStorage.getItem('finlinkLastHost') || '';
 portInput.value = params.get('port') || localStorage.getItem('finlinkLastPort') || '6800';
+
+// Configured in advance (before ever connecting), same as the other
+// clients' equivalent settings screens -- there's no "current" stream_type
+// to key a row off before a hello has actually arrived, so every known
+// type gets its own row here, applied automatically once a connection's
+// hello reveals which one it actually is (see currentStreamType/
+// canvas.style.imageRendering below).
+function renderFilterRows(containerId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  for (const [streamType, label] of KNOWN_STREAM_TYPES) {
+    const row = document.createElement('label');
+    row.className = 'menu-row';
+    const span = document.createElement('span');
+    span.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'switch';
+    input.checked = bilinearFor(streamType);
+    input.onchange = () => {
+      setBilinearFor(streamType, input.checked);
+      if (streamType === currentStreamType) {
+        document.getElementById('screen').style.imageRendering = input.checked ? 'auto' : 'pixelated';
+      }
+    };
+    row.appendChild(span);
+    row.appendChild(input);
+    container.appendChild(row);
+  }
+}
+renderFilterRows('filterRowsDesktop');
+renderFilterRows('filterRowsMobile');
 
 connectForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -556,6 +626,11 @@ function handleHandshakeMessage(text) {
              'Version ' + FINLINK_PROTOCOL_VERSION + ' -- bitte Client oder Server aktualisieren.');
         return;
       }
+      // A redirect hop (session_ready.has_redirect below) reconnects to a
+      // different port that sends its own fresh hello -- this always
+      // reflects whichever connection is current, same as pendingAck.
+      currentStreamType = wasmModule.ccall('finlink_wasm_hello_stream_type', 'string', [], []);
+      canvas.style.imageRendering = bilinearFor(currentStreamType) ? 'auto' : 'pixelated';
       const wantsAudio = wasmModule.ccall('finlink_wasm_hello_has_audio', 'number', [], []);
       // Generous/native throughout: nothing about a browser tab justifies
       // asking the server to downscale its stream.

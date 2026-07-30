@@ -19,11 +19,16 @@ class Prefs {
 
     void save();
 
-    // true = bilinear filtering (smooth upscale), false = nearest-neighbor
-    // (crisp/pixelated upscale, the default) -- same rationale as the
-    // Android client's toggle: the GBA's native 240x160 framebuffer is
-    // upscaled a lot to fill the screen.
-    bool bilinearVideoFilter = false;
+    // Per-stream-type ("GC_GBA_LINK", "WIIU_GAMEPAD", ...) bilinear filter
+    // preference -- true = bilinear filtering (smooth upscale), false =
+    // nearest-neighbor (crisp/pixelated upscale). Not one global toggle:
+    // GBA/DS pixel art and a Wii U GamePad's higher-effective-resolution
+    // render suit different filtering. A type not yet explicitly set
+    // falls back to a per-type default (prefs.cpp's defaultBilinearFor()):
+    // nearest for GC_GBA_LINK, bilinear for WIIU_GAMEPAD/
+    // N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN.
+    bool bilinearFor(const std::string &streamType) const;
+    void setBilinearFor(const std::string &streamType, bool value);
 
   private:
     std::map<std::string, std::string> values;

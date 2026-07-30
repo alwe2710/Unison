@@ -11,7 +11,8 @@ namespace {
 constexpr float kExitHoldSeconds = 0.6f;
 }
 
-PlayerActivity::PlayerActivity(std::string host, int port) : host(std::move(host)), port(port) {
+PlayerActivity::PlayerActivity(std::string host, int port, std::string streamType)
+    : host(std::move(host)), port(port), streamType(std::move(streamType)) {
 }
 
 PlayerActivity::~PlayerActivity() {
@@ -42,7 +43,7 @@ brls::View *PlayerActivity::createContentView() {
     root->setHideHighlight(true);
 
     videoView = new VideoView();
-    videoView->setBilinearFilter(prefs.bilinearVideoFilter);
+    videoView->setBilinearFilter(prefs.bilinearFor(streamType));
     root->addView(videoView);
 
     statusLabel = new brls::Label();

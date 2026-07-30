@@ -55,5 +55,5 @@ class MenuActivity : public brls::Activity {
 
     void refreshDiscoveredCells();
     void runSearch(const std::string &host);
-    void launchPlayer(const std::string &host, int port);
+    void launchPlayer(const std::string &host, int port, const std::string &streamType);
 };

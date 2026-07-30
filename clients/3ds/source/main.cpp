@@ -56,6 +56,21 @@ constexpr u32 kSocBufferSize = 0x100000;
 // is actually drawn to.
 constexpr int kExitHoldTicksRequired = 36;
 
+// Every stream_type docs/protocol.md currently defines ("Stream-Typen"),
+// for the per-console antialiasing list in drawSettingsScreen() --
+// Prefs::bilinearFor()/setBilinearFor() key off the same raw strings, this
+// is just the fixed set + a human-readable label for each.
+struct StreamTypeEntry {
+    const char *streamType;
+    const char *label;
+};
+constexpr StreamTypeEntry kKnownStreamTypes[] = {
+    { "GC_GBA_LINK", "GameCube (GBA-Link)" },
+    { "WIIU_GAMEPAD", "Wii U GamePad" },
+    { "N3DS_BOTTOM_SCREEN", "3DS" },
+    { "NDS_BOTTOM_SCREEN", "DS" },
+};
+
 enum class BottomScreenState { MENU, SETTINGS };
 
 // Everything the background search/discovery threads write, read by the
@@ -328,20 +343,11 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     }
 }
 
-void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, VideoTex *videoTex,
-                         BottomScreenState *screenState) {
+void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
     ui::drawText(textBuf, "Einstellungen", 8, 8, 0.55f, ui::kColorText);
 
-    ui::drawText(textBuf, "Bilineare Filterung", 8, 44, 0.45f, ui::kColorText);
-    ui::Rect t2 { 250, 40, 60, 28 };
-    if (ui::toggle(touch, t2, prefs->bilinearVideoFilter)) {
-        prefs->bilinearVideoFilter = !prefs->bilinearVideoFilter;
-        prefs->save();
-        videoTex->setBilinearFilter(prefs->bilinearVideoFilter);
-    }
-
-    ui::drawText(textBuf, "Bild auf unterem Bildschirm", 8, 84, 0.45f, ui::kColorText);
-    ui::Rect t3 { 250, 80, 60, 28 };
+    ui::drawText(textBuf, "Bild auf unterem Bildschirm", 8, 44, 0.45f, ui::kColorText);
+    ui::Rect t3 { 250, 40, 60, 28 };
     if (ui::toggle(touch, t3, prefs->bottomScreenVideo)) {
         prefs->bottomScreenVideo = !prefs->bottomScreenVideo;
         prefs->save();
@@ -349,8 +355,30 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     // Only affects single-screen stream types (GC_GBA_LINK today) -- see
     // this file's own top comment and useBottomForVideo in main().
     ui::drawText(textBuf, "(wirkungslos bei Streams, die selbst schon",
-                 8, 112, 0.36f, ui::kColorTextDim);
-    ui::drawText(textBuf, "ein Zweitbildschirm-Inhalt sind)", 8, 128, 0.36f, ui::kColorTextDim);
+                 8, 72, 0.36f, ui::kColorTextDim);
+    ui::drawText(textBuf, "ein Zweitbildschirm-Inhalt sind)", 8, 88, 0.36f, ui::kColorTextDim);
+
+    // Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
+    // stream_type rather than one global toggle -- GBA/DS pixel art and a
+    // Wii U GamePad's higher-effective-resolution render suit different
+    // filtering. Listed here (docs/protocol.md's fixed set of stream
+    // types) rather than only offering "the current one": this screen is
+    // only ever reachable pre-connect (see this file's own top comment),
+    // so there's no single "current" stream_type to key off anyway --
+    // whichever type is actually connected to later just reads whatever
+    // was configured here in advance (see main()'s onConnected handling).
+    ui::drawText(textBuf, "Bilineare Filterung:", 8, 104, 0.4f, ui::kColorTextDim);
+    float y = 122.0f;
+    for (const auto &entry : kKnownStreamTypes) {
+        ui::drawText(textBuf, entry.label, 8, y + 4, 0.38f, ui::kColorText);
+        ui::Rect r { 250, y, 60, 20 };
+        bool bilinear = prefs->bilinearFor(entry.streamType);
+        if (ui::toggle(touch, r, bilinear)) {
+            prefs->setBilinearFor(entry.streamType, !bilinear);
+            prefs->save();
+        }
+        y += 22.0f;
+    }
 
     ui::Rect backRect { 8, 210, 304, 24 };
     if (ui::button(textBuf, touch, backRect, "Zurueck")) {
@@ -393,7 +421,12 @@ int main(int argc, char *argv[]) {
     GbaSession session;
     VideoTex videoTex;
     AudioPlayer audio;
-    videoTex.setBilinearFilter(prefs.bilinearVideoFilter);
+    // No bilinear filter applied here -- unlike the single old global
+    // toggle, the preference is per-stream-type now, and no stream_type is
+    // known until a connection's onConnected fires (see
+    // filterAppliedThisSession below). VideoTex's own constructor already
+    // defaults its texture to nearest-neighbor, so there's nothing to set
+    // yet regardless.
 
     BottomScreenState screenState = BottomScreenState::MENU;
     // Written from the session's background thread (onConnected/
@@ -404,6 +437,13 @@ int main(int argc, char *argv[]) {
     uint16_t physicalMask = 0;
     ui::Touch touch;
     int exitHoldTicks = 0;
+    // Set once per connection, right after applying that connection's
+    // stream_type's filter preference -- videoTex->setBilinearFilter()
+    // touches the live C3D_Tex (C3D_TexSetFilter), so it must run on this
+    // (the main/render) thread, same discipline as every other GPU call in
+    // this file; onConnected itself only runs on the session's background
+    // thread and must not call it directly (see session.hpp).
+    bool filterAppliedThisSession = false;
 
     while (aptMainLoop()) {
         hidScanInput();
@@ -415,6 +455,11 @@ int main(int argc, char *argv[]) {
         touch.y = rawTouch.py;
 
         if (connected) {
+            if (!filterAppliedThisSession) {
+                videoTex.setBilinearFilter(prefs.bilinearFor(connectedStreamType));
+                filterAppliedThisSession = true;
+            }
+
             u32 held = hidKeysHeld();
             uint16_t newMask = 0;
             for (const auto &b : GBA_BUTTONS) {
@@ -435,6 +480,7 @@ int main(int argc, char *argv[]) {
                 exitHoldTicks = 0;
             }
         } else {
+            filterAppliedThisSession = false;
             exitHoldTicks = 0;
         }
 
@@ -493,7 +539,7 @@ int main(int argc, char *argv[]) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
                            &connectedHost, &connectedStreamType, &beaconListener);
         } else {
-            drawSettingsScreen(textBuf, touch, &prefs, &videoTex, &screenState);
+            drawSettingsScreen(textBuf, touch, &prefs, &screenState);
         }
 
         C3D_FrameEnd(0);

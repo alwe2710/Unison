@@ -157,7 +157,7 @@ void MenuActivity::refreshDiscoveredCells() {
                 hostInput->setValue(host);
                 runSearch(host);
             } else {
-                launchPlayer(host, handshakePort);
+                launchPlayer(host, handshakePort, streamType);
             }
             return true;
         });
@@ -197,7 +197,7 @@ void MenuActivity::runSearch(const std::string &host) {
                     anyFree = true;
                     int port = kPlayerBasePort + slot;
                     button->registerClickAction([this, host, port](brls::View *) {
-                        launchPlayer(host, port);
+                        launchPlayer(host, port, kStreamTypeGcGbaLink);
                         return true;
                     });
                 }
@@ -208,6 +208,6 @@ void MenuActivity::runSearch(const std::string &host) {
     });
 }
 
-void MenuActivity::launchPlayer(const std::string &host, int port) {
-    brls::Application::pushActivity(new PlayerActivity(host, port));
+void MenuActivity::launchPlayer(const std::string &host, int port, const std::string &streamType) {
+    brls::Application::pushActivity(new PlayerActivity(host, port, streamType));
 }
