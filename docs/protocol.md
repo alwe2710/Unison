@@ -587,6 +587,14 @@ The server skips video frames that are pixel-identical to the last frame sent. A
 message is therefore normal, not a timeout/error state — clients simply keep displaying the last
 received image.
 
+Reference implementation of both this and `FINLINK_VIDEO_FORMAT_TILES` (see
+[Video Frame Payload](#video-frame-payload-format-dependent) above) on the encoding side:
+[`../core/include/finlink/video_encode.h`](../core/include/finlink/video_encode.h)
+(`finlink_encode_video_frame()`) — diffs the outgoing frame against the last one actually sent in
+8×8 tiles, returning "unchanged" for the dedup case above and a TILES-formatted payload otherwise,
+so a server doesn't have to hand-roll either behavior itself. Used by the `WIIU_GAMEPAD`
+(Cemu) server as of this revision; other forks can adopt the same function.
+
 ## HTTP
 
 `GET /status` — only on player ports (6801–6804), not on the lobby.

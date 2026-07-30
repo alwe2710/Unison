@@ -13,3 +13,7 @@ add_test(NAME deflate COMMAND finlink_test_deflate)
 add_executable(finlink_test_websocket test_websocket.c)
 target_link_libraries(finlink_test_websocket PRIVATE finlink_core)
 add_test(NAME websocket COMMAND finlink_test_websocket)
+
+add_executable(finlink_test_video_encode test_video_encode.c)
+target_link_libraries(finlink_test_video_encode PRIVATE finlink_core)
+add_test(NAME video_encode COMMAND finlink_test_video_encode)

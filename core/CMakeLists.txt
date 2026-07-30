@@ -11,6 +11,7 @@ add_library(finlink_core STATIC
     src/json.c
     src/handshake.c
     src/discovery.c
+    src/video_encode.c
     third_party/miniz/miniz_tinfl.c
     third_party/miniz/miniz_tdef.c
     third_party/miniz/miniz_crc32.c
