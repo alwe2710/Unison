@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.SurfaceTexture
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -18,7 +17,8 @@ import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.Surface
-import android.view.TextureView
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -282,7 +282,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Bottom-most layer: MediaCodec's Surface-mode H.264/H265
-                // output composites directly into this TextureView's
+                // output composites directly into this SurfaceView's
                 // Surface (see GbaStreamClient.setVideoSurface(),
                 // jni_bridge.c's ensure_video_codec()) -- no CPU pixel copy,
                 // and no onVideoFrame callback at all for that path. Always
@@ -513,33 +513,40 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
      * the neighboring button's own, never-started gesture. */
     /** Backs the H.264/H265 render target -- see PlayerScreen's own comment
      * on why this is always present regardless of negotiated video_mode.
-     * TextureView (not SurfaceView): a SurfaceView's own Surface lives in a
-     * separate compositor layer with special Z-order handling that fights
-     * Compose's normal child ordering inside a Box, where this needs to sit
-     * strictly *below* the Image/overlay Composables layered on top of it
-     * in PlayerScreen -- TextureView is regular View content Compose can
-     * order like anything else, at some compositing cost that doesn't
-     * matter here. */
+     *
+     * SurfaceView, not TextureView: the identical bitstream (same encoder,
+     * same server) rendered correctly through TextureView on the Android
+     * emulator's software decoder, but showed persistent visible
+     * distortion on a real device's hardware decoder for both H.264 and
+     * H.265 alike -- unaffected by every server-side change tried (bitrate
+     * mode, VBV sizing, H.264 profile), which points at the shared
+     * TextureView GL-texture-compositing path itself as the actual
+     * culprit, a known category of real-device-specific bug distinct from
+     * TextureView's normal Compose-friendly behavior. SurfaceView instead
+     * gets its own dedicated hardware compositor layer, bypassing GL
+     * texture compositing entirely. setZOrderMediaOverlay(true) keeps it
+     * above the Activity's own window background but still below the
+     * touch/button overlay Composables drawn in the same window on top of
+     * it in PlayerScreen -- unlike setZOrderOnTop(true), which would put
+     * it above the whole window, including those overlays. */
     @Composable
     private fun VideoSurfaceView(modifier: Modifier = Modifier) {
         AndroidView(
             modifier = modifier,
             factory = { context ->
-                TextureView(context).apply {
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
-                            client?.setVideoSurface(Surface(st))
+                SurfaceView(context).apply {
+                    setZOrderMediaOverlay(true)
+                    holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(holder: SurfaceHolder) {
+                            client?.setVideoSurface(holder.surface)
                         }
 
-                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
 
-                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                        override fun surfaceDestroyed(holder: SurfaceHolder) {
                             client?.setVideoSurface(null)
-                            return true // this View released the SurfaceTexture itself, not the caller.
                         }
-
-                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-                    }
+                    })
                 }
             }
         )
