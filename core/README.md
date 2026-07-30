@@ -9,9 +9,12 @@ framing itself — lives here, since 3DS/Switch homebrew ship no built-in WebSoc
 
 - `include/finlink/websocket.h` + `src/websocket.c` — RFC6455 client handshake (key generation,
   request construction, accept validation) and frame reader/writer, matched to the server-side
-  behavior in `GBAStreamHost.cpp` (unmasked, unfragmented server frames; masked client frames; no
-  ping/pong, no permessage-deflate). Uses vendored `teeny-sha1` (MIT, see
-  `third_party/teeny-sha1/LICENSE`) for the SHA1 in the handshake.
+  behavior every emulator fork's server implements (unmasked, unfragmented server frames; masked
+  client frames; no ping/pong, no permessage-deflate, see
+  [`docs/protocol.md`](../docs/protocol.md#websocket-transport-rfc6455-and-binary-framing)) —
+  originally matched against dolphin-gba-stream's `GBAStreamHost.cpp`, the first reference
+  implementation. Uses vendored `teeny-sha1` (MIT, see `third_party/teeny-sha1/LICENSE`) for the
+  SHA1 in the handshake.
 - `include/finlink/protocol.h` + `src/protocol.c` — (de)serialization of the three message types
   (video header, audio frame, input bitmask) within a WebSocket frame payload.
 - `include/finlink/inflate.h` + `src/inflate.c` — raw-deflate inflate of the video payload, a

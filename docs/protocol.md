@@ -1,22 +1,27 @@
-# Wire protocol: Dolphin GBA stream
+# finlink wire protocol
 
-Single source of truth for the WebSocket protocol every client in this repo implements against.
-Server reference implementation: `GBAStreamHost` / `GBAStreamLobby` in the `dolphin-gba-stream`
-fork (not part of this repo). Starting with `protocol_version = 2` (see below), this document also
-describes the discovery beacon, connection handshake (including slot negotiation), and downscaling
-negotiation — before that there was no mechanism for any of it; see this file's git history for the
-plain `Video`/`Audio`/`Input` state without a handshake.
+Single source of truth for the WebSocket protocol every client and server in this ecosystem
+implements against. Reference implementations live in four emulator forks, none part of this repo
+— see the root [`README.md`](../README.md#context) for an overview of all four and
+[Stream Types](#stream-types) below for what each one streams. The original and most fully
+documented is dolphin-gba-stream (Dolphin), whose `GBAStreamHost`/`GBAStreamLobby` classes this
+document uses as concrete illustrative examples throughout — the protocol itself is
+emulator-agnostic and every fork's server follows the same shape (see [Endpoints](#endpoints)
+below). Starting with `protocol_version = 2` (see below), this document also describes the
+discovery beacon, connection handshake (including slot negotiation), and downscaling negotiation
+— before that there was no mechanism for any of it; see this file's git history for the plain
+`Video`/`Audio`/`Input` state without a handshake.
 
 ## Endpoints
 
 | Server | Port | Purpose |
 |---|---|---|
-| `GBAStreamLobby` | `6800` (TCP) | Handshake entry point (see below). Reference-counted singleton, independent of the active GC port. Replaces the earlier HTML picker page. |
-| `StreamHost` (× GC port) | `6801`–`6804` (TCP) | One slot per GC port set to "GBA (Client Stream)". Exactly one connected client per port. For stream types with only a single slot (see below), this range isn't used — the session stays on `6800`. |
+| Lobby | `6800` (TCP) | Handshake entry point (see below), one per finlink server instance, independent of which stream slot ends up serving the client. Named `GBAStreamLobby` in dolphin-gba-stream specifically — a reference-counted singleton there, replacing that fork's earlier HTML picker page. |
+| Stream host (× slot) | `6801`–`6804` (TCP) | One slot per active stream (e.g. one GC port set to "GBA (Client Stream)" in dolphin-gba-stream). Exactly one connected client per port. For stream types with only a single slot (see below), this range isn't used — the session stays on `6800`. Named `StreamHost` in dolphin-gba-stream specifically. |
 | Discovery beacon | `6805` (UDP, broadcast) | Periodic server announcement, see [Discovery Beacon](#discovery-beacon-udp). |
 
-> Since `protocol_version = 2`, `GBAStreamLobby` distinguishes between a plain `GET /` (returns an
-> HTML page, status 200 — the WASM-based web client, now built on `core/`) and a WebSocket upgrade
+> Since `protocol_version = 2`, the lobby distinguishes between a plain `GET /` (returns an HTML
+> page, status 200 — the WASM-based web client, now built on `core/`) and a WebSocket upgrade
 > request (triggers the handshake below). All five clients (Android, 3DS, Switch, NDS/DSi, Web) now
 > speak the full app handshake on the player ports (6801–6804) and use the
 > [UDP discovery beacon](#discovery-beacon-udp) to find a server — the earlier
@@ -305,9 +310,10 @@ video/audio/input frames at all; the server closes it after sending. The client 
 WebSocket connection to `redirect.host:port` and goes through the same `hello`/`hello_ack`/
 `session_ready` exchange there again (with the same limits/the same `requested_slot`) — this time
 without `redirect` in the reply. The second round is deliberately a complete repeat rather than a
-token/session handoff: it keeps `GBAStreamHost` independent of `GBAStreamLobby` (no shared
-reservation state needed between the two objects) and makes each of the two connections fully
-self-explanatory on its own.
+token/session handoff: in dolphin-gba-stream specifically, this keeps `GBAStreamHost` independent
+of `GBAStreamLobby` (no shared reservation state needed between the two objects), and more
+generally makes each of the two connections fully self-explanatory on its own regardless of how a
+given fork's lobby and stream host are actually implemented.
 
 `audio` is absent from `session_ready` if it was already absent from `hello`.
 
@@ -552,10 +558,11 @@ Reference implementation:
 
 ## WebSocket transport (RFC6455) and binary framing
 
-Server-side, the WebSocket handling itself (not just the app-layer protocol above) is hand-rolled
-(`GBAStreamHost::PerformHandshake`, `TryParseWebSocketFrame`, `SendWebSocketBinaryFrame`), not the
-standard behavior of a WS library. Relevant for clients, especially on platforms without their own
-WS client (3DS/Switch homebrew):
+Server-side, the WebSocket handling itself (not just the app-layer protocol above) is typically
+hand-rolled by each emulator fork rather than using a standard WS library — e.g.
+dolphin-gba-stream's `GBAStreamHost::PerformHandshake`, `TryParseWebSocketFrame`,
+`SendWebSocketBinaryFrame`. Relevant for clients, especially on platforms without their own WS
+client (3DS/Switch homebrew):
 
 - Handshake is standard RFC6455: `Sec-WebSocket-Key` → `SHA1(key + "258EAFA5-
   E914-47DA-95CA-C5AB0DC85B11")` → Base64 → `Sec-WebSocket-Accept`, to be verified by the client.

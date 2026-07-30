@@ -1,39 +1,55 @@
 # finlink
 
-Generic client framework for the Dolphin GBA stream.
+Generic client framework for the finlink streaming protocol: a small WebSocket-based protocol for
+streaming a console's screen, audio, and input between an emulator and a remote client.
 
 ## Context
 
-The [dolphin-gba-stream](https://github.com/) fork (based on `dolphin-emu/dolphin`) has a feature
-that streams the built-in GBA emulation (`GBA::Core`, used for GC↔GBA Link Cable games) to browser
-clients over its own WebSocket protocol, instead of keeping video/audio/input local.
+finlink started as a feature of the [dolphin-gba-stream](https://github.com/) fork (based on
+`dolphin-emu/dolphin`) that streams Dolphin's built-in GBA emulation (`GBA::Core`, used for
+GC↔GBA Link Cable games) to browser clients instead of keeping video/audio/input local. The same
+protocol is now implemented by forks of three more emulators, each streaming a different
+console/screen:
 
-This repository is the starting point for a **general client framework** for that stream —
-decoupled from the current monolithic, embedded HTML/JS client implementation on the C++ server
-side.
+| Emulator fork | `stream_type` | What it streams |
+|---|---|---|
+| dolphin-gba-stream (Dolphin) | `GC_GBA_LINK` | GameCube's built-in GBA emulation (GC↔GBA Link Cable) |
+| Cemu fork (`src/Cemu/finlinkStream/`) | `WIIU_GAMEPAD` | Wii U GamePad screen |
+| Azahar fork (`src/core/streaming/`) | `N3DS_BOTTOM_SCREEN` | 3DS bottom screen |
+| melonDS fork (`src/streaming/`) | `NDS_BOTTOM_SCREEN` | DS bottom screen |
 
-### Server-side architecture (C++, already exists, not part of this repo)
+None of these forks are part of this repo. See [Stream Types](docs/protocol.md#stream-types) for
+the full breakdown of what each one supports (slots, audio, microphone).
 
-- **`StreamHost`** (`Source/Core/Core/HW/GBAStreamHost.h/.cpp`): one instance per GC port set to
-  "GBA (Client Stream)" (`CORE_GC_GBA_STREAM`). Runs on port 6801–6804, sends video (RGB565 +
-  raw-deflate) and audio (PCM) to exactly one connected client, receives button states back and
-  feeds them into the GBA pad via `ControllerEmu::SetInputOverrideFunction`.
-- **`GBAStreamLobby`** (`GBAStreamLobby.h/.cpp`): reference-counted singleton server on a fixed
-  port 6800, serves the picker page (P1–P4) regardless of which GC port is active.
-- The shared client side currently lives as one large embedded HTML/JS string in
-  `GBAStreamClientPage.h` (`kGBAStreamClientHtml`, a C++ `R"HTML(...)HTML"` raw string), served
-  by both servers. No build step, no external JS dependencies (deliberate, to keep server-side
-  overhead minimal).
+### Server-side architecture (each emulator fork, not part of this repo)
+
+Every fork follows the same general shape, under its own project's naming:
+
+- A **lobby** server on a fixed port 6800 handles the connection handshake (see
+  [`docs/protocol.md`](docs/protocol.md#endpoints)), independent of which stream slot ends up
+  serving the client. In dolphin-gba-stream specifically, this is `GBAStreamLobby`
+  (`GBAStreamLobby.h/.cpp`), a reference-counted singleton.
+- A **stream host** server, one instance per active slot, sends video (RGB565 + raw-deflate) and
+  audio (PCM, where the stream type has audio) to exactly one connected client and receives input
+  back. In dolphin-gba-stream specifically, this is `StreamHost`
+  (`Source/Core/Core/HW/GBAStreamHost.h/.cpp`), one instance per GC port set to "GBA (Client
+  Stream)" (`CORE_GC_GBA_STREAM`), running on ports 6801–6804.
+- Historically, the shared client side lived as one large embedded HTML/JS string served directly
+  by the emulator (dolphin-gba-stream's `GBAStreamClientPage.h`/`kGBAStreamClientHtml`, a C++
+  `R"HTML(...)HTML"` raw string) — no build step, no external JS dependencies, deliberately, to
+  keep server-side overhead minimal. This repo's [`clients/web/`](clients/web/) is what replaces
+  that, generalized to work against any of the four forks above (see
+  [`clients/web/README.md`](clients/web/README.md)).
 
 ### Wire protocol
 
-See [`docs/protocol.md`](docs/protocol.md) — the single source of truth every client implements
-against.
+See [`docs/protocol.md`](docs/protocol.md) — the single source of truth every client and server
+implements against.
 
 ## Goal of this repo
 
-Build a standalone, general client framework for this protocol — replacing/complementing the
-embedded HTML/JS string on the server side.
+Build a standalone, general client framework for this protocol, shared across all four emulator
+forks — decoupled from any one of them shipping its own embedded client.
 
 ## Architecture
 

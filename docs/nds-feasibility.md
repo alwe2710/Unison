@@ -67,8 +67,9 @@ was found.
    rate (estimate: single-digit fps range, depending on actual
    compression achieved).
 2. **Server-side protocol extension** for quality/frame-rate negotiation
-   (a change to the `dolphin-gba-stream` fork, outside this repo). Since
-   `protocol_version = 2`, this mechanism already exists generically in
+   (a change to the melonDS finlink fork specifically, `NDS_BOTTOM_SCREEN`'s
+   reference implementation, outside this repo). Since `protocol_version = 2`,
+   this mechanism already exists generically in
    the handshake (see
    [`protocol.md`](./protocol.md#connection-setup-handshake), the section
    on `video_limits`/`audio_limits` and downscaling) -- currently relevant

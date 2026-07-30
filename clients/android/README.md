@@ -25,8 +25,8 @@ Kotlin — the Activities are a pure UI/orchestration layer on top:
 - **`MenuActivity.kt`** — host entry + P1–P4 picker (`GET /status` on
   6801–6804, plain `HttpURLConnection`, deliberately *not* through
   `finlink_core`/the WebSocket path, since it's not part of the stream
-  protocol), plus network discovery (subnet sweep against port 6800 —
-  Dolphin doesn't advertise itself, no mDNS/UPnP, see
+  protocol), plus network discovery (subnet sweep against port 6800 — no
+  finlink server advertises itself this way, no mDNS/UPnP, see
   [`docs/protocol.md`](../../docs/protocol.md)). The lobby (6800) has no
   bundled status for this; each player port has to be queried individually.
 - **`SettingsActivity.kt`** — on-screen-controls toggle, key bindings
@@ -101,18 +101,22 @@ automatically when opening the project.
 
 ## Trying it out
 
-1. Start Dolphin (`dolphin-gba-stream` fork) with a GC port set to "GBA
-   (Client Stream)".
+1. Start any finlink server — e.g. Dolphin ([dolphin-gba-stream](https://github.com/)
+   fork) with a GC port set to "GBA (Client Stream)", or the Cemu/Azahar/
+   melonDS finlink forks (see the root [`README.md`](../../README.md#context)
+   for all four).
 2. In the app, enter the host IP (e.g. `192.168.1.5`) and "Connect" — or
    "Search for servers" for automatic network discovery.
-3. Tap a free P slot.
+3. If the server has multiple slots (currently only Dolphin's
+   `GC_GBA_LINK`), tap a free P slot.
 
 **Verified on real hardware** (Samsung Galaxy S22, over Wi-Fi `adb`): the
 Menu, Settings, and Player screens run cleanly in Compose/Material 3,
 including the dynamic color scheme and correct rotation behavior (Menu/
 Settings follow device orientation, Player stays landscape). A real
 connection to a running Dolphin stream was also tested successfully — video
-and audio playback both work in Player.
+and audio playback both work in Player. Not separately tested against the
+other three forks, though they speak the same protocol.
 
 ## Known gaps (deliberately out of scope for this demo)
 
