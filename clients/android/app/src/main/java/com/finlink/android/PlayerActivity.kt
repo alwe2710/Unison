@@ -2,6 +2,7 @@ package com.finlink.android
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -12,6 +13,8 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.Surface
@@ -84,6 +87,22 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
 
     private var client: GbaStreamClient? = null
     private var audioTrack: AudioTrack? = null
+
+    // Held for as long as the stream is being watched (acquired in
+    // onCreate, released in onDestroy, same lifetime as
+    // FLAG_KEEP_SCREEN_ON above) -- Android's Wi-Fi power-save mode
+    // periodically batches incoming packets even for an app in the
+    // foreground with an active connection, which reads as exactly the
+    // "nothing for a few hundred ms, then several frames' worth of data
+    // arrives at once" pattern this session's own decode-backlog
+    // diagnostic kept showing, unaffected by any server-side encoder
+    // change (see WiiuGamepadStream.cpp's rate-control history) -- a
+    // strong sign the batching was happening on this end, not the
+    // server's. WIFI_MODE_FULL_LOW_LATENCY (Android 10+) is the mode
+    // built for exactly this (real-time audio/video); older versions fall
+    // back to WIFI_MODE_FULL_HIGH_PERF, which at minimum disables power-save
+    // polling even if it doesn't tune latency as tightly.
+    private var wifiLock: WifiManager.WifiLock? = null
 
     // Mic capture (GbaStreamClient.Listener.onMicEnable) -- only running
     // while the console has its mic powered on and sampling, see that
@@ -218,6 +237,13 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         // during any other idle screen. Tied to this window, so it's lifted
         // automatically once the Activity is no longer shown.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val lockMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        else
+            @Suppress("DEPRECATION") WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        wifiLock = wifiManager.createWifiLock(lockMode, "finlink-stream").apply { acquire() }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
@@ -1176,6 +1202,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     override fun onDestroy() {
         stopMicCapture()
         disconnect()
+        if (wifiLock?.isHeld == true) wifiLock?.release()
         super.onDestroy()
     }
 

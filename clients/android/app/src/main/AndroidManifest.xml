@@ -8,6 +8,14 @@
          connected. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- PlayerActivity holds a WifiManager.WifiLock for as long as the
+         stream is being watched (see its own comment): Wi-Fi power-save
+         packet batching, not any server-side cause, was the best-fitting
+         explanation for a periodic decode backlog unaffected by any
+         encoder-side change. Normal (non-runtime) permission, granted at
+         install time. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
     <!-- Needed for the menu's GET /status polling and discovery sweep
          (java.net.HttpURLConnection in MenuActivity), which, unlike the
          actual GBA stream itself (a raw NDK POSIX socket in
