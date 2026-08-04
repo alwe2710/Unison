@@ -93,6 +93,11 @@ void Prefs::load() {
     if (langIt != values.end()) {
         language = languagePrefFromCode(langIt->second);
     }
+
+    auto videoModeIt = values.find("video_mode");
+    if (videoModeIt != values.end()) {
+        videoMode = videoModeIt->second;
+    }
 }
 
 void Prefs::save() {
@@ -106,4 +111,5 @@ void Prefs::save() {
     }
     out << "bottom_screen_video=" << (bottomScreenVideo ? "1" : "0") << "\n";
     out << "language=" << languagePrefCode(language) << "\n";
+    out << "video_mode=" << videoMode << "\n";
 }

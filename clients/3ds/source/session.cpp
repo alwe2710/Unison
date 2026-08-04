@@ -215,6 +215,9 @@ struct AppHandshakeResult {
     bool ok = false;
     std::string reason;
     std::string streamType;
+    // session_ready.video_mode -- see GbaSession::Listener::onConnected's
+    // own comment on the empty-means-no-info convention.
+    std::string grantedVideoMode;
 };
 
 // App-level handshake (finlink/handshake.h, docs/protocol.md
@@ -226,7 +229,7 @@ struct AppHandshakeResult {
 // docs/protocol.md), closes `*fd` and reconnects to the redirect target,
 // repeating -- bounded to one hop, matching the protocol's own design.
 AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *host, int *port,
-                                        std::atomic<bool> *stop_flag) {
+                                        std::atomic<bool> *stop_flag, const std::string &videoMode) {
     // Last hop wins on a redirect -- the redirect target's own hello is the
     // authoritative one for the connection that actually carries stream data.
     std::string streamType;
@@ -272,6 +275,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         ackReq.wants_audio = hello.has_audio;
         ackReq.max_sample_rate = hello.has_audio && hello.audio.sample_rate > 0 ? hello.audio.sample_rate : 48000;
         ackReq.max_channels = hello.has_audio && hello.audio.channels > 0 ? hello.audio.channels : 2;
+        std::strncpy(ackReq.video_mode, videoMode.c_str(), sizeof(ackReq.video_mode) - 1);
 
         char ackJson[512];
         size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
@@ -318,7 +322,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         }
 
         if (!ready.has_redirect) {
-            return { true, "", streamType };
+            return { true, "", streamType, ready.video_mode };
         }
 
         // Redirect: this connection carries no stream data, ever -- close
@@ -346,7 +350,7 @@ GbaSession::~GbaSession() {
     disconnect();
 }
 
-void GbaSession::connect(std::string host, int port, Listener l) {
+void GbaSession::connect(std::string host, int port, std::string videoMode, Listener l) {
     if (thread.joinable()) {
         // A previous attempt's background thread can have exited on its
         // own (handshake failure, peer closed the connection) without
@@ -367,7 +371,7 @@ void GbaSession::connect(std::string host, int port, Listener l) {
     }
     listener = std::move(l);
     stop.store(false);
-    thread = std::thread(&GbaSession::threadMain, this, std::move(host), port);
+    thread = std::thread(&GbaSession::threadMain, this, std::move(host), port, std::move(videoMode));
 }
 
 void GbaSession::sendInput(uint16_t keyMask) {
@@ -382,7 +386,7 @@ void GbaSession::disconnect() {
     }
 }
 
-void GbaSession::threadMain(std::string host, int port) {
+void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
     RecvBuffer buf;
     if (!connect_and_ws_upgrade(host, port, &sockfd, &stop, &buf)) {
         if (sockfd >= 0) {
@@ -399,7 +403,7 @@ void GbaSession::threadMain(std::string host, int port) {
     // match, this slot requested and free -- before any Video/Audio/Input
     // binary frame is allowed on this connection. May reconnect `sockfd`/
     // `host`/`port` once, on a redirect (see performAppHandshake).
-    AppHandshakeResult hs = performAppHandshake(&sockfd, &buf, &host, &port, &stop);
+    AppHandshakeResult hs = performAppHandshake(&sockfd, &buf, &host, &port, &stop, videoMode);
     if (!hs.ok) {
         if (sockfd >= 0) {
             close(sockfd);
@@ -412,7 +416,7 @@ void GbaSession::threadMain(std::string host, int port) {
     }
 
     if (listener.onConnected) {
-        listener.onConnected(hs.streamType);
+        listener.onConnected(hs.streamType, hs.grantedVideoMode);
     }
 
     // inflate_buf is scratch space for finlink_inflate_raw()'s output,

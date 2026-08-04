@@ -90,7 +90,7 @@ const char *labelForStreamType(const char *streamType) {
     return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
 }
 
-enum class BottomScreenState { MENU, SETTINGS, LANGUAGE };
+enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE };
 
 // strings::kStatusError ("Fehler: %s") applied -- small helper since this
 // is needed at both onDisconnected call sites below.
@@ -187,8 +187,8 @@ std::string promptForHost(const std::string &initial) {
 
 void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu, BottomScreenState *screenState,
                      GbaSession *session, VideoTex *videoTex, AudioPlayer *audio, std::atomic<bool> *connected,
-                     std::string *connectedHost, std::string *connectedStreamType,
-                     discovery::BeaconListener *beaconListener) {
+                     std::string *connectedHost, std::string *connectedStreamType, Prefs *prefs,
+                     std::string *connectedGrantedVideoMode, discovery::BeaconListener *beaconListener) {
     // Snapshot under a short lock, then draw/hit-test from local copies --
     // promptForHost() below blocks for as long as the user is typing, and
     // runSearch() spawns a thread that takes menu->mutex itself, so the
@@ -241,17 +241,19 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // last frame until the new one's first (always full) frame
                 // arrives.
                 videoTex->reset();
-                session->connect(lastSearchedHost, port,
+                session->connect(lastSearchedHost, port, prefs->videoMode,
                     GbaSession::Listener {
                         // Written from the session's background thread, in
-                        // this order (streamType before the connected flag)
-                        // so the main thread never observes connected=true
-                        // with a stale/empty streamType -- same
-                        // flag-guarded-publish pattern connected itself
-                        // already relies on.
+                        // this order (streamType/grantedVideoMode before
+                        // the connected flag) so the main thread never
+                        // observes connected=true with stale/empty values
+                        // -- same flag-guarded-publish pattern connected
+                        // itself already relies on.
                         .onConnected =
-                            [connected, connectedStreamType](std::string streamType) {
+                            [connected, connectedStreamType, connectedGrantedVideoMode](
+                                std::string streamType, std::string grantedVideoMode) {
                                 *connectedStreamType = std::move(streamType);
+                                *connectedGrantedVideoMode = std::move(grantedVideoMode);
                                 *connected = true;
                             },
                         .onVideoFrame =
@@ -339,11 +341,13 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // arrives (same reasoning as the P1-P4 picker's own connect
                 // call below).
                 videoTex->reset();
-                session->connect(srv.host, srv.handshakePort,
+                session->connect(srv.host, srv.handshakePort, prefs->videoMode,
                     GbaSession::Listener {
                         .onConnected =
-                            [connected, connectedStreamType](std::string streamType) {
+                            [connected, connectedStreamType, connectedGrantedVideoMode](
+                                std::string streamType, std::string grantedVideoMode) {
                                 *connectedStreamType = std::move(streamType);
+                                *connectedGrantedVideoMode = std::move(grantedVideoMode);
                                 *connected = true;
                             },
                         .onVideoFrame =
@@ -445,6 +449,24 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
         *screenState = BottomScreenState::LANGUAGE;
     }
 
+    // Same "tap the row, pick from a list" pattern as language above,
+    // squeezed into the same tight-space discipline (see this function's
+    // own comment on languageRect) -- one more row than this screen had
+    // room for before, so the antialiasing header/list/backRect below are
+    // all shifted down and slightly compressed (18px step instead of 22,
+    // 16px toggle height instead of 20) to still fit the 240px-tall bottom
+    // screen. Worth a real on-device visual check -- this was tuned by
+    // arithmetic, not by actually seeing it rendered.
+    ui::drawText(textBuf, strings::kSettingsVideoMode, 8, 108, 0.4f, ui::kColorTextDim);
+    const char *videoModeLabel = prefs->videoMode == "h264" ? strings::kVideoModeH264
+                                : prefs->videoMode == "h265" ? strings::kVideoModeH265
+                                : prefs->videoMode == "legacy" ? strings::kVideoModeLegacy
+                                                                : strings::kVideoModeTiles;
+    ui::Rect videoModeRect { 200, 104, 104, 18 };
+    if (ui::button(textBuf, touch, videoModeRect, videoModeLabel)) {
+        *screenState = BottomScreenState::VIDEO_MODE;
+    }
+
     // Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
     // stream_type rather than one global toggle -- GBA/DS pixel art and a
     // Wii U GamePad's higher-effective-resolution render suit different
@@ -454,20 +476,20 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     // so there's no single "current" stream_type to key off anyway --
     // whichever type is actually connected to later just reads whatever
     // was configured here in advance (see main()'s onConnected handling).
-    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 104, 0.4f, ui::kColorTextDim);
-    float y = 122.0f;
+    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 128, 0.4f, ui::kColorTextDim);
+    float y = 146.0f;
     for (const auto &entry : kKnownStreamTypes) {
-        ui::drawText(textBuf, labelForStreamType(entry.streamType), 8, y + 4, 0.38f, ui::kColorText);
-        ui::Rect r { 250, y, 60, 20 };
+        ui::drawText(textBuf, labelForStreamType(entry.streamType), 8, y + 3, 0.38f, ui::kColorText);
+        ui::Rect r { 250, y, 60, 16 };
         bool bilinear = prefs->bilinearFor(entry.streamType);
         if (ui::toggle(touch, r, bilinear)) {
             prefs->setBilinearFor(entry.streamType, !bilinear);
             prefs->save();
         }
-        y += 22.0f;
+        y += 18.0f;
     }
 
-    ui::Rect backRect { 8, 210, 304, 24 };
+    ui::Rect backRect { 8, 220, 304, 18 };
     if (ui::button(textBuf, touch, backRect, strings::kBack)) {
         *screenState = BottomScreenState::MENU;
     }
@@ -508,6 +530,38 @@ void drawLanguageScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
             prefs->language = option.pref;
             prefs->save();
             applyLanguage(*prefs);
+            *screenState = BottomScreenState::SETTINGS;
+        }
+        y += 30.0f;
+    }
+}
+
+// Same "tap a row, pick from it, land back where you were" flow as
+// drawLanguageScreen() above, cloned wholesale -- only 4 options, so this
+// fits comfortably without needing that screen's tight-spacing tricks.
+void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
+    ui::drawText(textBuf, strings::kSettingsVideoMode, 8, 8, 0.55f, ui::kColorText);
+
+    struct VideoModeOption {
+        const char *value; // wire-format string, see finlink/docs/protocol.md
+        const char *label;
+    };
+    // NOT sorted alphabetically, unlike the language list above --
+    // deliberate order (default first, then the two stronger/lossier
+    // compressed options, legacy last as the explicit-opt-out fallback),
+    // same as Android's Prefs.VIDEO_MODES.
+    VideoModeOption options[] = {
+        { "tiles", strings::kVideoModeTiles },
+        { "h264", strings::kVideoModeH264 },
+        { "h265", strings::kVideoModeH265 },
+        { "legacy", strings::kVideoModeLegacy },
+    };
+    float y = 40.0f;
+    for (const auto &option : options) {
+        ui::Rect r { 8, y, 304, 26 };
+        if (ui::button(textBuf, touch, r, option.label)) {
+            prefs->videoMode = option.value;
+            prefs->save();
             *screenState = BottomScreenState::SETTINGS;
         }
         y += 30.0f;
@@ -563,6 +617,14 @@ int main(int argc, char *argv[]) {
     std::atomic<bool> connected { false };
     std::string connectedHost;
     std::string connectedStreamType;
+    // session_ready.video_mode, written from onConnected same as
+    // connectedStreamType above (before *connected=true). Compared against
+    // prefs.videoMode below to show a fallback prompt -- safe to read
+    // prefs.videoMode directly at render time rather than snapshotting a
+    // separate "requested" copy, since Settings (the only place it can
+    // change) is unreachable while connected (see the dispatch chain
+    // below), so it can't change out from under this comparison mid-session.
+    std::string connectedGrantedVideoMode;
     uint16_t physicalMask = 0;
     ui::Touch touch;
     int exitHoldTicks = 0;
@@ -573,6 +635,12 @@ int main(int argc, char *argv[]) {
     // this file; onConnected itself only runs on the session's background
     // thread and must not call it directly (see session.hpp).
     bool filterAppliedThisSession = false;
+    // Main-thread-only (unlike the atomics/strings above, this is only
+    // ever touched by the render loop and the "Fortsetzen" button below) --
+    // true once the user has dismissed the video-mode fallback prompt for
+    // the current connection, so it doesn't reappear every frame for the
+    // rest of the session.
+    bool videoModeFallbackAcknowledged = false;
 
     while (aptMainLoop()) {
         hidScanInput();
@@ -611,6 +679,7 @@ int main(int argc, char *argv[]) {
         } else {
             filterAppliedThisSession = false;
             exitHoldTicks = 0;
+            videoModeFallbackAcknowledged = false;
         }
 
         videoTex.upload();
@@ -645,7 +714,42 @@ int main(int argc, char *argv[]) {
         C2D_TargetClear(uiTarget, ui::kColorBg);
         C2D_SceneBegin(uiTarget);
 
-        if (connected) {
+        // Empty connectedGrantedVideoMode means the server predates
+        // session_ready.video_mode entirely -- skip the comparison rather
+        // than assuming "tiles" was granted, see docs/protocol.md
+        // "Video-mode fallback" and connectedGrantedVideoMode's own comment.
+        const bool showVideoModeFallback = connected && !videoModeFallbackAcknowledged &&
+            !connectedGrantedVideoMode.empty() && connectedGrantedVideoMode != prefs.videoMode;
+
+        if (showVideoModeFallback) {
+            // Non-blocking in spirit (the stream keeps playing/receiving
+            // input underneath, session.sendInput() below still runs) --
+            // this just occupies the status area other clients would use
+            // for the same heads-up, since this UI has nowhere else to put
+            // an overlay.
+            ui::drawText(textBuf, strings::kVideoModeFallbackTitle, 8, 8, 0.5f, ui::kColorText);
+            char message[256];
+            const char *requestedLabel = prefs.videoMode == "h264" ? strings::kVideoModeH264
+                                        : prefs.videoMode == "h265" ? strings::kVideoModeH265
+                                        : prefs.videoMode == "legacy" ? strings::kVideoModeLegacy
+                                                                       : strings::kVideoModeTiles;
+            const char *grantedLabel = connectedGrantedVideoMode == "h264" ? strings::kVideoModeH264
+                                      : connectedGrantedVideoMode == "h265" ? strings::kVideoModeH265
+                                      : connectedGrantedVideoMode == "legacy" ? strings::kVideoModeLegacy
+                                                                               : strings::kVideoModeTiles;
+            snprintf(message, sizeof(message), strings::kVideoModeFallbackMessage, requestedLabel, grantedLabel);
+            ui::drawText(textBuf, message, 8, 40, 0.4f, ui::kColorTextDim);
+            ui::Rect continueRect { 8, 100, 304, 26 };
+            if (ui::button(textBuf, touch, continueRect, strings::kVideoModeFallbackContinue)) {
+                videoModeFallbackAcknowledged = true;
+            }
+            ui::Rect abortRect { 8, 134, 304, 26 };
+            if (ui::button(textBuf, touch, abortRect, strings::kVideoModeFallbackAbort)) {
+                session.disconnect();
+                connected = false;
+            }
+            session.sendInput(physicalMask);
+        } else if (connected) {
             ui::drawText(textBuf, strings::kStatusConnected, 8, 90, 0.55f, ui::kColorText);
             // Temporary debug line while tracking down the garbled-video
             // report on Cemu's WIIU_GAMEPAD stream (854x480, never
@@ -666,9 +770,12 @@ int main(int argc, char *argv[]) {
             session.sendInput(physicalMask);
         } else if (screenState == BottomScreenState::MENU) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
-                           &connectedHost, &connectedStreamType, &beaconListener);
+                           &connectedHost, &connectedStreamType, &prefs, &connectedGrantedVideoMode,
+                           &beaconListener);
         } else if (screenState == BottomScreenState::SETTINGS) {
             drawSettingsScreen(textBuf, touch, &prefs, &screenState);
+        } else if (screenState == BottomScreenState::VIDEO_MODE) {
+            drawVideoModeScreen(textBuf, touch, &prefs, &screenState);
         } else {
             drawLanguageScreen(textBuf, touch, &prefs, &screenState);
         }
