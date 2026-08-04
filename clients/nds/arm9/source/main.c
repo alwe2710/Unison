@@ -121,6 +121,13 @@ static bool g_prefBilinear = false;
  * existing call site already reads. */
 static int g_prefLanguage = -1;
 
+/* Sent verbatim as hello_ack.video_mode during the handshake (see
+ * performAppHandshake()) -- one of the wire-format strings finlink's
+ * docs/protocol.md defines ("tiles"/"legacy"/"h264"/"h265"), picked from
+ * videoModeMenu(). Same "not persisted" caveat as g_prefLanguage above:
+ * resets to "tiles" on every launch. */
+static char g_prefVideoMode[16] = "tiles";
+
 static void applyLanguage(void) {
     if (g_prefLanguage >= 0) {
         strSetLanguage((StrLang)g_prefLanguage);
@@ -151,6 +158,15 @@ static const char *languagePrefLabel(void) {
     case STR_LANG_ES: return STR_LANGUAGE_SPANISH;
     default: return STR_LANGUAGE_SYSTEM;
     }
+}
+
+/* Label for the current g_prefVideoMode value, for slotSelectMenu()'s
+ * status line -- mirrors languagePrefLabel() above. */
+static const char *videoModePrefLabel(void) {
+    if (strcmp(g_prefVideoMode, "h264") == 0) return STR_VIDEO_MODE_H264;
+    if (strcmp(g_prefVideoMode, "h265") == 0) return STR_VIDEO_MODE_H265;
+    if (strcmp(g_prefVideoMode, "legacy") == 0) return STR_VIDEO_MODE_LEGACY;
+    return STR_VIDEO_MODE_TILES;
 }
 
 /* GBA/mGBA's actual native audio rate (matches Dolphin fork's
@@ -516,9 +532,11 @@ static bool receiveOneWsFrame(int fd, finlink_ws_frame *outFrame) {
  * protocol's own one-hop design). outReason must be at least 96 bytes --
  * always NUL-terminated on return, empty string on success. */
 static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, char *outReason,
-                                 size_t outReasonCap, char outStreamType[FINLINK_STREAM_TYPE_LEN]) {
+                                 size_t outReasonCap, char outStreamType[FINLINK_STREAM_TYPE_LEN],
+                                 const char *videoMode, char outGrantedVideoMode[FINLINK_VIDEO_MODE_LEN]) {
     outReason[0] = '\0';
     outStreamType[0] = '\0';
+    outGrantedVideoMode[0] = '\0';
 
     for (int hop = 0; hop < 2; hop++) {
         finlink_ws_frame frame;
@@ -570,6 +588,7 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
         ackReq.max_sample_rate = hello.has_audio && hello.audio.sample_rate > 0 ? hello.audio.sample_rate
                                                                                  : AUDIO_SAMPLE_RATE;
         ackReq.max_channels = 1;
+        strncpy(ackReq.video_mode, videoMode, sizeof(ackReq.video_mode) - 1);
 
         char ackJson[256];
         size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
@@ -624,6 +643,8 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
         }
 
         if (!ready.has_redirect) {
+            strncpy(outGrantedVideoMode, ready.video_mode, FINLINK_VIDEO_MODE_LEN - 1);
+            outGrantedVideoMode[FINLINK_VIDEO_MODE_LEN - 1] = '\0';
             return true;
         }
 
@@ -698,8 +719,9 @@ static void runSession(const char *hostIn, int portIn) {
      * port once, on a redirect. */
     char handshakeFailReason[96];
     char streamType[FINLINK_STREAM_TYPE_LEN];
+    char grantedVideoMode[FINLINK_VIDEO_MODE_LEN];
     if (!performAppHandshake(&fd, host, sizeof(host), &port, handshakeFailReason, sizeof(handshakeFailReason),
-                              streamType)) {
+                              streamType, g_prefVideoMode, grantedVideoMode)) {
         if (fd >= 0) {
             closesocket(fd);
         }
@@ -710,6 +732,38 @@ static void runSession(const char *hostIn, int portIn) {
             swiWaitForVBlank();
             scanKeys();
             if (keysDown()) {
+                return;
+            }
+        }
+    }
+
+    /* Empty grantedVideoMode means the server predates session_ready.
+     * video_mode entirely -- skip the comparison rather than assuming
+     * "tiles" was granted, see docs/protocol.md "Video-mode fallback".
+     * Blocking (this whole client is synchronous, no background thread to
+     * race with) -- A continues into the session below, B disconnects and
+     * returns to the menu same as any other abort path in this function. */
+    if (grantedVideoMode[0] != '\0' && strcmp(grantedVideoMode, g_prefVideoMode) != 0) {
+        const char *requestedLabel = videoModePrefLabel();
+        const char *grantedLabel = strcmp(grantedVideoMode, "h264") == 0 ? STR_VIDEO_MODE_H264
+                                  : strcmp(grantedVideoMode, "h265") == 0 ? STR_VIDEO_MODE_H265
+                                  : strcmp(grantedVideoMode, "legacy") == 0 ? STR_VIDEO_MODE_LEGACY
+                                                                            : STR_VIDEO_MODE_TILES;
+        consoleClear();
+        iprintf("%s\n\n", STR_VIDEO_MODE_FALLBACK_TITLE);
+        iprintf(STR_VIDEO_MODE_FALLBACK_MESSAGE, requestedLabel, grantedLabel);
+        iprintf("\n\n");
+        iprintf(" A = %s\n", STR_VIDEO_MODE_FALLBACK_CONTINUE);
+        iprintf(" B = %s\n", STR_VIDEO_MODE_FALLBACK_ABORT);
+        for (;;) {
+            swiWaitForVBlank();
+            scanKeys();
+            int keys = keysDown();
+            if (keys & KEY_A) {
+                break;
+            }
+            if (keys & KEY_B) {
+                closesocket(fd);
                 return;
             }
         }
@@ -1049,6 +1103,60 @@ static void languageMenu(void) {
     }
 }
 
+/* Same cursor-navigable "pick a row, land back where you were" flow as
+ * languageMenu() above, cloned wholesale. NOT alphabetically sorted,
+ * unlike languageMenu()'s options -- deliberate order (default first, then
+ * the two stronger/lossier compressed options, legacy last as the
+ * explicit-opt-out fallback), same as Android's Prefs.VIDEO_MODES. */
+static void videoModeMenu(void) {
+    struct VideoModeOption {
+        const char *value; /* wire-format string, see finlink/docs/protocol.md */
+        const char *label;
+    };
+    const int kOptionCount = 4;
+    struct VideoModeOption options[4] = {
+        { "tiles", STR_VIDEO_MODE_TILES },
+        { "h264", STR_VIDEO_MODE_H264 },
+        { "h265", STR_VIDEO_MODE_H265 },
+        { "legacy", STR_VIDEO_MODE_LEGACY },
+    };
+
+    int cursor = 0;
+    for (int i = 0; i < kOptionCount; i++) {
+        if (strcmp(options[i].value, g_prefVideoMode) == 0) {
+            cursor = i;
+        }
+    }
+
+    bool dirty = true;
+    for (;;) {
+        if (dirty) {
+            consoleClear();
+            iprintf("%s\n\n", STR_SETTINGS_VIDEO_MODE);
+            for (int i = 0; i < kOptionCount; i++) {
+                iprintf("%s %s\n", i == cursor ? ">" : " ", options[i].label);
+            }
+            dirty = false;
+        }
+        swiWaitForVBlank();
+        scanKeys();
+        int keys = keysDown();
+        if (keys & KEY_UP) {
+            cursor = (cursor + kOptionCount - 1) % kOptionCount;
+            dirty = true;
+        } else if (keys & KEY_DOWN) {
+            cursor = (cursor + 1) % kOptionCount;
+            dirty = true;
+        } else if (keys & KEY_A) {
+            strncpy(g_prefVideoMode, options[cursor].value, sizeof(g_prefVideoMode) - 1);
+            g_prefVideoMode[sizeof(g_prefVideoMode) - 1] = '\0';
+            return;
+        } else if (keys & KEY_B) {
+            return;
+        }
+    }
+}
+
 /* Returns 0-3 for the chosen slot (GC_GBA_LINK) or 0 for "connect" (every
  * other stream type, see streamTypeIsMultiSlot()), -1 to quit, -2 to
  * re-run discovery, -3 to enter the server IP manually. */
@@ -1079,6 +1187,7 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     iprintf(" HOCH = %s\n", STR_SCALE_TOGGLE);
     iprintf(" RUNTER = %s\n", STR_FILTER_TOGGLE);
     iprintf(" LINKS = %s\n", STR_SETTINGS_LANGUAGE);
+    iprintf(" RECHTS = %s\n", STR_SETTINGS_VIDEO_MODE);
     iprintf(" %s\n\n", STR_CONNECT_HINT_QUIT);
     /* Only affects single-screen stream types (GC_GBA_LINK today) -- a
      * stream_type that's itself a dual-screen source's secondary screen
@@ -1090,6 +1199,7 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
     // 1:1 has no scaling to filter, see g_prefBilinear's own comment.
     iprintf("\x1b[19;0HFilterung: %s   ", g_prefBilinear ? STR_FILTER_ON : STR_FILTER_OFF);
     iprintf("\x1b[20;0H%s: %s   ", STR_SETTINGS_LANGUAGE, languagePrefLabel());
+    iprintf("\x1b[21;0H%s: %s   ", STR_SETTINGS_VIDEO_MODE, videoModePrefLabel());
 
     for (;;) {
         swiWaitForVBlank();
@@ -1121,6 +1231,11 @@ static int slotSelectMenu(const char *ownIp, const char *serverIp, bool autoDisc
              * headers, ...) needs to change too, not just this row -- a
              * full re-render is simplest on a sequential iprintf console,
              * unlike the single-line ANSI-positioned patches above. */
+            return slotSelectMenu(ownIp, serverIp, autoDiscovered, streamType);
+        }
+        if (keys & KEY_RIGHT) {
+            videoModeMenu();
+            /* Same full-re-render reasoning as KEY_LEFT above. */
             return slotSelectMenu(ownIp, serverIp, autoDiscovered, streamType);
         }
         if (keys & KEY_START) return -1;
