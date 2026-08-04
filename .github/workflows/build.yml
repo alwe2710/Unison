@@ -60,6 +60,34 @@ jobs:
         working-directory: build/core
         run: ctest --output-on-failure
 
+  dual-screen-choice:
+    # Host-buildable logic tests for the 3DS/NDS screen-choice decision
+    # (dual-screen-client test category) -- deliberately plain ubuntu-latest,
+    # not the devkitpro/devkitarm container the build-3ds/nds jobs below use:
+    # prefs.cpp (3DS) and screen_choice.c (NDS, new) are both kept free of
+    # any devkitARM-only headers specifically so this doesn't need the
+    # cross-toolchain (or its Cloudflare-flaky dkp-pacman install) at all.
+    # Does NOT exercise the real .3dsx/.nds builds -- see build-3ds/nds for
+    # that; this only proves the screen-choice function itself is correct.
+    name: dual-screen-choice (3ds + nds, host-built)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure + build + test (3DS)
+        run: |
+          cmake -S clients/3ds/tests -B build/3ds_dual_screen_choice
+          cmake --build build/3ds_dual_screen_choice -j"$(nproc)"
+      - name: Test (3DS)
+        working-directory: build/3ds_dual_screen_choice
+        run: ctest --output-on-failure
+      - name: Configure + build + test (NDS)
+        run: |
+          cmake -S clients/nds/arm9/tests -B build/nds_dual_screen_choice
+          cmake --build build/nds_dual_screen_choice -j"$(nproc)"
+      - name: Test (NDS)
+        working-directory: build/nds_dual_screen_choice
+        run: ctest --output-on-failure
+
   android:
     name: android (assembleDebug)
     runs-on: ubuntu-latest
