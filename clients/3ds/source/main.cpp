@@ -694,8 +694,7 @@ int main(int argc, char *argv[]) {
         // and there's nothing stream-type-specific to show before then
         // anyway.
         const bool useBottomForVideo =
-            connected && (prefs.bottomScreenVideo ||
-                          finlink_stream_type_prefers_secondary_screen(connectedStreamType.c_str()));
+            connected && shouldShowVideoOnBottomScreen(prefs.bottomScreenVideo, connectedStreamType);
         C3D_RenderTarget *videoTarget = useBottomForVideo ? bottomTarget : topTarget;
         C3D_RenderTarget *uiTarget = useBottomForVideo ? topTarget : bottomTarget;
         const float videoTargetWidth = useBottomForVideo ? 320.0f : 400.0f;

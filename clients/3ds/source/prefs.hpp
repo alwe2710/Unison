@@ -34,7 +34,7 @@ class Prefs {
     // (GC_GBA_LINK today) -- a stream_type that's itself a dual-screen
     // source's own secondary screen (docs/protocol.md "Stream-Typen")
     // always goes to the bottom screen regardless, see main.cpp and
-    // finlink_stream_type_prefers_secondary_screen() (finlink/handshake.h).
+    // shouldShowVideoOnBottomScreen() below.
     bool bottomScreenVideo = false;
 
     // SYSTEM (default) resolves to strings::Lang::DE only if the 3DS's own
@@ -56,3 +56,19 @@ class Prefs {
 
     std::map<std::string, bool> bilinearVideoFilterByStreamType;
 };
+
+// The screen-choice decision main.cpp's render loop consults every frame --
+// pulled out into its own free function (rather than left as the inline
+// `bottomScreenVideo || finlink_stream_type_prefers_secondary_screen(...)`
+// expression it used to be) so it has one place to unit-test (see
+// tests/test_dual_screen_choice.cpp) instead of only being exercisable by
+// running the real render loop on hardware/citra. Not a Prefs method: it
+// only reads the one pref field, doesn't need the rest of Prefs' lifecycle
+// (file I/O, bilinear map, ...) to be constructed just to call it.
+//
+// bottomScreenVideoPref is the user's own top/bottom choice
+// (Prefs::bottomScreenVideo) -- only actually consulted for a single-screen
+// stream_type; a dual-screen source's own secondary screen always forces
+// bottom regardless, see finlink_stream_type_prefers_secondary_screen()
+// (finlink/handshake.h).
+bool shouldShowVideoOnBottomScreen(bool bottomScreenVideoPref, const std::string &streamType);

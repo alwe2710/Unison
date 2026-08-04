@@ -41,6 +41,7 @@
 #include <errno.h>
 
 #include "beacon_discovery.h"
+#include "screen_choice.h"
 #include "strings_generated.h"
 #include "finlink/endian.h"
 #include "finlink/handshake.h"
@@ -781,7 +782,7 @@ static void runSession(const char *hostIn, int portIn) {
      * (docs/protocol.md) always goes to this client's own bottom screen,
      * overriding g_prefBottomScreen -- see
      * finlink_stream_type_prefers_secondary_screen(). */
-    if (g_prefBottomScreen || finlink_stream_type_prefers_secondary_screen(streamType)) {
+    if (finlink_nds_should_show_video_on_bottom(g_prefBottomScreen, streamType)) {
         lcdMainOnBottom();
     } else {
         lcdMainOnTop();
