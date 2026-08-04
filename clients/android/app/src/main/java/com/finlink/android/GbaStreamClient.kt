@@ -32,7 +32,14 @@ class GbaStreamClient(private val listener: Listener) {
         // width/height (never called at all for h264/h265, see
         // PlayerActivity.onVideoFrame's own comment). This is what touch
         // input coordinate mapping should use.
-        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int)
+        //
+        // grantedVideoMode is session_ready.video_mode verbatim -- empty if
+        // the server predates that field entirely (see docs/protocol.md
+        // "Video-mode fallback"). Compare against Prefs.videoMode (what was
+        // actually requested, see connect()'s own videoMode param) to decide
+        // whether to prompt: skip the comparison entirely if this is blank,
+        // don't treat blank as "tiles was granted".
+        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
         // The server's own on-screen software keyboard (e.g. Cemu's swkbd)

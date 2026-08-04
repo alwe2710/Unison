@@ -155,6 +155,14 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // h264/h265 session, where videoBitmap is never populated at all.
     private var streamWidth by mutableStateOf(0)
     private var streamHeight by mutableStateOf(0)
+    // Non-null exactly when onConnected() saw a genuine requested-vs-granted
+    // mismatch (docs/protocol.md "Video-mode fallback") -- (requested,
+    // granted) wire-format mode strings, mapped to their label resources
+    // where shown. The stream is already live/rendering underneath this by
+    // the time it's shown (session_ready already committed the server to
+    // `granted`), so this is a non-blocking heads-up, not a gate on
+    // playback starting -- "Fortsetzen" just dismisses it.
+    private var videoModeFallback by mutableStateOf<Pair<String, String>?>(null)
     // Distinguishes melonDS's "touch_and_buttons" (buttons, no analog
     // sticks -- the DS has none on real hardware) from Azahar's
     // "n3ds_touch_and_buttons" (buttons AND circle pad/analog sticks).
@@ -495,8 +503,53 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                 }
             }
 
+            // Non-blocking: the stream is already live in the granted mode
+            // by the time this can even show (see videoModeFallback's own
+            // comment) -- "Fortsetzen" just dismisses it, "Abbrechen" tears
+            // down the session same as a normal user-initiated disconnect.
+            videoModeFallback?.let { (requested, granted) ->
+                Dialog(onDismissRequest = { videoModeFallback = null }) {
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(stringResource(R.string.video_mode_fallback_title), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                stringResource(
+                                    R.string.video_mode_fallback_message,
+                                    stringResource(videoModeLabelRes(requested)),
+                                    stringResource(videoModeLabelRes(granted))
+                                ),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Row(modifier = Modifier.align(Alignment.End)) {
+                                TextButton(onClick = {
+                                    videoModeFallback = null
+                                    disconnect()
+                                    finish()
+                                }) {
+                                    Text(stringResource(R.string.video_mode_fallback_abort))
+                                }
+                                TextButton(onClick = { videoModeFallback = null }) {
+                                    Text(stringResource(R.string.video_mode_fallback_continue))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
         }
     }
+
+    /** Wire-format video_mode string ("tiles"/"legacy"/"h264"/"h265") ->
+     * its user-facing label resource, reusing Prefs.VIDEO_MODES (the same
+     * source VideoModeActivity's picker already uses) instead of a second,
+     * separately-maintained mapping. Falls back to R.string.video_mode_tiles
+     * only as a last resort -- every value either side of this feature can
+     * legitimately send is already one of Prefs.VIDEO_MODES' entries. */
+    private fun videoModeLabelRes(mode: String): Int =
+        Prefs.VIDEO_MODES.find { it.value == mode }?.labelRes ?: R.string.video_mode_tiles
 
     /** Cross-shaped D-pad: only the four edge-center cells of a 3x3 grid are
      * filled, which alone reads as a plus/cross, matching a real D-pad
@@ -1046,7 +1099,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // before touching Compose state. onAudioFrame is the one exception --
     // writing to AudioTrack from a background thread is exactly what it's for.
 
-    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int) {
+    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String) {
         runOnUiThread {
             connected = true
             touchMode = isTouch
@@ -1054,6 +1107,15 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
             hasSticksMode = hasSticks
             streamWidth = width
             streamHeight = height
+            // Blank grantedVideoMode means the server predates
+            // session_ready.video_mode entirely -- skip the comparison
+            // rather than assuming "tiles" was granted, see
+            // docs/protocol.md "Video-mode fallback" and this field's own
+            // comment in GbaStreamClient.Listener.
+            val requested = prefs.videoMode
+            if (grantedVideoMode.isNotBlank() && requested != grantedVideoMode) {
+                videoModeFallback = requested to grantedVideoMode
+            }
         }
     }
 

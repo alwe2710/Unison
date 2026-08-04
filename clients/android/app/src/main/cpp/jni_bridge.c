@@ -172,6 +172,18 @@ typedef struct {
     // against the new window on the next frame rather than continuing to
     // render into a surface that's since been destroyed.
     atomic_bool video_window_changed;
+    // Monotonic timestamp (ms, CLOCK_MONOTONIC) of the last time a decoded
+    // buffer was actually rendered (render=true) -- see
+    // handle_h264_h265_video_message()'s own comment on why draining and
+    // rendering the newest ready buffer *per call* still wasn't enough:
+    // several distinct video messages calling that function back-to-back
+    // (routine during busy/fast-changing content, rare during a mostly
+    // static screen) each rendered their own "newest" buffer, pushing
+    // frames into the Surface faster than the display could actually
+    // composite them -- visible as two frames' content torn together in
+    // the same displayed image. Only ever touched by the session thread,
+    // same as video_codec.
+    int64_t last_video_render_time_ms;
 } finlink_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -395,6 +407,14 @@ typedef struct {
     // true only for the first. Both meaningless when touch_input is false.
     bool extended_input;
     bool has_buttons;
+    // From session_ready.video_mode -- what the server actually settled on,
+    // per docs/protocol.md "Video-mode fallback". Empty means the server
+    // predates this field entirely; PlayerActivity must treat that the same
+    // as "no information, don't prompt" and skip the requested-vs-granted
+    // comparison, NOT assume "tiles" was granted (see that doc section for
+    // why -- an old/unpatched server must never produce a false-positive
+    // fallback prompt).
+    char granted_video_mode[FINLINK_VIDEO_MODE_LEN];
 } app_handshake_result;
 
 // App-level handshake (finlink/handshake.h, docs/protocol.md
@@ -546,6 +566,8 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         if (!ready.has_redirect) {
             result.width = (int32_t)ready.video.width;
             result.height = (int32_t)ready.video.height;
+            strncpy(result.granted_video_mode, ready.video_mode, sizeof(result.granted_video_mode) - 1);
+            result.granted_video_mode[sizeof(result.granted_video_mode) - 1] = '\0';
             result.ok = true;
             return result;
         }
@@ -658,6 +680,12 @@ static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width
     s->video_codec_format = format;
 }
 
+static int64_t monotonic_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 // FINLINK_VIDEO_FORMAT_H264/_H265: hdr->compressed_data is a raw Annex-B NAL
 // stream straight from the server's encoder (see docs/protocol.md's
 // "Keyframe discipline"), not raw-deflate -- fed directly to MediaCodec
@@ -692,15 +720,15 @@ static void handle_h264_h265_video_message(finlink_session *s, const finlink_vid
     // this codebase's video path -- the next forced keyframe self-heals it.
 
     // Drains every output buffer that's already ready, but only ever
-    // renders the LAST one: releasing several buffers back-to-back with
-    // render=true pushes frames into the Surface faster than the display
-    // can composite them, which on at least one real device showed up as
-    // visible tearing/interleaving between two frames' content -- and,
-    // since a network stall can leave several NALs queued up for the
-    // decoder to catch up on all at once, rendering every one of them in
-    // sequence instead of skipping to the newest is exactly the kind of
-    // backlog that reads as added lag. Any older ready buffer is released
-    // with render=false (discarded, not displayed) before moving on.
+    // renders at most ONE, and only if enough time has passed since the
+    // last actual render (see last_video_render_time_ms's own comment):
+    // releasing buffers with render=true faster than the display can
+    // composite them -- whether several in one call's own drain loop, or
+    // one each from several distinct messages/calls arriving back-to-back
+    // (routine during busy, fast-changing content) -- pushed frames into
+    // the Surface fast enough to show up as two frames' content visibly
+    // torn together in the same displayed image. Anything not rendered is
+    // released with render=false (discarded, not displayed).
     AMediaCodecBufferInfo info;
     ssize_t pendingIdx = -1;
     int droppedCount = 0;
@@ -716,7 +744,19 @@ static void handle_h264_h265_video_message(finlink_session *s, const finlink_vid
         pendingIdx = outIdx;
     }
     if (pendingIdx >= 0) {
-        AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, true);
+        // ~40ms floor between renders (a little under the 50ms/20fps
+        // capture cadence this whole pipeline is built around) rather
+        // than a hard cap at exactly 50ms, so a frame that arrives only
+        // slightly early still displays instead of being needlessly
+        // dropped.
+        const int64_t nowMs = monotonic_now_ms();
+        if (nowMs - s->last_video_render_time_ms >= 40) {
+            AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, true);
+            s->last_video_render_time_ms = nowMs;
+        } else {
+            AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, false);
+            droppedCount++;
+        }
     }
 
     // Temporary diagnostic (see the "verzögert nach dem Intro"
@@ -1114,7 +1154,7 @@ static void *client_thread_main(void *arg) {
     (*s->jvm)->AttachCurrentThread(s->jvm, &env, NULL);
 
     jclass listener_class = (*env)->GetObjectClass(env, s->listener);
-    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZII)V");
+    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZIILjava/lang/String;)V");
     jmethodID on_video = (*env)->GetMethodID(env, listener_class, "onVideoFrame", "(II[B)V");
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
     jmethodID on_text_input_request =
@@ -1147,9 +1187,16 @@ static void *client_thread_main(void *arg) {
 
     atomic_store(&s->extended_input, hs.extended_input);
     atomic_store(&s->has_buttons, hs.has_buttons);
+    // Empty granted_video_mode (server predates session_ready.video_mode)
+    // is passed through as an empty jstring, not null -- Kotlin's onConnected
+    // does the "skip the fallback comparison" decision on isBlank(), matching
+    // docs/protocol.md's "Video-mode fallback" without needing a nullable
+    // String across the JNI boundary.
+    jstring jgranted_video_mode = (*env)->NewStringUTF(env, hs.granted_video_mode);
     (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
                             (jboolean)hs.has_buttons, (jboolean)hs.extended_input, (jint)hs.width,
-                            (jint)hs.height);
+                            (jint)hs.height, jgranted_video_mode);
+    (*env)->DeleteLocalRef(env, jgranted_video_mode);
     run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf);
     byte_buf_free(&buf);
 
@@ -1205,6 +1252,7 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
     atomic_init(&s->mic_enabled, false);
     pthread_mutex_init(&s->video_window_mutex, NULL);
     atomic_init(&s->video_window_changed, false);
+    s->last_video_render_time_ms = 0;
 
     if (pthread_create(&s->thread, NULL, client_thread_main, s) != 0) {
         LOGE("pthread_create failed");

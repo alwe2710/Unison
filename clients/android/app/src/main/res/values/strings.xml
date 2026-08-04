@@ -48,6 +48,10 @@
     <string name="video_mode_h264">H.264</string>
     <string name="video_mode_h265">H.265</string>
     <string name="video_mode_legacy">Legacy (uncompressed)</string>
+    <string name="video_mode_fallback_title">Different video mode</string>
+    <string name="video_mode_fallback_message">The server doesn\'t support &quot;%1$s&quot; and is using &quot;%2$s&quot; instead.</string>
+    <string name="video_mode_fallback_continue">Continue</string>
+    <string name="video_mode_fallback_abort">Abort</string>
     <string name="settings_bilinear_filter_header">Bilinear filtering instead of nearest-neighbor, per connected console.</string>
     <string name="settings_key_bindings">Key bindings</string>
     <string name="settings_bind">Bind</string>

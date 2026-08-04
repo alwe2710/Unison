@@ -48,6 +48,10 @@
     <string name="video_mode_h264">H.264</string>
     <string name="video_mode_h265">H.265</string>
     <string name="video_mode_legacy">Classica (non compressa)</string>
+    <string name="video_mode_fallback_title">Modalità video diversa</string>
+    <string name="video_mode_fallback_message">Il server non supporta &quot;%1$s&quot; e utilizza &quot;%2$s&quot; al suo posto.</string>
+    <string name="video_mode_fallback_continue">Continua</string>
+    <string name="video_mode_fallback_abort">Interrompi</string>
     <string name="settings_bilinear_filter_header">Filtro bilineare invece del vicino più prossimo, per console collegata.</string>
     <string name="settings_key_bindings">Associazione tasti</string>
     <string name="settings_bind">Assegna</string>
