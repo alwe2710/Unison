@@ -98,7 +98,19 @@ typedef struct {
 /* Server -> client, confirms (possibly downscaled) parameters and either the
  * final slot or a redirect to reconnect elsewhere and repeat the whole
  * hello/hello_ack exchange (multi-slot stream types only, e.g. GC_GBA_LINK's
- * lobby-to-player-port hop). */
+ * lobby-to-player-port hop).
+ *
+ * video_mode is what the server actually used/will use for this session --
+ * NOT necessarily an echo of the hello_ack.video_mode the client requested,
+ * since the server may not support it (falls back to whatever it actually
+ * has). Empty means the server predates this field entirely (an
+ * unpatched/older host), which is a *different* case from the server
+ * deliberately reporting a fallback: a client should only compare this
+ * against what it requested (see docs/protocol.md, "Video-mode fallback")
+ * when this is non-empty. Treat an empty value as "no information, don't
+ * prompt the user" -- not as "tiles was granted" -- so an old host that
+ * predates this field entirely never produces a false-positive prompt,
+ * regardless of what was requested. */
 typedef struct {
     int slot;
     finlink_handshake_video video;
@@ -107,6 +119,7 @@ typedef struct {
     int has_redirect;
     char redirect_host[FINLINK_HOST_LEN];
     int redirect_port;
+    char video_mode[FINLINK_VIDEO_MODE_LEN];
 } finlink_session_ready;
 
 typedef struct {

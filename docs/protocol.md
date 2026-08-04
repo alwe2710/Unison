@@ -307,9 +307,17 @@ priority as long as the client can handle them per `hello_ack`, otherwise the se
   "message": "session_ready",
   "slot": 0,
   "video": { "width": 240, "height": 160, "fps": 59.7275 },
-  "audio": { "sample_rate": 32768, "channels": 2 }
+  "audio": { "sample_rate": 32768, "channels": 2 },
+  "video_mode": "tiles"
 }
 ```
+
+- `video_mode`: what the server actually used/will use for this session — **not necessarily an
+  echo** of the `hello_ack.video_mode` the client requested, since the server may not support it
+  and fell back to whatever it actually has (see "Video-mode fallback" below). Absent entirely for
+  any server that predates this field — a client must **not** treat an absent value the same as
+  `"tiles"` the way `hello_ack.video_mode`'s own absent-value convention works; there is
+  deliberately no default here (see below for why).
 
 Optionally with an additional `"redirect": { "host": "192.168.1.42", "port": 6801 }` — only for
 stream types with more than one slot. If `redirect` is set, **this** connection carries no
@@ -331,11 +339,36 @@ format itself (the frame header already carries `width`/`height` per frame, see 
 resolution/frame rate/sample rate to encode at, before the existing header+deflate pipeline takes
 over.
 
+### Video-mode fallback
+
+A server isn't required to honor `hello_ack.video_mode` — it may not support the requested
+encoding at all (e.g. a server with no H.264/H.265 encoder receiving `"h264"`), in which case it
+falls back to whatever it actually has and reports that real choice in `session_ready.video_mode`
+instead. This is deliberately **not** a `handshake_error`: the session still proceeds normally in
+the server's chosen fallback mode, video/audio/input frames start flowing exactly as they would
+for a successful match — the client alone decides afterward, client-side only, whether to keep
+that connection or disconnect, based on comparing what it asked for against what it got.
+
+A client that sent a non-empty `hello_ack.video_mode` should compare it against
+`session_ready.video_mode` once the latter arrives:
+- Both present and equal: request was honored, proceed silently.
+- Both present and different: the server fell back — a client with a UI should offer the user a
+  choice (continue in the granted mode, or abort/disconnect) rather than silently either one.
+- `session_ready.video_mode` absent: **the server predates this field and never made this
+  decision at all** — a fundamentally different situation from "the server decided against my
+  request." A client must not treat this the same as a reported fallback (and specifically must
+  not assume `"tiles"` was granted, unlike `hello_ack.video_mode`'s own absent-value convention) —
+  skip the comparison entirely and proceed without prompting, regardless of what was requested.
+  This is what keeps an old, unpatched server from ever producing a false-positive fallback
+  prompt.
+
 ### `handshake_error` (server → client)
 
 Replaces `session_ready`, can arrive in its place at any point after `hello_ack` (or instead of a
 `hello`, if the server already knows in advance that it can't serve the client — e.g. a version
-failure with no need to wait):
+failure with no need to wait). Not the mechanism for an unsupported `video_mode` — that's a normal
+`session_ready` with a fallback value, see "Video-mode fallback" above; `handshake_error` is only
+for cases where no session can start at all:
 
 ```json
 {

@@ -173,6 +173,7 @@ finlink_handshake_result finlink_parse_session_ready(const uint8_t *data, size_t
         (int)finlink_json_get_number(text, finlink_json_find_member(text, obj.start, obj.end, "slot"));
     out->video = parse_video(text, obj.start, obj.end);
     out->has_audio = parse_audio(text, obj.start, obj.end, &out->audio);
+    get_string_field(text, obj.start, obj.end, "video_mode", out->video_mode, sizeof(out->video_mode));
 
     const finlink_json_span redirect_span =
         finlink_json_find_member(text, obj.start, obj.end, "redirect");
