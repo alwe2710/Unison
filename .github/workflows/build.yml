@@ -48,6 +48,21 @@ jobs:
       - run: python3 tools/check_capabilities.py
       - run: python3 tools/check_button_mapping.py
 
+  host-protocol-consistency:
+    # Separate job from capabilities above (not just another step there):
+    # this one shallow-clones all four host forks over the network to
+    # compare their handshake_error code strings against each other (see
+    # tools/check_host_protocol_consistency.py's own docstring) -- a
+    # transient network hiccup fetching one of them shouldn't fail the
+    # purely-local capability/button-mapping checks, and vice versa.
+    name: host protocol consistency (cross-repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - run: python3 tools/check_host_protocol_consistency.py
+
   core:
     # Stage 2 of the CI plan: real functional tests (core/tests' ctest
     # suite -- protocol/deflate/inflate/websocket/video_encode/handshake),
