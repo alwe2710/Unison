@@ -1,5 +1,7 @@
 # finlink
 
+[![build](https://github.com/alwe2710/finlink/actions/workflows/build.yml/badge.svg?branch=transcoding)](https://github.com/alwe2710/finlink/actions/workflows/build.yml?query=branch%3Atranscoding)
+
 Generic client framework for the finlink streaming protocol: a small WebSocket-based protocol for
 streaming a console's screen, audio, and input between an emulator and a remote client.
 
