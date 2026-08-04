@@ -245,3 +245,9 @@ jobs:
         run: git clone --depth 1 https://github.com/emscripten-core/emsdk.git clients/web/emsdk
       - name: Build wasm bridge + run bridge_test.mjs
         run: clients/web/build_wasm.sh
+      # settings.js has no wasm/emsdk dependency at all (pure language/
+      # bilinear-filter logic, see its own comment) -- runs with whatever
+      # plain `node` ubuntu-latest already ships (same runtime
+      # bridge_test.mjs itself needs), no separate setup-node needed.
+      - name: Run settings_test.mjs
+        run: node clients/web/settings_test.mjs

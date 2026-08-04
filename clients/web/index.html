@@ -352,6 +352,7 @@
 </div>
 </div>
 <script src="strings_generated.js"></script>
+<script src="settings.js"></script>
 <script src="finlink_core.js"></script>
 <script>
 // STRINGS (strings_generated.js, generated from the central i18n/strings.json
@@ -366,22 +367,18 @@
 // browser's own language matches, else 'en' -- same "English if
 // undetermined/unsupported" policy as every other client -- overridable via
 // the settings panel's language picker (persisted in localStorage).
-const SUPPORTED_LANGS = ['de', 'en', 'fr', 'it', 'es'];
+// SUPPORTED_LANGS/resolvedLang/formatString: settings.js (pure, unit-tested
+// there -- see settings_test.mjs).
 let langPref = localStorage.getItem('finlinkWebLanguage') || 'system';
-function resolvedLang() {
-  if (SUPPORTED_LANGS.includes(langPref)) return langPref;
-  const sysLang = (navigator.language || '').toLowerCase().slice(0, 2);
-  return SUPPORTED_LANGS.includes(sysLang) ? sysLang : 'en';
-}
-let currentLang = resolvedLang();
+let currentLang = resolvedLang(langPref, (navigator.language || '').toLowerCase().slice(0, 2));
 function setLangPref(pref) {
   langPref = pref;
   localStorage.setItem('finlinkWebLanguage', pref);
-  currentLang = resolvedLang();
+  currentLang = resolvedLang(langPref, (navigator.language || '').toLowerCase().slice(0, 2));
 }
 function t(key, ...args) {
   const text = (STRINGS[currentLang] && STRINGS[currentLang][key]) || STRINGS.en[key];
-  return text.replace(/\{(\d+)\}/g, (_, i) => args[i]);
+  return formatString(text, args);
 }
 
 // Any touch-capable device is treated as mobile: fullscreen video, on-screen
@@ -418,13 +415,9 @@ const KNOWN_STREAM_TYPES = [
   ['N3DS_BOTTOM_SCREEN', t('console_n3ds_bottom_screen')],
   ['NDS_BOTTOM_SCREEN', t('console_nds_bottom_screen')],
 ];
-function defaultBilinearFor(streamType) {
-  return streamType === 'WIIU_GAMEPAD' || streamType === 'N3DS_BOTTOM_SCREEN' || streamType === 'NDS_BOTTOM_SCREEN';
-}
+// defaultBilinearFor/bilinearFor: settings.js (pure, unit-tested there --
+// see settings_test.mjs).
 const filterPrefs = JSON.parse(localStorage.getItem('finlinkWebBilinearByStreamType') || '{}');
-function bilinearFor(streamType) {
-  return streamType in filterPrefs ? !!filterPrefs[streamType] : defaultBilinearFor(streamType);
-}
 function setBilinearFor(streamType, value) {
   filterPrefs[streamType] = value;
   localStorage.setItem('finlinkWebBilinearByStreamType', JSON.stringify(filterPrefs));
@@ -473,7 +466,7 @@ function renderFilterRows(containerId) {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.className = 'switch';
-    input.checked = bilinearFor(streamType);
+    input.checked = bilinearFor(streamType, filterPrefs);
     input.onchange = () => {
       setBilinearFor(streamType, input.checked);
       if (streamType === currentStreamType) {
@@ -870,7 +863,7 @@ function handleHandshakeMessage(text) {
       // different port that sends its own fresh hello -- this always
       // reflects whichever connection is current, same as pendingAck.
       currentStreamType = wasmModule.ccall('finlink_wasm_hello_stream_type', 'string', [], []);
-      canvas.style.imageRendering = bilinearFor(currentStreamType) ? 'auto' : 'pixelated';
+      canvas.style.imageRendering = bilinearFor(currentStreamType, filterPrefs) ? 'auto' : 'pixelated';
       const wantsAudio = wasmModule.ccall('finlink_wasm_hello_has_audio', 'number', [], []);
       // Generous/native throughout: nothing about a browser tab justifies
       // asking the server to downscale its stream.
