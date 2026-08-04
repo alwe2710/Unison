@@ -150,17 +150,33 @@ jobs:
         # download -- so both the DB Path (the synced repo .db files) and
         # Cache Dirs (downloaded .pkg.tar.* files) need to survive between
         # runs for a cache hit to let a later run skip pkg.devkitpro.org
-        # entirely. Queried from `pacman -Vv`'s own config dump rather than
-        # guessed/hardcoded, since it's undocumented for devkitPro's fork
-        # specifically and pacman will just tell us.
+        # entirely. `pacman -Vv` turned out to just print the version
+        # banner on devkitPro's fork (no config dump like stock Arch
+        # pacman) -- fall back to `pacman-conf` if present, then to
+        # grepping pacman.conf directly, since the config file itself
+        # ships with the base image and doesn't need a successful sync to
+        # exist.
         run: |
-          dkp-pacman -Vv
-          dbpath=$(dkp-pacman -Vv 2>&1 | awk -F': *' '/DB Path/ {print $2}' | awk '{print $1}')
-          cachedir=$(dkp-pacman -Vv 2>&1 | awk -F': *' '/Cache Dirs/ {print $2}' | awk '{print $1}')
+          dbpath=""
+          cachedir=""
+          if command -v pacman-conf >/dev/null 2>&1; then
+            dbpath=$(pacman-conf DBPath 2>/dev/null || true)
+            cachedir=$(pacman-conf CacheDir 2>/dev/null | head -1 || true)
+          fi
+          conf=$(find /opt/devkitpro -maxdepth 4 -iname "pacman.conf" 2>/dev/null | head -1)
+          echo "pacman.conf: ${conf:-<not found>}"
+          if [ -n "$conf" ]; then
+            cat "$conf"
+            [ -z "$dbpath" ] && dbpath=$(awk -F'= *' '/^ *DBPath/ {print $2}' "$conf")
+            [ -z "$cachedir" ] && cachedir=$(awk -F'= *' '/^ *CacheDir/ {print $2}' "$conf")
+          fi
+          echo "Diagnostic tree under /opt/devkitpro/pacman (up to depth 5):"
+          find /opt/devkitpro/pacman -maxdepth 5 -type d 2>/dev/null
           echo "Detected DB Path: '$dbpath', Cache Dirs: '$cachedir'"
           echo "dbpath=$dbpath" >> "$GITHUB_OUTPUT"
           echo "cachedir=$cachedir" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: steps.pacman_cache.outputs.dbpath != '' && steps.pacman_cache.outputs.cachedir != ''
         with:
           path: |
             ${{ steps.pacman_cache.outputs.dbpath }}
@@ -199,15 +215,30 @@ jobs:
       - name: Locate dkp-pacman cache/DB dirs
         id: pacman_cache
         # See the 3ds job's identical step for why both DB Path and Cache
-        # Dirs need caching, and why they're queried rather than guessed.
+        # Dirs need caching, why they're queried rather than guessed, and
+        # why pacman-conf/pacman.conf are used instead of `pacman -Vv`
+        # (just prints a version banner on devkitPro's fork).
         run: |
-          dkp-pacman -Vv
-          dbpath=$(dkp-pacman -Vv 2>&1 | awk -F': *' '/DB Path/ {print $2}' | awk '{print $1}')
-          cachedir=$(dkp-pacman -Vv 2>&1 | awk -F': *' '/Cache Dirs/ {print $2}' | awk '{print $1}')
+          dbpath=""
+          cachedir=""
+          if command -v pacman-conf >/dev/null 2>&1; then
+            dbpath=$(pacman-conf DBPath 2>/dev/null || true)
+            cachedir=$(pacman-conf CacheDir 2>/dev/null | head -1 || true)
+          fi
+          conf=$(find /opt/devkitpro -maxdepth 4 -iname "pacman.conf" 2>/dev/null | head -1)
+          echo "pacman.conf: ${conf:-<not found>}"
+          if [ -n "$conf" ]; then
+            cat "$conf"
+            [ -z "$dbpath" ] && dbpath=$(awk -F'= *' '/^ *DBPath/ {print $2}' "$conf")
+            [ -z "$cachedir" ] && cachedir=$(awk -F'= *' '/^ *CacheDir/ {print $2}' "$conf")
+          fi
+          echo "Diagnostic tree under /opt/devkitpro/pacman (up to depth 5):"
+          find /opt/devkitpro/pacman -maxdepth 5 -type d 2>/dev/null
           echo "Detected DB Path: '$dbpath', Cache Dirs: '$cachedir'"
           echo "dbpath=$dbpath" >> "$GITHUB_OUTPUT"
           echo "cachedir=$cachedir" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: steps.pacman_cache.outputs.dbpath != '' && steps.pacman_cache.outputs.cachedir != ''
         with:
           path: |
             ${{ steps.pacman_cache.outputs.dbpath }}
@@ -243,15 +274,30 @@ jobs:
       - name: Locate dkp-pacman cache/DB dirs
         id: pacman_cache
         # See the 3ds job's identical step for why both DB Path and Cache
-        # Dirs need caching, and why they're queried rather than guessed.
+        # Dirs need caching, why they're queried rather than guessed, and
+        # why pacman-conf/pacman.conf are used instead of `pacman -Vv`
+        # (just prints a version banner on devkitPro's fork).
         run: |
-          dkp-pacman -Vv
-          dbpath=$(dkp-pacman -Vv 2>&1 | awk -F': *' '/DB Path/ {print $2}' | awk '{print $1}')
-          cachedir=$(dkp-pacman -Vv 2>&1 | awk -F': *' '/Cache Dirs/ {print $2}' | awk '{print $1}')
+          dbpath=""
+          cachedir=""
+          if command -v pacman-conf >/dev/null 2>&1; then
+            dbpath=$(pacman-conf DBPath 2>/dev/null || true)
+            cachedir=$(pacman-conf CacheDir 2>/dev/null | head -1 || true)
+          fi
+          conf=$(find /opt/devkitpro -maxdepth 4 -iname "pacman.conf" 2>/dev/null | head -1)
+          echo "pacman.conf: ${conf:-<not found>}"
+          if [ -n "$conf" ]; then
+            cat "$conf"
+            [ -z "$dbpath" ] && dbpath=$(awk -F'= *' '/^ *DBPath/ {print $2}' "$conf")
+            [ -z "$cachedir" ] && cachedir=$(awk -F'= *' '/^ *CacheDir/ {print $2}' "$conf")
+          fi
+          echo "Diagnostic tree under /opt/devkitpro/pacman (up to depth 5):"
+          find /opt/devkitpro/pacman -maxdepth 5 -type d 2>/dev/null
           echo "Detected DB Path: '$dbpath', Cache Dirs: '$cachedir'"
           echo "dbpath=$dbpath" >> "$GITHUB_OUTPUT"
           echo "cachedir=$cachedir" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: steps.pacman_cache.outputs.dbpath != '' && steps.pacman_cache.outputs.cachedir != ''
         with:
           path: |
             ${{ steps.pacman_cache.outputs.dbpath }}
