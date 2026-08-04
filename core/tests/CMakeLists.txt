@@ -17,3 +17,7 @@ add_test(NAME websocket COMMAND finlink_test_websocket)
 add_executable(finlink_test_video_encode test_video_encode.c)
 target_link_libraries(finlink_test_video_encode PRIVATE finlink_core)
 add_test(NAME video_encode COMMAND finlink_test_video_encode)
+
+add_executable(finlink_test_handshake test_handshake.c)
+target_link_libraries(finlink_test_handshake PRIVATE finlink_core)
+add_test(NAME handshake COMMAND finlink_test_handshake)

@@ -1,11 +1,12 @@
 name: build
 
-# Stage 1 of the finlink CI pipeline: build-smoke only (configure + compile
-# every target). No unit tests wired in yet (finlink/core/tests' ctest
-# suite and clients/web/bridge_test.mjs stay a manual/local step for now,
-# see docs/capabilities.md and the CI plan this workflow came from) —
-# deeper tiers (unit tests, simulated host<->client integration, real
-# device/emulator e2e) are deliberately later work.
+# Build-smoke (configure + compile every target) plus real functional
+# tests where they exist: core/tests' ctest suite (protocol/deflate/
+# inflate/websocket/video_encode/handshake) and clients/web/
+# bridge_test.mjs (already run as build_wasm.sh's own last step). Deeper
+# tiers -- simulated host<->client integration, real device/emulator e2e
+# -- are still deliberately later work, see docs/capabilities.md and the
+# CI plan this workflow came from.
 #
 # This repo previously had no CI at all, so every job here is new. Package
 # lists for the devkitPro-based jobs (3ds/switch/nds) are taken verbatim
@@ -40,14 +41,24 @@ jobs:
       - run: python3 tools/check_capabilities.py
 
   core:
-    name: core (native, build-only)
+    # Stage 2 of the CI plan: real functional tests (core/tests' ctest
+    # suite -- protocol/deflate/inflate/websocket/video_encode/handshake),
+    # not just "does it compile". Previously build-only
+    # (-DFINLINK_BUILD_TESTS=OFF) per the stage-1 plan; flipped on once
+    # test_handshake.c actually existed to run (it's the one covering
+    # hello_ack/session_ready.video_mode, the "Video-mode fallback"
+    # negotiation this whole feature is built on).
+    name: core (build + ctest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S core -B build/core -DFINLINK_BUILD_TESTS=OFF
+        run: cmake -S core -B build/core -DFINLINK_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build/core -j"$(nproc)"
+      - name: Test
+        working-directory: build/core
+        run: ctest --output-on-failure
 
   android:
     name: android (assembleDebug)
