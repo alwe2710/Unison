@@ -259,6 +259,258 @@ static void test_touch_frame_released(void) {
     CHECK(parsed.pressed == 0);
 }
 
+static void test_extended_input_frame_pressed(void) {
+    /* n3ds_touch_and_buttons: touch + a button superset + both analog
+     * sticks in one fixed frame -- round-trip every field, not just touch,
+     * since finlink_extended_input bundles three independent input kinds
+     * that a caller could easily wire up in the wrong order. */
+    uint8_t buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE];
+    finlink_extended_input input;
+    input.pressed = 1;
+    input.touch_x = 160;
+    input.touch_y = 120;
+    input.buttons = FINLINK_BUTTON_A | FINLINK_BUTTON_HOME;
+    input.left_x = -32768;
+    input.left_y = 32767;
+    input.right_x = 0;
+    input.right_y = -1;
+
+    CHECK(finlink_build_extended_input_frame(&input, buf) == FINLINK_EXTENDED_INPUT_FRAME_SIZE);
+    CHECK(buf[0] == FINLINK_MSG_INPUT);
+
+    finlink_extended_input parsed;
+    CHECK(finlink_parse_extended_input_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.pressed != 0);
+    CHECK(parsed.touch_x == 160);
+    CHECK(parsed.touch_y == 120);
+    CHECK(parsed.buttons == (FINLINK_BUTTON_A | FINLINK_BUTTON_HOME));
+    CHECK(parsed.left_x == -32768);
+    CHECK(parsed.left_y == 32767);
+    CHECK(parsed.right_x == 0);
+    CHECK(parsed.right_y == -1);
+
+    /* Too short to even hold the fixed frame */
+    CHECK(finlink_parse_extended_input_frame(buf, FINLINK_EXTENDED_INPUT_FRAME_SIZE - 1, &parsed) ==
+          FINLINK_ERR_TOO_SHORT);
+}
+
+static void test_extended_input_frame_released(void) {
+    /* Same "release carries no position" convention as finlink_touch_state
+     * (test_touch_frame_released) -- buttons/sticks are independent of
+     * touch and must NOT be zeroed just because pressed is 0. */
+    uint8_t buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE];
+    finlink_extended_input input;
+    input.pressed = 0;
+    input.touch_x = 999;
+    input.touch_y = 999;
+    input.buttons = FINLINK_BUTTON_START;
+    input.left_x = 100;
+    input.left_y = -100;
+    input.right_x = 50;
+    input.right_y = -50;
+
+    CHECK(finlink_build_extended_input_frame(&input, buf) == FINLINK_EXTENDED_INPUT_FRAME_SIZE);
+
+    finlink_extended_input parsed;
+    CHECK(finlink_parse_extended_input_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.pressed == 0);
+    CHECK(parsed.touch_x == 0);
+    CHECK(parsed.touch_y == 0);
+    CHECK(parsed.buttons == FINLINK_BUTTON_START);
+    CHECK(parsed.left_x == 100);
+    CHECK(parsed.left_y == -100);
+    CHECK(parsed.right_x == 50);
+    CHECK(parsed.right_y == -50);
+}
+
+static void test_touch_and_buttons_frame(void) {
+    /* NDS_BOTTOM_SCREEN's input_encoding -- same idea as extended_input but
+     * without the two always-zero stick fields (the DS has no analog
+     * stick), a genuinely smaller wire shape rather than padding. */
+    uint8_t buf[FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE];
+    finlink_touch_and_buttons input;
+    input.pressed = 1;
+    input.touch_x = 128;
+    input.touch_y = 96;
+    input.buttons = FINLINK_BUTTON_A | FINLINK_BUTTON_B | FINLINK_BUTTON_UP;
+
+    CHECK(finlink_build_touch_and_buttons_frame(&input, buf) == FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE);
+    CHECK(buf[0] == FINLINK_MSG_INPUT);
+
+    finlink_touch_and_buttons parsed;
+    CHECK(finlink_parse_touch_and_buttons_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.pressed != 0);
+    CHECK(parsed.touch_x == 128);
+    CHECK(parsed.touch_y == 96);
+    CHECK(parsed.buttons == (FINLINK_BUTTON_A | FINLINK_BUTTON_B | FINLINK_BUTTON_UP));
+
+    /* Release: touch_x/touch_y forced to 0, buttons independent (same
+     * convention as extended_input above) */
+    input.pressed = 0;
+    input.touch_x = 999;
+    input.touch_y = 999;
+    input.buttons = FINLINK_BUTTON_SELECT;
+    CHECK(finlink_build_touch_and_buttons_frame(&input, buf) == FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE);
+    CHECK(finlink_parse_touch_and_buttons_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.pressed == 0);
+    CHECK(parsed.touch_x == 0);
+    CHECK(parsed.touch_y == 0);
+    CHECK(parsed.buttons == FINLINK_BUTTON_SELECT);
+
+    CHECK(finlink_parse_touch_and_buttons_frame(buf, FINLINK_TOUCH_AND_BUTTONS_FRAME_SIZE - 1, &parsed) ==
+          FINLINK_ERR_TOO_SHORT);
+}
+
+static void test_text_input_request(void) {
+    /* Server -> client swkbd prompt, incl. pre-filled text -- confirm the
+     * variable-length text round-trips byte-exact, not just the fixed
+     * header (max_length/text_len are easy to get right while still
+     * mis-copying the text itself). */
+    const char *text = "Hello, world!";
+    finlink_text_input_request req;
+    req.max_length = 64;
+    req.text = text;
+    req.text_len = strlen(text);
+
+    size_t needed = finlink_text_input_request_max_size(req.text_len);
+    uint8_t *buf = malloc(needed);
+    CHECK(buf != NULL);
+
+    size_t written = finlink_build_text_input_request(&req, buf, needed);
+    CHECK(written == FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE + req.text_len);
+    CHECK(buf[0] == FINLINK_MSG_TEXT_INPUT_REQUEST);
+
+    finlink_text_input_request parsed;
+    CHECK(finlink_parse_text_input_request(buf, written, &parsed) == FINLINK_OK);
+    CHECK(parsed.max_length == 64);
+    CHECK(parsed.text_len == req.text_len);
+    CHECK(memcmp(parsed.text, text, req.text_len) == 0);
+
+    /* out_capacity too small -> 0, not a truncated/corrupt write */
+    CHECK(finlink_build_text_input_request(&req, buf, needed - 1) == 0);
+
+    free(buf);
+
+    /* No pre-filled text at all (text_len == 0) must still round-trip
+     * cleanly, not be confused with a parse failure. */
+    finlink_text_input_request empty_req;
+    empty_req.max_length = 0;
+    empty_req.text = "";
+    empty_req.text_len = 0;
+    uint8_t small_buf[FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE];
+    size_t empty_written = finlink_build_text_input_request(&empty_req, small_buf, sizeof(small_buf));
+    CHECK(empty_written == FINLINK_TEXT_INPUT_REQUEST_HEADER_SIZE);
+    finlink_text_input_request empty_parsed;
+    CHECK(finlink_parse_text_input_request(small_buf, empty_written, &empty_parsed) == FINLINK_OK);
+    CHECK(empty_parsed.max_length == 0);
+    CHECK(empty_parsed.text_len == 0);
+}
+
+static void test_text_input_response(void) {
+    /* Client -> server typed result, confirmed case */
+    const char *text = "Player One";
+    finlink_text_input_response resp;
+    resp.confirmed = 1;
+    resp.text = text;
+    resp.text_len = strlen(text);
+
+    size_t needed = finlink_text_input_response_max_size(resp.text_len);
+    uint8_t *buf = malloc(needed);
+    CHECK(buf != NULL);
+
+    size_t written = finlink_build_text_input_response(&resp, buf, needed);
+    CHECK(written == FINLINK_TEXT_INPUT_RESPONSE_HEADER_SIZE + resp.text_len);
+    CHECK(buf[0] == FINLINK_MSG_TEXT_INPUT_RESPONSE);
+
+    finlink_text_input_response parsed;
+    CHECK(finlink_parse_text_input_response(buf, written, &parsed) == FINLINK_OK);
+    CHECK(parsed.confirmed != 0);
+    CHECK(parsed.text_len == resp.text_len);
+    CHECK(memcmp(parsed.text, text, resp.text_len) == 0);
+
+    free(buf);
+
+    /* Cancelled: per finlink_text_input_response's own comment, text/
+     * text_len are meaningless here -- only confirmed==0 itself matters to
+     * a correct caller, but the frame must still parse cleanly either way
+     * (a malformed cancel frame shouldn't be indistinguishable from a
+     * genuine parse error). */
+    finlink_text_input_response cancel;
+    cancel.confirmed = 0;
+    cancel.text = "ignored";
+    cancel.text_len = 7;
+    size_t cancel_needed = finlink_text_input_response_max_size(cancel.text_len);
+    uint8_t *cancel_buf = malloc(cancel_needed);
+    CHECK(cancel_buf != NULL);
+    size_t cancel_written = finlink_build_text_input_response(&cancel, cancel_buf, cancel_needed);
+    finlink_text_input_response cancel_parsed;
+    CHECK(finlink_parse_text_input_response(cancel_buf, cancel_written, &cancel_parsed) == FINLINK_OK);
+    CHECK(cancel_parsed.confirmed == 0);
+    free(cancel_buf);
+}
+
+static void test_mic_enable_frame(void) {
+    /* Server -> client mic level signal -- sample_rate only meaningful
+     * when enabled=1, but must still round-trip whatever value was sent
+     * when enabled=0 (a client that reads it anyway despite the "meaningless"
+     * doc note shouldn't see corrupted data, just possibly-stale data). */
+    uint8_t buf[FINLINK_MIC_ENABLE_FRAME_SIZE];
+    finlink_mic_enable enable;
+    enable.enabled = 1;
+    enable.sample_rate = 16000;
+
+    CHECK(finlink_build_mic_enable_frame(&enable, buf) == FINLINK_MIC_ENABLE_FRAME_SIZE);
+    CHECK(buf[0] == FINLINK_MSG_MIC_ENABLE);
+
+    finlink_mic_enable parsed;
+    CHECK(finlink_parse_mic_enable_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.enabled != 0);
+    CHECK(parsed.sample_rate == 16000);
+
+    enable.enabled = 0;
+    enable.sample_rate = 0;
+    CHECK(finlink_build_mic_enable_frame(&enable, buf) == FINLINK_MIC_ENABLE_FRAME_SIZE);
+    CHECK(finlink_parse_mic_enable_frame(buf, sizeof(buf), &parsed) == FINLINK_OK);
+    CHECK(parsed.enabled == 0);
+
+    CHECK(finlink_parse_mic_enable_frame(buf, FINLINK_MIC_ENABLE_FRAME_SIZE - 1, &parsed) ==
+          FINLINK_ERR_TOO_SHORT);
+}
+
+static void test_mic_audio_frame(void) {
+    /* Client -> server mic PCM, type=7 -- identical wire shape to
+     * finlink_audio_frame (type=3, see finlink_parse_mic_audio_frame's own
+     * comment), hand-built here since there's no build helper (only the
+     * Android client currently produces this message, and it hand-builds
+     * it too). Mono per the doc comment: channels is still an explicit
+     * wire field, not implicitly always 1, so confirm it parses back
+     * exactly what was sent rather than being silently forced to 1. */
+    const uint8_t frame[] = {
+        7,
+        0x80, 0x3E, 0x00, 0x00, /* 16000 LE */
+        1,                       /* channels = 1 (mono) */
+        0x2C, 0x01,              /* sample 0 = 300 */
+        0xD4, 0xFE               /* sample 1 = -300 */
+    };
+
+    finlink_audio_frame audio;
+    CHECK(finlink_parse_mic_audio_frame(frame, sizeof(frame), &audio) == FINLINK_OK);
+    CHECK(audio.sample_rate == 16000);
+    CHECK(audio.channels == 1);
+    CHECK(audio.sample_count == 2);
+    CHECK(finlink_read_s16le(audio.samples) == 300);
+    CHECK(finlink_read_s16le(audio.samples + 2) == -300);
+
+    /* Wrong leading type byte (type=3, not type=7) must be rejected -- mic
+     * audio and console audio share a wire shape but are NOT interchangeable
+     * messages (see finlink_msg_type; a receiver must be able to tell them
+     * apart by the type byte alone). */
+    uint8_t wrong_type[sizeof(frame)];
+    memcpy(wrong_type, frame, sizeof(frame));
+    wrong_type[0] = 3;
+    CHECK(finlink_parse_mic_audio_frame(wrong_type, sizeof(wrong_type), &audio) == FINLINK_ERR_UNKNOWN_TYPE);
+}
+
 int main(void) {
     test_peek_type();
     test_video_header();
@@ -271,6 +523,13 @@ int main(void) {
     test_build_input_frame();
     test_touch_frame_pressed();
     test_touch_frame_released();
+    test_extended_input_frame_pressed();
+    test_extended_input_frame_released();
+    test_touch_and_buttons_frame();
+    test_text_input_request();
+    test_text_input_response();
+    test_mic_enable_frame();
+    test_mic_audio_frame();
     printf("protocol: all tests passed\n");
     return 0;
 }
