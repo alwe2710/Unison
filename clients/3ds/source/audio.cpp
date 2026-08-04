@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "audio_remix.hpp"
+
 AudioPlayer::AudioPlayer() {
     if (R_SUCCEEDED(ndspInit())) {
         open = true;
@@ -61,12 +63,7 @@ void AudioPlayer::play(uint32_t sampleRate, uint8_t channels, std::vector<int16_
         return;
     }
 
-    for (size_t i = 0; i < frames; i++) {
-        int16_t l = pcm[i * channels];
-        int16_t r = channels >= 2 ? pcm[i * channels + 1] : l;
-        buf->linearData[i * 2] = l;
-        buf->linearData[i * 2 + 1] = r;
-    }
+    finlink_3ds_remix_to_stereo(pcm.data(), frames, channels, buf->linearData);
     DSP_FlushDataCache(buf->linearData, frames * 2 * sizeof(int16_t));
 
     buf->wavebuf.data_pcm16 = buf->linearData;

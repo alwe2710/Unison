@@ -40,6 +40,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "audio_ring.h"
 #include "beacon_discovery.h"
 #include "screen_choice.h"
 #include "strings_generated.h"
@@ -187,47 +188,28 @@ static const char *videoModePrefLabel(void) {
  * network loop, so unlike g_recvBuf there's no real concurrency here
  * despite two "sides" touching this buffer, and no locking is needed. */
 #define AUDIO_RING_SAMPLES (AUDIO_SAMPLE_RATE / 2)
-static int16_t g_audioRing[AUDIO_RING_SAMPLES];
-static size_t g_audioWritePos = 0;
-static size_t g_audioReadPos = 0;
-static size_t g_audioAvailable = 0; /* samples currently buffered, <= AUDIO_RING_SAMPLES */
+static int16_t g_audioRingBacking[AUDIO_RING_SAMPLES];
+static finlink_nds_audio_ring g_audioRing;
 
 /* Drops leftover buffered audio from a previous session -- called at the
  * start of each new runSession() so stale samples from before a
  * reconnect can't play at the start of a new one. */
 static void audioRingReset(void) {
-    g_audioWritePos = 0;
-    g_audioReadPos = 0;
-    g_audioAvailable = 0;
+    finlink_nds_audio_ring_reset(&g_audioRing);
 }
 
 static void audioRingPush(const uint8_t *samplesS16le, size_t sampleCount) {
-    for (size_t i = 0; i < sampleCount; i++) {
-        if (g_audioAvailable >= AUDIO_RING_SAMPLES) {
-            break; /* overflow: drop the tail rather than overwrite not-yet-played samples */
-        }
-        g_audioRing[g_audioWritePos] = finlink_read_s16le(samplesS16le + i * 2);
-        g_audioWritePos = (g_audioWritePos + 1) % AUDIO_RING_SAMPLES;
-        g_audioAvailable++;
-    }
+    finlink_nds_audio_ring_push(&g_audioRing, samplesS16le, sampleCount);
 }
 
 /* maxmod's pull callback (mm_stream.callback, maxmod9.h) -- must always
- * fill exactly `length` samples. Pads with silence on underrun (network
- * hasn't delivered enough yet) rather than replaying stale samples or
- * leaving the destination buffer uninitialized. */
+ * fill exactly `length` samples. Thin wrapper around
+ * finlink_nds_audio_ring_pull() (audio_ring.h/.c), which does the actual
+ * FIFO/underrun-padding logic -- see its own comment and
+ * tests/test_audio_ring.c. */
 static mm_word audioStreamRequest(mm_word length, mm_addr dest, mm_stream_formats format) {
     (void)format; /* always MM_STREAM_16BIT_MONO here, see main()'s mmStreamOpen() call */
-    int16_t *out = (int16_t *)dest;
-    size_t take = (length < g_audioAvailable) ? length : g_audioAvailable;
-    for (size_t i = 0; i < take; i++) {
-        out[i] = g_audioRing[g_audioReadPos];
-        g_audioReadPos = (g_audioReadPos + 1) % AUDIO_RING_SAMPLES;
-    }
-    for (size_t i = take; i < length; i++) {
-        out[i] = 0;
-    }
-    g_audioAvailable -= take;
+    finlink_nds_audio_ring_pull(&g_audioRing, (int16_t *)dest, length);
     return length;
 }
 
@@ -1342,6 +1324,8 @@ int main(void) {
     mm_ds_system mmSys;
     memset(&mmSys, 0, sizeof(mmSys));
     mmInit(&mmSys);
+
+    finlink_nds_audio_ring_init(&g_audioRing, g_audioRingBacking, AUDIO_RING_SAMPLES);
 
     mm_stream mmAudioStream;
     memset(&mmAudioStream, 0, sizeof(mmAudioStream));

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <malloc.h>
 
+#include "audio_remix.hpp"
 #include "frame_poller.hpp"
 #include "gba_buttons.hpp"
 #include "strings_generated.hpp"
@@ -240,39 +241,11 @@ void PlayerActivity::playAudio(uint32_t sampleRate, uint8_t channels, std::vecto
     reclaimAudioBuffers();
 
     // The device is fixed at 48000Hz/stereo/s16 (audoutGetSampleRate() /
-    // audoutGetChannelCount()) -- remix to stereo and linearly resample if
-    // the server's format doesn't already match.
-    size_t frames = pcm.size() / channels;
-    if (frames == 0) {
-        return;
-    }
-
-    std::vector<int16_t> stereo(frames * 2);
-    for (size_t i = 0; i < frames; i++) {
-        int16_t l = pcm[i * channels];
-        int16_t r = channels >= 2 ? pcm[i * channels + 1] : l;
-        stereo[i * 2] = l;
-        stereo[i * 2 + 1] = r;
-    }
-
-    std::vector<int16_t> resampled;
-    if (sampleRate != 48000) {
-        size_t outFrames = static_cast<size_t>(frames) * 48000 / sampleRate;
-        resampled.resize(outFrames * 2);
-        for (size_t i = 0; i < outFrames; i++) {
-            double srcPos = static_cast<double>(i) * sampleRate / 48000.0;
-            size_t i0 = static_cast<size_t>(srcPos);
-            size_t i1 = std::min(i0 + 1, frames - 1);
-            double frac = srcPos - static_cast<double>(i0);
-            for (int c = 0; c < 2; c++) {
-                double v = stereo[i0 * 2 + c] * (1.0 - frac) + stereo[i1 * 2 + c] * frac;
-                resampled[i * 2 + c] = static_cast<int16_t>(v);
-            }
-        }
-    } else {
-        resampled = std::move(stereo);
-    }
-
+    // audoutGetChannelCount()) -- finlink_switch_remix_and_resample_to_stereo()
+    // (audio_remix.hpp/.cpp) does the actual remix/resample math, kept free
+    // of borealis/libnx types so it has one place to unit-test, see that
+    // file's own comment.
+    std::vector<int16_t> resampled = finlink_switch_remix_and_resample_to_stereo(pcm, sampleRate, channels);
     if (resampled.empty()) {
         return;
     }

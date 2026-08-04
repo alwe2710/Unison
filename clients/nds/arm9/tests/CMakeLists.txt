@@ -25,5 +25,17 @@ target_include_directories(test_dual_screen_choice PRIVATE
     ${FINLINK_CORE_DIR}/include
 )
 
+# audio_ring.c only needs finlink_read_s16le/finlink_write_u16le
+# (finlink/endian.h, header-only) -- no other finlink_core .c file required.
+add_executable(test_audio_ring
+    test_audio_ring.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/audio_ring.c
+)
+target_include_directories(test_audio_ring PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+    ${FINLINK_CORE_DIR}/include
+)
+
 enable_testing()
 add_test(NAME dual_screen_choice COMMAND test_dual_screen_choice)
+add_test(NAME audio_ring COMMAND test_audio_ring)

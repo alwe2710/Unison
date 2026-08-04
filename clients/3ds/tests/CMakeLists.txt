@@ -26,5 +26,16 @@ target_include_directories(test_dual_screen_choice PRIVATE
     ${FINLINK_CORE_DIR}/include
 )
 
+# audio_remix.cpp is deliberately free of <3ds.h>/NDSP types (unlike the
+# rest of source/audio.cpp), so it needs no finlink_core at all here.
+add_executable(test_audio_remix
+    test_audio_remix.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/audio_remix.cpp
+)
+target_include_directories(test_audio_remix PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+)
+
 enable_testing()
 add_test(NAME dual_screen_choice COMMAND test_dual_screen_choice)
+add_test(NAME audio_remix COMMAND test_audio_remix)

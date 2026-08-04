@@ -61,32 +61,47 @@ jobs:
         working-directory: build/core
         run: ctest --output-on-failure
 
-  dual-screen-choice:
-    # Host-buildable logic tests for the 3DS/NDS screen-choice decision
-    # (dual-screen-client test category) -- deliberately plain ubuntu-latest,
-    # not the devkitpro/devkitarm container the build-3ds/nds jobs below use:
-    # prefs.cpp (3DS) and screen_choice.c (NDS, new) are both kept free of
-    # any devkitARM-only headers specifically so this doesn't need the
-    # cross-toolchain (or its Cloudflare-flaky dkp-pacman install) at all.
-    # Does NOT exercise the real .3dsx/.nds builds -- see build-3ds/nds for
-    # that; this only proves the screen-choice function itself is correct.
-    name: dual-screen-choice (3ds + nds, host-built)
+  console-client-logic-tests:
+    # Host-buildable logic tests for console-clients' non-SDK-coupled pieces
+    # -- deliberately plain ubuntu-latest, not the devkitpro/devkita64/
+    # devkitarm containers build-3ds/switch/nds below use: every file tested
+    # here (screen_choice.c, audio_ring.c, audio_remix.{hpp,cpp}) is
+    # deliberately kept free of any devkitPro-only headers specifically so
+    # this doesn't need any cross-toolchain (or its Cloudflare-flaky
+    # dkp-pacman install) at all. Does NOT exercise the real .3dsx/.nro/.nds
+    # builds -- see build-3ds/switch/nds for that; this only proves the
+    # extracted logic itself (dual-screen-client screen choice, dual-audio-
+    # client remix/resample/ring-buffer) is correct.
+    #
+    # clients/3ds/tests and clients/nds/arm9/tests each build more than one
+    # test binary from their tests/CMakeLists.txt (dual-screen-choice +
+    # audio) -- one configure+build+ctest per client covers all of that
+    # client's registered tests, nothing further to add here as more get
+    # appended to those CMakeLists.txt files over time.
+    name: console-client logic tests (3ds + nds + switch, host-built)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Configure + build + test (3DS)
         run: |
-          cmake -S clients/3ds/tests -B build/3ds_dual_screen_choice
-          cmake --build build/3ds_dual_screen_choice -j"$(nproc)"
+          cmake -S clients/3ds/tests -B build/3ds_logic_tests
+          cmake --build build/3ds_logic_tests -j"$(nproc)"
       - name: Test (3DS)
-        working-directory: build/3ds_dual_screen_choice
+        working-directory: build/3ds_logic_tests
         run: ctest --output-on-failure
       - name: Configure + build + test (NDS)
         run: |
-          cmake -S clients/nds/arm9/tests -B build/nds_dual_screen_choice
-          cmake --build build/nds_dual_screen_choice -j"$(nproc)"
+          cmake -S clients/nds/arm9/tests -B build/nds_logic_tests
+          cmake --build build/nds_logic_tests -j"$(nproc)"
       - name: Test (NDS)
-        working-directory: build/nds_dual_screen_choice
+        working-directory: build/nds_logic_tests
+        run: ctest --output-on-failure
+      - name: Configure + build + test (Switch)
+        run: |
+          cmake -S clients/switch/tests -B build/switch_logic_tests
+          cmake --build build/switch_logic_tests -j"$(nproc)"
+      - name: Test (Switch)
+        working-directory: build/switch_logic_tests
         run: ctest --output-on-failure
 
   android:
