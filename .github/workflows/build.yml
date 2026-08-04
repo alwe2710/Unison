@@ -10,9 +10,21 @@ name: build
 # This repo previously had no CI at all, so every job here is new. Package
 # lists for the devkitPro-based jobs (3ds/switch/nds) are taken verbatim
 # from each client's own README "Building" section, which is the
-# documented ground truth for a from-scratch machine -- they haven't been
-# empirically re-verified inside GitHub's containers yet, so a first run
-# may need a small package-name correction.
+# documented ground truth for a from-scratch machine, and have since been
+# confirmed correct by a real green run.
+#
+# The devkitPro jobs retry their `dkp-pacman -Sy` package install: their
+# base container images (devkitpro/devkitarm, devkitpro/devkita64) only
+# ship the bare compiler toolchain, not libnx/libctru/libnds etc. -- those
+# are always fetched live from pkg.devkitpro.org at job start, and that
+# host is Cloudflare-fronted and occasionally answers a plain,
+# non-authenticated CI runner request with a Cloudflare "Attention
+# Required" 403 challenge page instead of the package (confirmed by hand:
+# same command, same container, succeeded minutes later with zero code
+# changes in between -- a transient block, not a wrong package name or a
+# permanent one). devkitPro itself doesn't officially support pacman
+# inside CI for exactly this reason; retrying a few times with a short
+# delay is the standard community workaround, not a special bypass.
 
 on:
   push:
@@ -64,9 +76,16 @@ jobs:
     container: devkitpro/devkitarm:latest
     steps:
       - uses: actions/checkout@v4
-      # Package list from clients/3ds/README.md "Building".
+      # Package list from clients/3ds/README.md "Building". Retried -- see
+      # this file's own top comment on pkg.devkitpro.org's Cloudflare 403s.
       - name: Install 3DS dev packages
-        run: dkp-pacman -Sy --noconfirm libctru citro2d citro3d 3dstools general-tools 3ds-cmake devkitarm-cmake 3ds-pkg-config
+        run: |
+          for i in 1 2 3 4 5; do
+            dkp-pacman -Sy --noconfirm libctru citro2d citro3d 3dstools general-tools 3ds-cmake devkitarm-cmake 3ds-pkg-config && exit 0
+            echo "dkp-pacman failed (attempt $i/5), retrying in 20s..."
+            sleep 20
+          done
+          exit 1
       - name: Configure
         run: |
           cmake -S clients/3ds -B build/3ds \
@@ -81,9 +100,18 @@ jobs:
     container: devkitpro/devkita64:latest
     steps:
       - uses: actions/checkout@v4
-      # Package list from clients/switch/README.md "Building".
+      # Package list from clients/switch/README.md "Building". Retried --
+      # see this file's own top comment on pkg.devkitpro.org's Cloudflare
+      # 403s (this is the job that actually hit one, on a run that
+      # otherwise changed nothing about this step).
       - name: Install Switch dev packages
-        run: dkp-pacman -Sy --noconfirm libnx switch-glfw switch-mesa switch-libdrm_nouveau switch-pkg-config switch-zlib switch-cmake switch-tools dkp-cmake-common-utils dkp-toolchain-vars
+        run: |
+          for i in 1 2 3 4 5; do
+            dkp-pacman -Sy --noconfirm libnx switch-glfw switch-mesa switch-libdrm_nouveau switch-pkg-config switch-zlib switch-cmake switch-tools dkp-cmake-common-utils dkp-toolchain-vars && exit 0
+            echo "dkp-pacman failed (attempt $i/5), retrying in 20s..."
+            sleep 20
+          done
+          exit 1
       - name: Configure
         run: |
           cmake -S clients/switch -B build/switch \
@@ -99,9 +127,16 @@ jobs:
       - uses: actions/checkout@v4
       # Package list from clients/nds/README.md "Building" (same devkitARM
       # toolchain as the 3ds job, different libs -- ndstool itself ships in
-      # general-tools alongside 3dstool).
+      # general-tools alongside 3dstool). Retried -- see this file's own
+      # top comment on pkg.devkitpro.org's Cloudflare 403s.
       - name: Install NDS dev packages
-        run: dkp-pacman -Sy --noconfirm libnds dswifi maxmod-nds calico general-tools
+        run: |
+          for i in 1 2 3 4 5; do
+            dkp-pacman -Sy --noconfirm libnds dswifi maxmod-nds calico general-tools && exit 0
+            echo "dkp-pacman failed (attempt $i/5), retrying in 20s..."
+            sleep 20
+          done
+          exit 1
       - name: Build (classic two-ELF Makefile, no CMake -- see clients/nds/README.md)
         working-directory: clients/nds
         run: make
