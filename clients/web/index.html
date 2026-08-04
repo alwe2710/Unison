@@ -166,14 +166,29 @@
      label left, current value right, whole row tappable. */
   .nav-row{cursor:pointer;font:inherit;color:inherit}
   .nav-row-value{color:var(--muted);font-size:12px}
-  #languagePanel{display:none;position:fixed;inset:0;background:rgba(20,15,26,0.94);color:var(--ink);
-                 font-family:var(--font-body);z-index:40;flex-direction:column;align-items:center;
-                 justify-content:center;gap:10px;padding:20px;box-sizing:border-box}
-  #languagePanel h3{font-family:var(--font-display);margin:0 0 4px;font-size:18px}
+  #languagePanel,#videoModePanel{display:none;position:fixed;inset:0;background:rgba(20,15,26,0.94);
+                 color:var(--ink);font-family:var(--font-body);z-index:40;flex-direction:column;
+                 align-items:center;justify-content:center;gap:10px;padding:20px;box-sizing:border-box}
+  #languagePanel h3,#videoModePanel h3{font-family:var(--font-display);margin:0 0 4px;font-size:18px}
   .language-list{display:flex;flex-direction:column;gap:8px;width:100%;max-width:320px}
   .language-list button{font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer;
                         background:var(--surface);border:var(--border);border-radius:var(--radius);
                         padding:12px 16px}
+  /* Non-blocking heads-up when the server fell back to a different mode
+     than requested (docs/protocol.md "Video-mode fallback") -- the video
+     underneath is already live, unlike #languagePanel/#videoModePanel this
+     sits *above* #game, not one of the panels that replace it. */
+  #videoModeFallbackPanel{display:none;position:fixed;inset:0;background:rgba(20,15,26,0.85);
+                 color:var(--ink);font-family:var(--font-body);z-index:50;flex-direction:column;
+                 align-items:center;justify-content:center;gap:10px;padding:20px;box-sizing:border-box}
+  #videoModeFallbackPanel .card{background:var(--surface);border:var(--border);border-radius:var(--radius);
+                 padding:20px;max-width:340px;display:flex;flex-direction:column;gap:10px}
+  #videoModeFallbackPanel h3{font-family:var(--font-display);margin:0;font-size:17px}
+  #videoModeFallbackPanel .row{display:flex;gap:8px;justify-content:flex-end}
+  #videoModeFallbackPanel button{font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+                 background:var(--accent);color:var(--accent-ink);border:none;border-radius:999px;
+                 padding:9px 16px}
+  #videoModeFallbackPanel button.secondary{background:transparent;color:var(--muted);border:var(--border)}
   input.switch{appearance:none;-webkit-appearance:none;width:34px;height:20px;border-radius:999px;
                background:var(--surface-2);position:relative;cursor:pointer;margin:0;
                flex-shrink:0}
@@ -266,11 +281,29 @@
     <span>Sprache</span>
     <span id="languageValueDesktop" class="nav-row-value"></span>
   </button>
+  <button class="menu-row nav-row" id="videoModeRowDesktop">
+    <span id="videoModeLabelDesktop"></span>
+    <span id="videoModeValueDesktop" class="nav-row-value"></span>
+  </button>
   <button id="closeSettings">Schließen</button>
 </div>
 <div id="languagePanel">
   <h3 id="languagePanelTitle">Sprache</h3>
   <div id="languageOptionsList" class="language-list"></div>
+</div>
+<div id="videoModePanel">
+  <h3 id="videoModePanelTitle"></h3>
+  <div id="videoModeOptionsList" class="language-list"></div>
+</div>
+<div id="videoModeFallbackPanel">
+  <div class="card">
+    <h3 id="videoModeFallbackTitle"></h3>
+    <div id="videoModeFallbackMessage"></div>
+    <div class="row">
+      <button class="secondary" id="videoModeFallbackAbort"></button>
+      <button id="videoModeFallbackContinue"></button>
+    </div>
+  </div>
 </div>
 <div id="touchControls">
   <button class="tbtn tshoulder" id="touchL" data-name="L">L</button>
@@ -308,6 +341,10 @@
   <button class="menu-row nav-row" id="languageRowMobile">
     <span>Sprache</span>
     <span id="languageValueMobile" class="nav-row-value"></span>
+  </button>
+  <button class="menu-row nav-row" id="videoModeRowMobile">
+    <span id="videoModeLabelMobile"></span>
+    <span id="videoModeValueMobile" class="nav-row-value"></span>
   </button>
   <div class="menu-label">Gamecontroller-Belegung</div>
   <div id="gamepadBindingsList"></div>
@@ -505,6 +542,65 @@ document.getElementById('languageRowDesktop').onclick = () => openLanguagePanel(
 document.getElementById('languageRowMobile').onclick = () => openLanguagePanel(document.getElementById('menuPanel'));
 updateLanguageRowValues();
 
+// Own overlay (#videoModePanel), same "tap a row, pick from it, land back
+// where you were" pattern as #languagePanel above -- see this file's own
+// clone-of-the-language-picker comment there. Persisted in localStorage
+// like every other client-local setting here (no server round-trip needed
+// to know it, unlike Android's Prefs which is read fresh at connect() time
+// but works out to the same thing).
+const videoModePanel = document.getElementById('videoModePanel');
+const videoModeOptionsList = document.getElementById('videoModeOptionsList');
+let videoModeReturnPanel = null;
+
+// NOT sorted alphabetically, unlike LANGUAGE_OPTION_KEYS above -- this order
+// is deliberate (matches Android's Prefs.VIDEO_MODES: default first, then
+// the two stronger/lossier compressed options, legacy last as the
+// explicit-opt-out fallback), not something to "fix" into alphabetical.
+const VIDEO_MODE_OPTION_KEYS = {
+  tiles: 'video_mode_tiles', h264: 'video_mode_h264', h265: 'video_mode_h265', legacy: 'video_mode_legacy',
+};
+const VIDEO_MODE_DEFAULT = 'tiles';
+let videoModePref = localStorage.getItem('finlinkWebVideoMode') || VIDEO_MODE_DEFAULT;
+function setVideoModePref(mode) {
+  videoModePref = mode;
+  localStorage.setItem('finlinkWebVideoMode', mode);
+}
+
+function updateVideoModeRowValues() {
+  document.getElementById('videoModeLabelDesktop').textContent = t('settings_video_mode');
+  document.getElementById('videoModeLabelMobile').textContent = t('settings_video_mode');
+  const key = VIDEO_MODE_OPTION_KEYS[videoModePref] || VIDEO_MODE_OPTION_KEYS[VIDEO_MODE_DEFAULT];
+  document.getElementById('videoModeValueDesktop').textContent = t(key);
+  document.getElementById('videoModeValueMobile').textContent = t(key);
+}
+
+function renderVideoModeOptions() {
+  document.getElementById('videoModePanelTitle').textContent = t('settings_video_mode');
+  videoModeOptionsList.innerHTML = '';
+  for (const [mode, key] of Object.entries(VIDEO_MODE_OPTION_KEYS)) {
+    const btn = document.createElement('button');
+    btn.textContent = t(key);
+    btn.onclick = () => {
+      setVideoModePref(mode);
+      updateVideoModeRowValues();
+      videoModePanel.style.display = 'none';
+      if (videoModeReturnPanel) videoModeReturnPanel.style.display = 'flex';
+    };
+    videoModeOptionsList.appendChild(btn);
+  }
+}
+
+function openVideoModePanel(returnPanel) {
+  videoModeReturnPanel = returnPanel;
+  returnPanel.style.display = 'none';
+  renderVideoModeOptions();
+  videoModePanel.style.display = 'flex';
+}
+
+document.getElementById('videoModeRowDesktop').onclick = () => openVideoModePanel(document.getElementById('settingsPanel'));
+document.getElementById('videoModeRowMobile').onclick = () => openVideoModePanel(document.getElementById('menuPanel'));
+updateVideoModeRowValues();
+
 connectForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const host = hostInput.value.trim();
@@ -634,6 +730,30 @@ function showGame() {
   gameEl.style.display = 'flex';
 }
 
+// Non-blocking: the stream is already live in the granted mode by the time
+// this can even show (session_ready has already been sent by the server) --
+// "Fortsetzen" just dismisses it, "Abbrechen" tears down the session same as
+// a normal disconnect. Mirrors PlayerActivity's Android dialog 1:1.
+function videoModeLabel(mode) {
+  return t(VIDEO_MODE_OPTION_KEYS[mode] || VIDEO_MODE_OPTION_KEYS[VIDEO_MODE_DEFAULT]);
+}
+function showVideoModeFallback(requested, granted) {
+  document.getElementById('videoModeFallbackTitle').textContent = t('video_mode_fallback_title');
+  document.getElementById('videoModeFallbackMessage').textContent =
+      t('video_mode_fallback_message', videoModeLabel(requested), videoModeLabel(granted));
+  document.getElementById('videoModeFallbackContinue').textContent = t('video_mode_fallback_continue');
+  document.getElementById('videoModeFallbackAbort').textContent = t('video_mode_fallback_abort');
+  document.getElementById('videoModeFallbackPanel').style.display = 'flex';
+}
+document.getElementById('videoModeFallbackContinue').onclick = () => {
+  document.getElementById('videoModeFallbackPanel').style.display = 'none';
+};
+document.getElementById('videoModeFallbackAbort').onclick = () => {
+  document.getElementById('videoModeFallbackPanel').style.display = 'none';
+  if (ws) ws.close();
+  fail(t('status_disconnected'));
+};
+
 function connect(connectHost, connectPort) {
   ws = new WebSocket('ws://' + connectHost + ':' + connectPort + '/');
   ws.binaryType = 'arraybuffer';
@@ -678,15 +798,23 @@ function connect(connectHost, connectPort) {
 // picked (hello_ack can be deferred behind the picker below, unlike a
 // single-slot connect where it's sent immediately).
 let pendingAck = null;
+// What the last hello_ack actually requested -- compared against
+// session_ready.video_mode once it arrives (see the msgType === 2 handler
+// below), docs/protocol.md "Video-mode fallback". Set at send time, not
+// read back out of videoModePref later, so a mode change in Settings mid-
+// session (before the *next* connection) can't retroactively change what
+// this comparison thinks was asked for.
+let requestedVideoMode = null;
 
 function sendHelloAck(requestedSlot) {
   const { wantsAudio, nativeWidth, nativeHeight, nativeFps, sampleRate, channels } = pendingAck;
   const ackCap = 512;
   const ackPtr = wasmModule._malloc(ackCap);
+  requestedVideoMode = videoModePref;
   const ackLen = wasmModule.ccall('finlink_wasm_build_hello_ack', 'number',
-      ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'number', 'number'],
+      ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'string', 'number', 'number'],
       [requestedSlot, nativeWidth, nativeHeight, nativeFps, wantsAudio, sampleRate, channels,
-       ackPtr, ackCap]);
+       requestedVideoMode, ackPtr, ackCap]);
   const ackJson = wasmModule.UTF8ToString(ackPtr, ackLen);
   wasmModule._free(ackPtr);
   ws.send(ackJson);  // .send(string) -- the browser sends this as a WS text frame itself.
@@ -786,6 +914,14 @@ function handleHandshakeMessage(text) {
       showGame();
       statusEl.textContent = t('status_connected');
       sendPing();
+      // Empty grantedVideoMode means the server predates session_ready.
+      // video_mode entirely -- skip the comparison rather than assuming
+      // "tiles" was granted (docs/protocol.md "Video-mode fallback"), same
+      // rule every other client applies.
+      const grantedVideoMode = wasmModule.ccall('finlink_wasm_ready_video_mode', 'string', [], []);
+      if (grantedVideoMode && requestedVideoMode && grantedVideoMode !== requestedVideoMode) {
+        showVideoModeFallback(requestedVideoMode, grantedVideoMode);
+      }
       return;
     }
 

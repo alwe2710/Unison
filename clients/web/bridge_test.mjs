@@ -60,8 +60,8 @@ check("hello.slots[1].occupied", mod.ccall("finlink_wasm_hello_slot_occupied", "
   const written = mod.ccall(
     "finlink_wasm_build_hello_ack",
     "number",
-    ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
-    [0, 240, 160, 59.7275, 1, 32768, 2, outPtr, cap]
+    ["number", "number", "number", "number", "number", "number", "number", "string", "number", "number"],
+    [0, 240, 160, 59.7275, 1, 32768, 2, "h264", outPtr, cap]
   );
   const json = mod.UTF8ToString(outPtr, written);
   mod._free(outPtr);
@@ -70,6 +70,7 @@ check("hello.slots[1].occupied", mod.ccall("finlink_wasm_hello_slot_occupied", "
   check("hello_ack.requested_slot", parsed.requested_slot === 0);
   check("hello_ack.audio_limits present", "audio_limits" in parsed);
   check("hello_ack.audio_limits.max_channels", parsed.audio_limits.max_channels === 2);
+  check("hello_ack.video_mode", parsed.video_mode === "h264");
 }
 
 // ---------------- session_ready (with redirect) ----------------
@@ -86,6 +87,19 @@ check("ready.has_redirect", mod.ccall("finlink_wasm_ready_has_redirect", "number
 check("ready.redirect_host", mod.ccall("finlink_wasm_ready_redirect_host", "string", [], []) === "192.168.1.42");
 check("ready.redirect_port", mod.ccall("finlink_wasm_ready_redirect_port", "number", [], []) === 6803);
 check("ready.has_audio (should be false, no audio field)", mod.ccall("finlink_wasm_ready_has_audio", "number", [], []) === 0);
+// This particular session_ready has no "video_mode" member at all -- the
+// "server predates this field" case per docs/protocol.md "Video-mode
+// fallback": must come back as "", not some default like "tiles".
+check("ready.video_mode (absent -> empty, not a default)", mod.ccall("finlink_wasm_ready_video_mode", "string", [], []) === "");
+
+// ---------------- session_ready (with video_mode, no redirect) ----------------
+const readyWithModeJson = toBytes(
+  '{"message":"session_ready","slot":0,"video":{"width":854,"height":480,"fps":20},"video_mode":"legacy"}'
+);
+withHeapCopy(readyWithModeJson, (ptr, len) => {
+  check("parse_session_ready (with video_mode) ok", mod.ccall("finlink_wasm_parse_session_ready", "number", ["number", "number"], [ptr, len]) === 1);
+});
+check("ready.video_mode (present)", mod.ccall("finlink_wasm_ready_video_mode", "string", [], []) === "legacy");
 
 // ---------------- handshake_error ----------------
 const errJson = toBytes('{"message":"handshake_error","code":"slot_unavailable","detail":"Slot P2 belegt."}');

@@ -21,3 +21,12 @@ clients/3ds/cia/tools/
 
 # Switch -- NSP build tools (fetched/built by nsp/build_hacbrewpack.sh, see clients/switch/CMakeLists.txt)
 clients/switch/nsp/tools/
+
+# Web -- emsdk toolchain (fetched by build_wasm.sh, see clients/web/README.md)
+# and its intermediate finlink_core wasm build dir; only finlink_core.js
+# itself is committed (a build artifact deliberately treated as source, see
+# build_wasm.sh's own comment). Previously undocumented here despite
+# build_wasm.sh already claiming ".gitignore excludes it" -- fixed while
+# touching this file for the video-mode negotiation feature.
+clients/web/emsdk/
+clients/web/finlink_core_wasm/

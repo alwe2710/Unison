@@ -64,7 +64,8 @@ EMSCRIPTEN_KEEPALIVE int finlink_wasm_hello_slot_occupied(int i) {
 EMSCRIPTEN_KEEPALIVE
 int finlink_wasm_build_hello_ack(int requested_slot, unsigned int max_width, unsigned int max_height,
                                   double max_fps, int wants_audio, unsigned int max_sample_rate,
-                                  unsigned int max_channels, char *out_buf, int out_capacity) {
+                                  unsigned int max_channels, const char *video_mode, char *out_buf,
+                                  int out_capacity) {
     finlink_hello_ack_request req;
     memset(&req, 0, sizeof(req));
     req.requested_slot = requested_slot;
@@ -74,6 +75,12 @@ int finlink_wasm_build_hello_ack(int requested_slot, unsigned int max_width, uns
     req.wants_audio = wants_audio;
     req.max_sample_rate = max_sample_rate;
     req.max_channels = (uint8_t)max_channels;
+    // video_mode: caller passes "" for "unset/use server default", same
+    // omitted-from-JSON convention as every other client -- ccall's
+    // 'string' arg type never gives us NULL, only at most an empty string,
+    // so no NULL check needed here.
+    if (video_mode != NULL)
+        strncpy(req.video_mode, video_mode, sizeof(req.video_mode) - 1);
     return (int)finlink_build_hello_ack(&req, out_buf, (size_t)out_capacity);
 }
 
@@ -97,6 +104,10 @@ EMSCRIPTEN_KEEPALIVE unsigned int finlink_wasm_ready_audio_channels(void) { retu
 EMSCRIPTEN_KEEPALIVE int finlink_wasm_ready_has_redirect(void) { return g_ready.has_redirect; }
 EMSCRIPTEN_KEEPALIVE const char *finlink_wasm_ready_redirect_host(void) { return g_ready.redirect_host; }
 EMSCRIPTEN_KEEPALIVE int finlink_wasm_ready_redirect_port(void) { return g_ready.redirect_port; }
+// "" if the server predates this field -- caller must treat that as "no
+// information, don't compare" per docs/protocol.md "Video-mode fallback",
+// not as any specific granted value.
+EMSCRIPTEN_KEEPALIVE const char *finlink_wasm_ready_video_mode(void) { return g_ready.video_mode; }
 
 /* ---------------- handshake_error ---------------- */
 
