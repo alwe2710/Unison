@@ -321,7 +321,10 @@ priority as long as the client can handle them per `hello_ack`, otherwise the se
 
 Optionally with an additional `"redirect": { "host": "192.168.1.42", "port": 6801 }` — only for
 stream types with more than one slot. If `redirect` is set, **this** connection carries no
-video/audio/input frames at all; the server closes it after sending. The client opens a new
+video/audio/input frames at all; the server closes it after sending. Every other field in this
+particular reply — including `video_mode` — is a placeholder, not an actionable value (a server
+may not even have decided its real fallback yet at this point); only `redirect.host`/`redirect.port`
+matter here. The client opens a new
 WebSocket connection to `redirect.host:port` and goes through the same `hello`/`hello_ack`/
 `session_ready` exchange there again (with the same limits/the same `requested_slot`) — this time
 without `redirect` in the reply. The second round is deliberately a complete repeat rather than a
