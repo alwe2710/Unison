@@ -54,7 +54,11 @@ jobs:
         working-directory: clients/android
         run: ./gradlew :app:assembleDebug --stacktrace
 
-  3ds:
+  build-3ds:
+    # Job id can't start with a digit (GitHub Actions schema rule) -- "3ds"
+    # alone was rejected outright at parse time (zero jobs created, whole
+    # workflow run failed in 0s), hence the "build-" prefix here even
+    # though every other job id in this file is just the target name.
     name: 3ds (.3dsx)
     runs-on: ubuntu-latest
     container: devkitpro/devkitarm:latest
