@@ -14,30 +14,25 @@ name: build
 # documented ground truth for a from-scratch machine, and have since been
 # confirmed correct by a real green run.
 #
-# The devkitPro jobs retry their `dkp-pacman -Sy` package install: their
-# base container images (devkitpro/devkitarm, devkitpro/devkita64) only
-# ship the bare compiler toolchain, not libnx/libctru/libnds etc. -- those
-# are always fetched live from pkg.devkitpro.org at job start, and that
-# host is Cloudflare-fronted and occasionally answers a plain,
-# non-authenticated CI runner request with a Cloudflare "Attention
-# Required" 403 challenge page instead of the package (confirmed by hand:
-# same command, same container, succeeded minutes later with zero code
-# changes in between -- a transient block, not a wrong package name or a
-# permanent one). devkitPro itself doesn't officially support pacman
-# inside CI for exactly this reason (their own recommendation is to use
-# the Docker images as-is); retrying a few times with a short delay is the
-# standard community workaround, not a special bypass.
-#
-# On top of the retry, each devkitPro job now also caches dkp-pacman's own
-# package-download cache dir (actions/cache, keyed on the exact package
-# list) -- once a run successfully downloads everything, every later run
-# restores from cache and never has to touch pkg.devkitpro.org again
-# (dkp-pacman still checks/uses the cached .pkg.tar.* files without
-# re-fetching them) unless a job's package list changes -- see
-# "Locate dkp-pacman cache dir" in each job for how the actual directory is
-# determined (queried from `dkp-pacman -v`'s own output, not guessed/
-# hardcoded, since it's undocumented and this doesn't need to be guessed
-# when pacman will just tell us).
+# The devkitPro jobs check for their needed packages with `dkp-pacman -Q`
+# (fully offline, reads the local package DB) before ever touching the
+# network: a diagnostic CI run (2026-08-04) showed every package every one
+# of these jobs needs is *already installed* in the base container images
+# (devkitpro/devkitarm, devkitpro/devkita64) -- the "bare compiler
+# toolchain only" assumption this comment used to state was wrong. Only if
+# something's genuinely missing does a job fall back to `dkp-pacman -Sy`
+# (network install, retried) -- and pkg.devkitpro.org is Cloudflare-fronted
+# and occasionally answers a plain, non-authenticated CI runner request
+# with a Cloudflare "Attention Required" 403 challenge page instead of the
+# package (confirmed by hand: same command, same container, succeeded
+# minutes later with zero code changes in between -- a transient block, not
+# a wrong package name or a permanent one; still an open, unresolved issue
+# upstream, e.g. devkitPro/pacman#62/#63). devkitPro itself doesn't
+# officially support pacman inside CI for exactly this reason (their own
+# recommendation is to use the Docker images as-is, which -Q now actually
+# does); retrying a few times with a short delay, then a last-resort -S
+# (no forced refresh), is the fallback safety net for the rare case a
+# future package genuinely isn't in the image yet.
 
 on:
   push:
@@ -143,60 +138,32 @@ jobs:
     container: devkitpro/devkitarm:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Locate dkp-pacman cache/DB dirs
-        id: pacman_cache
-        # `-Sy`'s failures in our logs are always the *database* sync
-        # ("failed retrieving file 'dkp-linux.db'"), not a package
-        # download -- so both the DB Path (the synced repo .db files) and
-        # Cache Dirs (downloaded .pkg.tar.* files) need to survive between
-        # runs for a cache hit to let a later run skip pkg.devkitpro.org
-        # entirely. `pacman -Vv` turned out to just print the version
-        # banner on devkitPro's fork (no config dump like stock Arch
-        # pacman) -- fall back to `pacman-conf` if present, then to
-        # grepping pacman.conf directly, since the config file itself
-        # ships with the base image and doesn't need a successful sync to
-        # exist.
+      # Real finding from a diagnostic CI run (2026-08-04, see this file's
+      # git history): every package this job needs is *already installed*
+      # in the devkitpro/devkitarm:latest base image itself (`pacman -Q`
+      # lists them all, straight out of /opt/devkitpro/pacman/var/lib/
+      # pacman/local -- no fetch needed). The only reason this job ever
+      # touched pkg.devkitpro.org was `dkp-pacman -Sy`'s unconditional
+      # database refresh, not an actually missing package. `pacman -Q` is
+      # fully offline (reads local package DB, no network) -- checking
+      # first and only falling back to a real (retried) install when
+      # something's genuinely missing means this job no longer depends on
+      # pkg.devkitpro.org's Cloudflare-flaky uptime (see this file's own
+      # top comment) in the common case at all, only if the base image
+      # ever stops shipping one of these.
+      - name: Ensure 3DS dev packages (offline check first)
         run: |
-          dbpath=""
-          cachedir=""
-          if command -v pacman-conf >/dev/null 2>&1; then
-            dbpath=$(pacman-conf DBPath 2>/dev/null || true)
-            cachedir=$(pacman-conf CacheDir 2>/dev/null | head -1 || true)
+          if dkp-pacman -Q libctru citro2d citro3d 3dstools general-tools 3ds-cmake devkitarm-cmake 3ds-pkg-config > /dev/null 2>&1; then
+            echo "All required packages already present in the base image -- skipping pkg.devkitpro.org entirely."
+            exit 0
           fi
-          conf=$(find /opt/devkitpro -maxdepth 4 -iname "pacman.conf" 2>/dev/null | head -1)
-          echo "pacman.conf: ${conf:-<not found>}"
-          if [ -n "$conf" ]; then
-            cat "$conf"
-            [ -z "$dbpath" ] && dbpath=$(awk -F'= *' '/^ *DBPath/ {print $2}' "$conf")
-            [ -z "$cachedir" ] && cachedir=$(awk -F'= *' '/^ *CacheDir/ {print $2}' "$conf")
-          fi
-          echo "Diagnostic tree under /opt/devkitpro/pacman (up to depth 5):"
-          find /opt/devkitpro/pacman -maxdepth 5 -type d 2>/dev/null
-          echo "Detected DB Path: '$dbpath', Cache Dirs: '$cachedir'"
-          echo "dbpath=$dbpath" >> "$GITHUB_OUTPUT"
-          echo "cachedir=$cachedir" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: steps.pacman_cache.outputs.dbpath != '' && steps.pacman_cache.outputs.cachedir != ''
-        with:
-          path: |
-            ${{ steps.pacman_cache.outputs.dbpath }}
-            ${{ steps.pacman_cache.outputs.cachedir }}
-          key: devkitpro-3ds-pkgcache-v1-libctru-citro2d-citro3d-3dstools-general-tools-3ds-cmake-devkitarm-cmake-3ds-pkg-config
-      # Package list from clients/3ds/README.md "Building". Retried -- see
-      # this file's own top comment on pkg.devkitpro.org's Cloudflare 403s.
-      # Falls back to `-S` (install from whatever's cached, no forced
-      # database refresh) if every `-Sy` attempt hit the block, so a cache
-      # hit still lets the job succeed without pkg.devkitpro.org being
-      # reachable at all -- a stale-by-a-few-days toolchain library list is
-      # a much better failure mode than the job just not running.
-      - name: Install 3DS dev packages
-        run: |
+          echo "One or more packages missing from the base image -- falling back to a real install."
           for i in 1 2 3 4 5; do
             dkp-pacman -Sy --noconfirm libctru citro2d citro3d 3dstools general-tools 3ds-cmake devkitarm-cmake 3ds-pkg-config && exit 0
             echo "dkp-pacman -Sy failed (attempt $i/5), retrying in 20s..."
             sleep 20
           done
-          echo "All -Sy attempts failed -- falling back to -S (cached DB/packages, no refresh)"
+          echo "All -Sy attempts failed -- last resort: -S (no refresh)"
           dkp-pacman -S --noconfirm libctru citro2d citro3d 3dstools general-tools 3ds-cmake devkitarm-cmake 3ds-pkg-config
       - name: Configure
         run: |
@@ -212,51 +179,22 @@ jobs:
     container: devkitpro/devkita64:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Locate dkp-pacman cache/DB dirs
-        id: pacman_cache
-        # See the 3ds job's identical step for why both DB Path and Cache
-        # Dirs need caching, why they're queried rather than guessed, and
-        # why pacman-conf/pacman.conf are used instead of `pacman -Vv`
-        # (just prints a version banner on devkitPro's fork).
+      # See the 3ds job's identical step for why this is offline-checked
+      # first (every package already ships in the base image) rather than
+      # always fetching.
+      - name: Ensure Switch dev packages (offline check first)
         run: |
-          dbpath=""
-          cachedir=""
-          if command -v pacman-conf >/dev/null 2>&1; then
-            dbpath=$(pacman-conf DBPath 2>/dev/null || true)
-            cachedir=$(pacman-conf CacheDir 2>/dev/null | head -1 || true)
+          if dkp-pacman -Q libnx switch-glfw switch-mesa switch-libdrm_nouveau switch-pkg-config switch-zlib switch-cmake switch-tools dkp-cmake-common-utils dkp-toolchain-vars > /dev/null 2>&1; then
+            echo "All required packages already present in the base image -- skipping pkg.devkitpro.org entirely."
+            exit 0
           fi
-          conf=$(find /opt/devkitpro -maxdepth 4 -iname "pacman.conf" 2>/dev/null | head -1)
-          echo "pacman.conf: ${conf:-<not found>}"
-          if [ -n "$conf" ]; then
-            cat "$conf"
-            [ -z "$dbpath" ] && dbpath=$(awk -F'= *' '/^ *DBPath/ {print $2}' "$conf")
-            [ -z "$cachedir" ] && cachedir=$(awk -F'= *' '/^ *CacheDir/ {print $2}' "$conf")
-          fi
-          echo "Diagnostic tree under /opt/devkitpro/pacman (up to depth 5):"
-          find /opt/devkitpro/pacman -maxdepth 5 -type d 2>/dev/null
-          echo "Detected DB Path: '$dbpath', Cache Dirs: '$cachedir'"
-          echo "dbpath=$dbpath" >> "$GITHUB_OUTPUT"
-          echo "cachedir=$cachedir" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: steps.pacman_cache.outputs.dbpath != '' && steps.pacman_cache.outputs.cachedir != ''
-        with:
-          path: |
-            ${{ steps.pacman_cache.outputs.dbpath }}
-            ${{ steps.pacman_cache.outputs.cachedir }}
-          key: devkitpro-switch-pkgcache-v1-libnx-switch-glfw-switch-mesa-switch-libdrm_nouveau-switch-pkg-config-switch-zlib-switch-cmake-switch-tools-dkp-cmake-common-utils-dkp-toolchain-vars
-      # Package list from clients/switch/README.md "Building". Retried --
-      # see this file's own top comment on pkg.devkitpro.org's Cloudflare
-      # 403s (this is the job that actually hit one, on a run that
-      # otherwise changed nothing about this step). Falls back to `-S` --
-      # see the 3ds job's identical fallback for why.
-      - name: Install Switch dev packages
-        run: |
+          echo "One or more packages missing from the base image -- falling back to a real install."
           for i in 1 2 3 4 5; do
             dkp-pacman -Sy --noconfirm libnx switch-glfw switch-mesa switch-libdrm_nouveau switch-pkg-config switch-zlib switch-cmake switch-tools dkp-cmake-common-utils dkp-toolchain-vars && exit 0
             echo "dkp-pacman -Sy failed (attempt $i/5), retrying in 20s..."
             sleep 20
           done
-          echo "All -Sy attempts failed -- falling back to -S (cached DB/packages, no refresh)"
+          echo "All -Sy attempts failed -- last resort: -S (no refresh)"
           dkp-pacman -S --noconfirm libnx switch-glfw switch-mesa switch-libdrm_nouveau switch-pkg-config switch-zlib switch-cmake switch-tools dkp-cmake-common-utils dkp-toolchain-vars
       - name: Configure
         run: |
@@ -271,51 +209,23 @@ jobs:
     container: devkitpro/devkitarm:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Locate dkp-pacman cache/DB dirs
-        id: pacman_cache
-        # See the 3ds job's identical step for why both DB Path and Cache
-        # Dirs need caching, why they're queried rather than guessed, and
-        # why pacman-conf/pacman.conf are used instead of `pacman -Vv`
-        # (just prints a version banner on devkitPro's fork).
+      # See the 3ds job's identical step for why this is offline-checked
+      # first (every package already ships in the base image) rather than
+      # always fetching. ndstool itself ships in general-tools alongside
+      # 3dstool.
+      - name: Ensure NDS dev packages (offline check first)
         run: |
-          dbpath=""
-          cachedir=""
-          if command -v pacman-conf >/dev/null 2>&1; then
-            dbpath=$(pacman-conf DBPath 2>/dev/null || true)
-            cachedir=$(pacman-conf CacheDir 2>/dev/null | head -1 || true)
+          if dkp-pacman -Q libnds dswifi maxmod-nds calico general-tools > /dev/null 2>&1; then
+            echo "All required packages already present in the base image -- skipping pkg.devkitpro.org entirely."
+            exit 0
           fi
-          conf=$(find /opt/devkitpro -maxdepth 4 -iname "pacman.conf" 2>/dev/null | head -1)
-          echo "pacman.conf: ${conf:-<not found>}"
-          if [ -n "$conf" ]; then
-            cat "$conf"
-            [ -z "$dbpath" ] && dbpath=$(awk -F'= *' '/^ *DBPath/ {print $2}' "$conf")
-            [ -z "$cachedir" ] && cachedir=$(awk -F'= *' '/^ *CacheDir/ {print $2}' "$conf")
-          fi
-          echo "Diagnostic tree under /opt/devkitpro/pacman (up to depth 5):"
-          find /opt/devkitpro/pacman -maxdepth 5 -type d 2>/dev/null
-          echo "Detected DB Path: '$dbpath', Cache Dirs: '$cachedir'"
-          echo "dbpath=$dbpath" >> "$GITHUB_OUTPUT"
-          echo "cachedir=$cachedir" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: steps.pacman_cache.outputs.dbpath != '' && steps.pacman_cache.outputs.cachedir != ''
-        with:
-          path: |
-            ${{ steps.pacman_cache.outputs.dbpath }}
-            ${{ steps.pacman_cache.outputs.cachedir }}
-          key: devkitpro-nds-pkgcache-v1-libnds-dswifi-maxmod-nds-calico-general-tools
-      # Package list from clients/nds/README.md "Building" (same devkitARM
-      # toolchain as the 3ds job, different libs -- ndstool itself ships in
-      # general-tools alongside 3dstool). Retried -- see this file's own
-      # top comment on pkg.devkitpro.org's Cloudflare 403s. Falls back to
-      # `-S` -- see the 3ds job's identical fallback for why.
-      - name: Install NDS dev packages
-        run: |
+          echo "One or more packages missing from the base image -- falling back to a real install."
           for i in 1 2 3 4 5; do
             dkp-pacman -Sy --noconfirm libnds dswifi maxmod-nds calico general-tools && exit 0
             echo "dkp-pacman -Sy failed (attempt $i/5), retrying in 20s..."
             sleep 20
           done
-          echo "All -Sy attempts failed -- falling back to -S (cached DB/packages, no refresh)"
+          echo "All -Sy attempts failed -- last resort: -S (no refresh)"
           dkp-pacman -S --noconfirm libnds dswifi maxmod-nds calico general-tools
       - name: Build (classic two-ELF Makefile, no CMake -- see clients/nds/README.md)
         working-directory: clients/nds
