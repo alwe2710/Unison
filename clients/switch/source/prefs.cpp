@@ -85,6 +85,11 @@ void Prefs::load() {
     if (it != values.end()) {
         language = languagePrefFromCode(it->second);
     }
+
+    auto videoModeIt = values.find("video_mode");
+    if (videoModeIt != values.end()) {
+        videoMode = videoModeIt->second;
+    }
 }
 
 void Prefs::save() {
@@ -98,6 +103,7 @@ void Prefs::save() {
         out << key << "=" << value << "\n";
     }
     out << "language=" << languagePrefCode(language) << "\n";
+    out << "video_mode=" << videoMode << "\n";
 }
 
 // Prefs::LanguagePref::SYSTEM resolves to whichever of DE/FR/IT/ES the

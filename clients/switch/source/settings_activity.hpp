@@ -37,9 +37,12 @@ class SettingsActivity : public brls::Activity {
     // Navigates to LanguageActivity's plain list on click, current value
     // shown as this cell's detail text (refreshed in onResume() above).
     brls::DetailCell *languageCell = nullptr;
+    // Same, for VideoModeActivity -- cloned wholesale from languageCell.
+    brls::DetailCell *videoModeCell = nullptr;
     brls::Label *header = nullptr;
     brls::AppletFrame *frame = nullptr;
 
     void updateFilterCellUI(int index);
     void updateLanguageCellUI();
+    void updateVideoModeCellUI();
 };

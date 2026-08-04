@@ -71,13 +71,21 @@ brls::View *PlayerActivity::createContentView() {
     auto *poller = new FramePoller([this]() { onFrameTick(); });
     root->addView(poller);
 
-    session.connect(host, port,
+    session.connect(host, port, prefs.videoMode,
         GbaSession::Listener {
             .onConnected =
-                [this]() {
-                    brls::sync([this]() {
+                [this](std::string grantedVideoMode) {
+                    brls::sync([this, grantedVideoMode]() {
                         connected = true;
                         statusLabel->setVisibility(brls::Visibility::GONE);
+                        // Empty grantedVideoMode means the server predates
+                        // session_ready.video_mode entirely -- skip the
+                        // comparison rather than assuming "tiles" was
+                        // granted, see docs/protocol.md "Video-mode
+                        // fallback" and GbaSession::Listener's own comment.
+                        if (!grantedVideoMode.empty() && grantedVideoMode != prefs.videoMode) {
+                            showVideoModeFallbackDialog(prefs.videoMode, grantedVideoMode);
+                        }
                     });
                 },
             .onVideoFrame =
@@ -127,6 +135,34 @@ void PlayerActivity::showDisconnectDialog(const std::string &reason) {
     auto *dialog = new brls::Dialog(std::string(strings::kStreamLostTitle) + "\n" + reason);
     dialog->setCancelable(false);
     dialog->addButton("OK", [this]() { brls::Application::popActivity(); });
+    dialog->open();
+}
+
+namespace {
+// Wire-format string -> label, mirrors settings_activity.cpp's own
+// labelForVideoMode() (kept local here rather than shared -- same
+// duplication settings_activity.cpp itself already accepts for
+// labelForStreamType() vs menu_activity.cpp's kStreamTypeGcGbaLink).
+const char *videoModeLabel(const std::string &mode) {
+    if (mode == "h264") return strings::kVideoModeH264;
+    if (mode == "h265") return strings::kVideoModeH265;
+    if (mode == "legacy") return strings::kVideoModeLegacy;
+    return strings::kVideoModeTiles;
+}
+} // namespace
+
+// Non-blocking: the stream is already live in the granted mode by the time
+// this can even fire (session_ready already committed the server to
+// `granted`) -- "Fortsetzen" just dismisses it, "Abbrechen" pops back to
+// the menu same as a normal disconnect.
+void PlayerActivity::showVideoModeFallbackDialog(const std::string &requested, const std::string &granted) {
+    char message[256];
+    snprintf(message, sizeof(message), strings::kVideoModeFallbackMessage,
+              videoModeLabel(requested), videoModeLabel(granted));
+    auto *dialog = new brls::Dialog(std::string(strings::kVideoModeFallbackTitle) + "\n" + message);
+    dialog->setCancelable(false);
+    dialog->addButton(strings::kVideoModeFallbackAbort, [this]() { brls::Application::popActivity(); });
+    dialog->addButton(strings::kVideoModeFallbackContinue, []() {});
     dialog->open();
 }
 

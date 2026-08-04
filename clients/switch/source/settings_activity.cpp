@@ -5,6 +5,7 @@
 
 #include "language_activity.hpp"
 #include "strings_generated.hpp"
+#include "video_mode_activity.hpp"
 
 namespace {
 // Same on/off color convention as the Switch's own system settings: gray
@@ -62,6 +63,18 @@ const char *labelForLanguagePref(Prefs::LanguagePref pref) {
         return strings::kLanguageSystem;
     }
 }
+
+// Wire-format string (finlink/docs/protocol.md) -> label -- mirrors
+// labelForLanguagePref() above, just keyed on a raw std::string instead of
+// an enum since video_mode never had one (see Prefs::videoMode's own
+// comment). Falls back to "tiles" for anything unrecognized, same as a
+// server would.
+const char *labelForVideoMode(const std::string &mode) {
+    if (mode == "h264") return strings::kVideoModeH264;
+    if (mode == "h265") return strings::kVideoModeH265;
+    if (mode == "legacy") return strings::kVideoModeLegacy;
+    return strings::kVideoModeTiles;
+}
 } // namespace
 
 void SettingsActivity::updateFilterCellUI(int index) {
@@ -74,13 +87,19 @@ void SettingsActivity::updateLanguageCellUI() {
     languageCell->setDetailText(labelForLanguagePref(prefs.language));
 }
 
+void SettingsActivity::updateVideoModeCellUI() {
+    videoModeCell->setDetailText(labelForVideoMode(prefs.videoMode));
+}
+
 void SettingsActivity::onResume() {
     brls::Activity::onResume();
     prefs = Prefs();
     updateLanguageCellUI();
+    updateVideoModeCellUI();
     header->setText(strings::kSettingsAntialiasing);
     frame->setTitle(strings::kSettings);
     languageCell->setText(strings::kSettingsLanguage);
+    videoModeCell->setText(strings::kSettingsVideoMode);
     for (int i = 0; i < static_cast<int>(std::size(kKnownStreamTypes)); i++) {
         filterCells[i]->setText(labelForStreamType(kKnownStreamTypes[i].streamType));
         updateFilterCellUI(i);
@@ -101,6 +120,15 @@ brls::View *SettingsActivity::createContentView() {
     });
     updateLanguageCellUI();
     column->addView(languageCell);
+
+    videoModeCell = new brls::DetailCell();
+    videoModeCell->setText(strings::kSettingsVideoMode);
+    videoModeCell->registerClickAction([](brls::View *) {
+        brls::Application::pushActivity(new VideoModeActivity());
+        return true;
+    });
+    updateVideoModeCellUI();
+    column->addView(videoModeCell);
 
     header = new brls::Label();
     header->setText(strings::kSettingsAntialiasing);

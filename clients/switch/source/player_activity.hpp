@@ -70,4 +70,5 @@ class PlayerActivity : public brls::Activity {
     void reclaimAudioBuffers();
     void closeAudio();
     void showDisconnectDialog(const std::string &reason);
+    void showVideoModeFallbackDialog(const std::string &requested, const std::string &granted);
 };

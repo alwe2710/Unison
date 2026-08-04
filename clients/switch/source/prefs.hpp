@@ -39,6 +39,12 @@ class Prefs {
     enum class LanguagePref { SYSTEM, DE, EN, FR, IT, ES };
     LanguagePref language = LanguagePref::SYSTEM;
 
+    // Sent verbatim as hello_ack.video_mode during the handshake (see
+    // session.cpp's performAppHandshake()) -- one of the wire-format
+    // strings finlink's docs/protocol.md defines ("tiles"/"legacy"/"h264"/
+    // "h265"), not a client-side enum, same as Android's Prefs.videoMode.
+    std::string videoMode = "tiles";
+
   private:
     std::map<std::string, std::string> values;
 
