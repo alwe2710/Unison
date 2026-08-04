@@ -5,46 +5,17 @@
 
 #include <switch.h>
 
+#include "settings_pref.hpp"
+
 namespace {
 constexpr const char *kDir = "sdmc:/switch/finlink";
 constexpr const char *kFile = "sdmc:/switch/finlink/settings.cfg";
-} // namespace
 
-namespace {
 // "bilinear_video_filter.GC_GBA_LINK" -- the prefix every per-stream-type
 // key uses within `values` (round-tripped wholesale, see save() below), so
 // a server introducing a new stream_type doesn't need a client code change
 // just to remember its filter preference.
 constexpr const char *kBilinearKeyPrefix = "bilinear_video_filter.";
-
-// See Prefs::bilinearFor()'s own comment: GC_GBA_LINK's GBA output is
-// native-resolution pixel art (nearest-neighbor looks right), while
-// WIIU_GAMEPAD/N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN are already-upscaled/
-// higher-effective-resolution renders that read better smoothed.
-bool defaultBilinearFor(const std::string &streamType) {
-    return streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN";
-}
-
-// Keep in sync with i18n/strings.json's language set.
-Prefs::LanguagePref languagePrefFromCode(const std::string &code) {
-    if (code == "de") return Prefs::LanguagePref::DE;
-    if (code == "en") return Prefs::LanguagePref::EN;
-    if (code == "fr") return Prefs::LanguagePref::FR;
-    if (code == "it") return Prefs::LanguagePref::IT;
-    if (code == "es") return Prefs::LanguagePref::ES;
-    return Prefs::LanguagePref::SYSTEM;
-}
-
-const char *languagePrefCode(Prefs::LanguagePref pref) {
-    switch (pref) {
-    case Prefs::LanguagePref::DE: return "de";
-    case Prefs::LanguagePref::EN: return "en";
-    case Prefs::LanguagePref::FR: return "fr";
-    case Prefs::LanguagePref::IT: return "it";
-    case Prefs::LanguagePref::ES: return "es";
-    default: return "system";
-    }
-}
 } // namespace
 
 std::string Prefs::path() const {
@@ -110,36 +81,31 @@ void Prefs::save() {
 // console's own system language (setGetSystemLanguage()) matches --
 // anything else (including the call failing, or a system language this
 // app has no translation for) falls back to English, same policy as every
-// other client.
+// other client. The actual pref/system-language resolution decision lives
+// in resolveLanguagePref() (settings_pref.hpp/.cpp) -- this just does the
+// setGetSystemLanguage()/setMakeLanguage() calls and translates the result
+// into std::optional<strings::Lang>.
 strings::Lang resolveLanguage(const Prefs &prefs) {
-    switch (prefs.language) {
-    case Prefs::LanguagePref::DE: return strings::Lang::DE;
-    case Prefs::LanguagePref::EN: return strings::Lang::EN;
-    case Prefs::LanguagePref::FR: return strings::Lang::FR;
-    case Prefs::LanguagePref::IT: return strings::Lang::IT;
-    case Prefs::LanguagePref::ES: return strings::Lang::ES;
-    default: break;
-    }
-    strings::Lang result = strings::Lang::EN;
+    std::optional<strings::Lang> systemLanguage;
     if (R_SUCCEEDED(setInitialize())) {
         u64 languageCode = 0;
         if (R_SUCCEEDED(setGetSystemLanguage(&languageCode))) {
             SetLanguage setLang;
             if (R_SUCCEEDED(setMakeLanguage(languageCode, &setLang))) {
                 switch (setLang) {
-                case SetLanguage_DE: result = strings::Lang::DE; break;
+                case SetLanguage_DE: systemLanguage = strings::Lang::DE; break;
                 case SetLanguage_FR:
-                case SetLanguage_FRCA: result = strings::Lang::FR; break;
-                case SetLanguage_IT: result = strings::Lang::IT; break;
+                case SetLanguage_FRCA: systemLanguage = strings::Lang::FR; break;
+                case SetLanguage_IT: systemLanguage = strings::Lang::IT; break;
                 case SetLanguage_ES:
-                case SetLanguage_ES419: result = strings::Lang::ES; break;
+                case SetLanguage_ES419: systemLanguage = strings::Lang::ES; break;
                 default: break;
                 }
             }
         }
         setExit();
     }
-    return result;
+    return resolveLanguagePref(prefs.language, systemLanguage);
 }
 
 void applyLanguage(const Prefs &prefs) {

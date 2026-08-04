@@ -20,5 +20,17 @@ target_include_directories(test_audio_remix PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../source
 )
 
+# settings_pref.cpp is deliberately free of <switch.h> (unlike prefs.cpp,
+# which can't be linked into a host test at all -- see settings_pref.hpp's
+# own comment), but does need prefs.hpp for Prefs::LanguagePref.
+add_executable(test_language_and_bilinear
+    test_language_and_bilinear.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/settings_pref.cpp
+)
+target_include_directories(test_language_and_bilinear PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+)
+
 enable_testing()
 add_test(NAME audio_remix COMMAND test_audio_remix)
+add_test(NAME language_and_bilinear COMMAND test_language_and_bilinear)

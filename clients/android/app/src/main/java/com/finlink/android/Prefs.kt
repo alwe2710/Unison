@@ -114,8 +114,10 @@ class Prefs(context: Context) {
         /** See bilinearFor()'s own comment. Anything not in this set
          * (including "" -- manual host:port entry, whose real stream_type
          * isn't known until the handshake's hello) defaults to nearest,
-         * same as GC_GBA_LINK. */
-        private fun defaultBilinearFor(streamType: String): Boolean =
+         * same as GC_GBA_LINK. internal (not private) so PrefsTest can
+         * exercise it directly without needing a real Context/
+         * SharedPreferences -- see that file. */
+        internal fun defaultBilinearFor(streamType: String): Boolean =
             streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN"
 
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"

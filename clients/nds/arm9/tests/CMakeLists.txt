@@ -36,6 +36,17 @@ target_include_directories(test_audio_ring PRIVATE
     ${FINLINK_CORE_DIR}/include
 )
 
+# language_pref.c only needs strings_generated.h's StrLang enum (header-only,
+# no nds.h) -- no finlink_core needed here.
+add_executable(test_language_pref
+    test_language_pref.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/language_pref.c
+)
+target_include_directories(test_language_pref PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+)
+
 enable_testing()
 add_test(NAME dual_screen_choice COMMAND test_dual_screen_choice)
 add_test(NAME audio_ring COMMAND test_audio_ring)
+add_test(NAME language_pref COMMAND test_language_pref)

@@ -60,4 +60,12 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+
+    // Plain JVM unit tests (src/test/, run via `gradlew testDebugUnitTest`,
+    // no emulator/device needed) -- the "generell: Sprach- und Bilinear-
+    // Filter-Settings" test category's pure logic (Prefs.defaultBilinearFor(),
+    // LocaleHelper.resolveLocaleTag()). Real UI/instrumented tests
+    // (Espresso, androidTest/) are a separate, heavier undertaking -- see
+    // the universal-client test category.
+    testImplementation("junit:junit:4.13.2")
 }

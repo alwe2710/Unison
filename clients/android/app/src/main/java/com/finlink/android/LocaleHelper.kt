@@ -27,7 +27,19 @@ object LocaleHelper {
     )
 
     fun resolvedLocale(context: Context): Locale =
-        SUPPORTED[Prefs(context).language] ?: SUPPORTED[systemLocale().language] ?: Locale.ENGLISH
+        SUPPORTED[resolveLocaleTag(Prefs(context).language, systemLocale().language)] ?: Locale.ENGLISH
+
+    /** The actual pref/system-language resolution decision, pulled out into
+     * its own function taking plain strings (not a Context) so it has one
+     * place to unit-test on the plain JVM instead of only being
+     * exercisable with a real Context -- see LocaleHelperTest.
+     * "system" (default, English if undetermined/unsupported) applies
+     * equally to an explicit pref that isn't actually one of SUPPORTED's
+     * keys (e.g. a stale value from an older app version's Prefs). */
+    internal fun resolveLocaleTag(prefLanguage: String, systemLanguageTag: String): String =
+        if (SUPPORTED.containsKey(prefLanguage)) prefLanguage
+        else if (SUPPORTED.containsKey(systemLanguageTag)) systemLanguageTag
+        else "en"
 
     fun wrap(context: Context): Context {
         val locale = resolvedLocale(context)

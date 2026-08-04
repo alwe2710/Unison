@@ -127,6 +127,12 @@ jobs:
       - name: gradlew assembleDebug
         working-directory: clients/android
         run: ./gradlew :app:assembleDebug --stacktrace
+      # Plain JVM unit tests (src/test/, no emulator/device) -- the
+      # "generell: Sprach- und Bilinear-Filter-Settings" test category's
+      # pure logic (Prefs.defaultBilinearFor(), LocaleHelper.resolveLocaleTag()).
+      - name: gradlew testDebugUnitTest
+        working-directory: clients/android
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
   build-3ds:
     # Job id can't start with a digit (GitHub Actions schema rule) -- "3ds"

@@ -42,6 +42,7 @@
 
 #include "audio_ring.h"
 #include "beacon_discovery.h"
+#include "language_pref.h"
 #include "screen_choice.h"
 #include "strings_generated.h"
 #include "finlink/endian.h"
@@ -131,22 +132,7 @@ static int g_prefLanguage = -1;
 static char g_prefVideoMode[16] = "tiles";
 
 static void applyLanguage(void) {
-    if (g_prefLanguage >= 0) {
-        strSetLanguage((StrLang)g_prefLanguage);
-        return;
-    }
-    /* PersonalData->language (libnds nds/system.h): 0=Japanese,
-     * 1=English, 2=French, 3=German, 4=Italian, 5=Spanish, 6=Chinese,
-     * 7=Unknown/Reserved -- anything this app has no translation for
-     * (including Japanese/Chinese/Unknown) falls back to English, same
-     * policy as every other client. */
-    switch (PersonalData->language) {
-    case 3: strSetLanguage(STR_LANG_DE); break;
-    case 2: strSetLanguage(STR_LANG_FR); break;
-    case 4: strSetLanguage(STR_LANG_IT); break;
-    case 5: strSetLanguage(STR_LANG_ES); break;
-    default: strSetLanguage(STR_LANG_EN); break;
-    }
+    strSetLanguage(finlink_nds_resolve_language(g_prefLanguage, PersonalData->language));
 }
 
 /* Endonym for the current g_prefLanguage value, for slotSelectMenu()'s

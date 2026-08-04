@@ -36,6 +36,23 @@ target_include_directories(test_audio_remix PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../source
 )
 
+# language_pref.cpp is deliberately free of <3ds.h>/cfgu (unlike the rest
+# of main.cpp's resolveLanguage()); links prefs.cpp for the same reason as
+# test_dual_screen_choice above (needs finlink_core too, prefs.cpp itself
+# calls finlink_stream_type_prefers_secondary_screen()).
+add_executable(test_language_and_bilinear
+    test_language_and_bilinear.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/language_pref.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/prefs.cpp
+    ${FINLINK_CORE_DIR}/src/handshake.c
+    ${FINLINK_CORE_DIR}/src/json.c
+)
+target_include_directories(test_language_and_bilinear PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+    ${FINLINK_CORE_DIR}/include
+)
+
 enable_testing()
 add_test(NAME dual_screen_choice COMMAND test_dual_screen_choice)
 add_test(NAME audio_remix COMMAND test_audio_remix)
+add_test(NAME language_and_bilinear COMMAND test_language_and_bilinear)

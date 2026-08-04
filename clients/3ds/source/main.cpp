@@ -37,6 +37,7 @@
 #include "audio.hpp"
 #include "discovery.hpp"
 #include "gba_buttons.hpp"
+#include "language_pref.hpp"
 #include "prefs.hpp"
 #include "session.hpp"
 #include "strings_generated.hpp"
@@ -386,31 +387,27 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
 // anything else (including the call failing, or a system language this
 // app has no translation for, e.g. Japanese) falls back to English, same
 // policy as every other client. An explicit DE/EN/FR/IT/ES is an override
-// from drawSettingsScreen()'s language button below.
+// from drawSettingsScreen()'s language button below. The actual pref/
+// system-language resolution decision lives in resolveLanguagePref()
+// (language_pref.hpp/.cpp) -- this just does the CFGU_GetSystemLanguage()
+// call and translates its raw CFG_LANGUAGE_* result into strings::Lang.
 strings::Lang resolveLanguage(const Prefs &prefs) {
-    switch (prefs.language) {
-    case Prefs::LanguagePref::DE: return strings::Lang::DE;
-    case Prefs::LanguagePref::EN: return strings::Lang::EN;
-    case Prefs::LanguagePref::FR: return strings::Lang::FR;
-    case Prefs::LanguagePref::IT: return strings::Lang::IT;
-    case Prefs::LanguagePref::ES: return strings::Lang::ES;
-    default: break;
-    }
-    u8 sysLanguage = 0;
+    std::optional<strings::Lang> sysLanguage;
+    u8 rawSysLanguage = 0;
     if (R_SUCCEEDED(cfguInit())) {
-        Result r = CFGU_GetSystemLanguage(&sysLanguage);
+        Result r = CFGU_GetSystemLanguage(&rawSysLanguage);
         cfguExit();
         if (R_SUCCEEDED(r)) {
-            switch (sysLanguage) {
-            case CFG_LANGUAGE_DE: return strings::Lang::DE;
-            case CFG_LANGUAGE_FR: return strings::Lang::FR;
-            case CFG_LANGUAGE_IT: return strings::Lang::IT;
-            case CFG_LANGUAGE_ES: return strings::Lang::ES;
+            switch (rawSysLanguage) {
+            case CFG_LANGUAGE_DE: sysLanguage = strings::Lang::DE; break;
+            case CFG_LANGUAGE_FR: sysLanguage = strings::Lang::FR; break;
+            case CFG_LANGUAGE_IT: sysLanguage = strings::Lang::IT; break;
+            case CFG_LANGUAGE_ES: sysLanguage = strings::Lang::ES; break;
             default: break;
             }
         }
     }
-    return strings::Lang::EN;
+    return resolveLanguagePref(prefs.language, sysLanguage);
 }
 
 void applyLanguage(const Prefs &prefs) {
