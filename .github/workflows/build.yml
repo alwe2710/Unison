@@ -257,3 +257,5 @@ jobs:
       # bridge_test.mjs itself needs), no separate setup-node needed.
       - name: Run settings_test.mjs
         run: node clients/web/settings_test.mjs
+      - name: Run keybindings_test.mjs
+        run: node clients/web/keybindings_test.mjs

@@ -353,6 +353,7 @@
 </div>
 <script src="strings_generated.js"></script>
 <script src="settings.js"></script>
+<script src="keybindings.js"></script>
 <script src="finlink_core.js"></script>
 <script>
 // STRINGS (strings_generated.js, generated from the central i18n/strings.json
@@ -1110,14 +1111,17 @@ function sendKeys() {
 }
 
 // --- Physical keyboard (desktop, or a Bluetooth keyboard paired to a phone) ---
+// loadBindings/assignBinding/buildCodeMap: keybindings.js (pure, unit-tested
+// there -- see keybindings_test.mjs). bindings/codeToButton stay the same
+// object references throughout (mutated in place via Object.assign, not
+// reassigned) since other closures below capture them by reference.
 const stored = JSON.parse(localStorage.getItem('finlinkWebBindings') || '{}');
-const bindings = {};
-for (const [name, , def] of BUTTONS) bindings[name] = stored[name] || def;
+const bindings = loadBindings(BUTTONS, stored);
 function saveBindings() { localStorage.setItem('finlinkWebBindings', JSON.stringify(bindings)); }
 const codeToButton = {};
 function rebuildCodeMap() {
   for (const k in codeToButton) delete codeToButton[k];
-  for (const [name, bit] of BUTTONS) codeToButton[bindings[name]] = bit;
+  Object.assign(codeToButton, buildCodeMap(BUTTONS, bindings));
 }
 rebuildCodeMap();
 window.addEventListener('keydown', (e) => {
@@ -1288,7 +1292,7 @@ if (!isMobile) {
         btn.textContent = t('settings_press_key');
         const onKey = (e) => {
           e.preventDefault();
-          bindings[name] = e.code;
+          Object.assign(bindings, assignBinding(bindings, name, e.code));
           saveBindings();
           rebuildCodeMap();
           renderSettings();
