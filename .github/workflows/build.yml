@@ -39,6 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 tools/check_capabilities.py
+      - run: python3 tools/check_button_mapping.py
 
   core:
     # Stage 2 of the CI plan: real functional tests (core/tests' ctest
