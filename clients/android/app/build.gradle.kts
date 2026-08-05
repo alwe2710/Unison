@@ -41,6 +41,17 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Robolectric needs the app's own resources (strings.xml etc.) on its
+    // classpath to resolve stringResource() calls inside a Composable under
+    // test -- without this, SettingsActivityTest's real Compose interaction
+    // (see its own comment) would only get placeholder/missing-resource
+    // text back instead of the real localized strings.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 // Compose + Material 3 (the UI toolkit/design system this app is built with)
@@ -64,8 +75,22 @@ dependencies {
     // Plain JVM unit tests (src/test/, run via `gradlew testDebugUnitTest`,
     // no emulator/device needed) -- the "generell: Sprach- und Bilinear-
     // Filter-Settings" test category's pure logic (Prefs.defaultBilinearFor(),
-    // LocaleHelper.resolveLocaleTag()). Real UI/instrumented tests
-    // (Espresso, androidTest/) are a separate, heavier undertaking -- see
-    // the universal-client test category.
+    // LocaleHelper.resolveLocaleTag()).
     testImplementation("junit:junit:4.13.2")
+
+    // Real Compose UI interaction under Robolectric (universal-client test
+    // category) -- still runs as a plain JVM unit test (testDebugUnitTest,
+    // no emulator/device/KVM needed in CI), but drives an actual rendered
+    // Compose semantics tree with real click/toggle gestures, unlike the
+    // plain-logic tests above. Scoped to SettingsActivity specifically
+    // (its on-screen-controls/bilinear-filter toggles) -- PlayerActivity's
+    // own overlay is tightly coupled to GbaStreamClient's native (JNI)
+    // methods (external fun nativeSendInput() etc., GbaStreamClient.kt),
+    // which Robolectric can't exercise here; see the test file's own
+    // comment for what that leaves untested and why.
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
 }

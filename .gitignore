@@ -38,3 +38,6 @@ clients/web/finlink_core_wasm/
 clients/web/node_modules/
 clients/web/test-results/
 clients/web/playwright-report/
+
+# Python bytecode cache (tools/*.py)
+__pycache__/

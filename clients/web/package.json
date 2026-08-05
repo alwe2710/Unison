@@ -1,7 +1,6 @@
 {
   "name": "finlink-web-client",
   "private": true,
-  "type": "module",
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "ws": "^8.18.0"
