@@ -33,7 +33,19 @@ final class SettingsViewUITests: XCTestCase {
         // .button (confirmed by CI: app.buttons[...] stopped finding it).
         // .any sidesteps needing to know/guess what it actually is.
         let settingsButton = app.descendants(matching: .any)["settingsButton"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        // Diagnostic only, temporary: two rounds of guessing the right
+        // query for RootView's List(selection:) sidebar row both failed in
+        // CI (app.buttons[...], then descendants(matching: .any)) without
+        // any way to see *why* from this environment (no local
+        // Xcode/Simulator at all -- see clients/ios/README.md). Printing
+        // the real accessibility tree XCUITest actually sees, captured in
+        // CI's own console log, replaces guessing with an actual look.
+        if !settingsButton.waitForExistence(timeout: 5) {
+            print("=== UNISON DEBUG: settingsButton not found, full app.debugDescription ===")
+            print(app.debugDescription)
+            print("=== UNISON DEBUG end ===")
+        }
+        XCTAssertTrue(settingsButton.exists)
         settingsButton.tap()
 
         let toggle = app.switches["onScreenControlsToggle"]
