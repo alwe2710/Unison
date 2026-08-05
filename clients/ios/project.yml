@@ -18,6 +18,17 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # Vendored unison_core, compiled straight from the repo root's
+      # core/ -- same "no copy, add_subdirectory()-able" reasoning as
+      # clients/android's CMakeLists.txt (see that file's own comment);
+      # XcodeGen's `sources:` happily points outside clients/ios like
+      # CMake's add_subdirectory() does, no local copy/symlink needed.
+      - path: ../../core/src
+        group: UnisonCore/src
+      - path: ../../core/third_party/miniz
+        group: UnisonCore/third_party/miniz
+      - path: ../../core/third_party/teeny-sha1
+        group: UnisonCore/third_party/teeny-sha1
     resources:
       - path: Sources/Resources
     settings:
@@ -39,6 +50,14 @@ targets:
         # forcing landscape -- see that Activity's own manifest entry);
         # every other screen is happy to inherit this too, same as Android
         # not special-casing orientation per-Activity either.
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/../../core/include"
+          - "$(SRCROOT)/../../core/third_party/miniz"
+          - "$(SRCROOT)/../../core/third_party/teeny-sha1"
+        # unison_native_bridge.h (plain C, see Sources/Native/) exposed to
+        # Swift via a bridging header -- Swift's normal C-interop story,
+        # no JNI-equivalent glue needed (see clients/ios/README.md).
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Native/Unison-Bridging-Header.h
     info:
       path: Sources/Info.plist
       properties:
@@ -55,6 +74,11 @@ targets:
       base:
         SWIFT_VERSION: "5.0"
         CODE_SIGNING_ALLOWED: "NO"
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/../../core/include"
+          - "$(SRCROOT)/../../core/third_party/miniz"
+          - "$(SRCROOT)/../../core/third_party/teeny-sha1"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Native/Unison-Bridging-Header.h
     dependencies:
       - target: Unison
 
