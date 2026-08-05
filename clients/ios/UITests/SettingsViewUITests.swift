@@ -33,11 +33,25 @@ final class SettingsViewUITests: XCTestCase {
 
         let initialValue = toggle.value as? String
         toggle.tap()
-        let toggledValue = toggle.value as? String
-        XCTAssertNotEqual(initialValue, toggledValue, "tapping the real rendered switch should flip its state")
+        // Real first CI run (2026-08-05): reading toggle.value synchronously
+        // right after tap() raced the accessibility tree's own update and
+        // saw the pre-tap value -- waitForValueChange polls instead of
+        // asserting on a single synchronous snapshot, the standard robust
+        // XCUITest pattern for this.
+        XCTAssertTrue(Self.waitForValueChange(of: toggle, from: initialValue, timeout: 5),
+                      "tapping the real rendered switch should flip its state")
 
+        let toggledValue = toggle.value as? String
         toggle.tap()
-        let restoredValue = toggle.value as? String
-        XCTAssertEqual(initialValue, restoredValue, "tapping it back should restore the original state")
+        XCTAssertTrue(Self.waitForValueChange(of: toggle, from: toggledValue, timeout: 5),
+                      "tapping it back should restore the original state")
+        XCTAssertEqual(toggle.value as? String, initialValue)
+    }
+
+    private static func waitForValueChange(of element: XCUIElement, from previousValue: String?,
+                                            timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate { _, _ in (element.value as? String) != previousValue }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }
