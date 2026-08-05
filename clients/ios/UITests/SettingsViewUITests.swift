@@ -50,8 +50,13 @@ final class SettingsViewUITests: XCTestCase {
         // .any rather than .buttons[...]: a List(selection:) row's real
         // underlying accessibility element type isn't .button (confirmed
         // by the same dump -- it renders as a Cell), and .any sidesteps
-        // needing to hardcode which one it actually is.
-        let settingsButton = app.descendants(matching: .any)["settingsButton"]
+        // needing to hardcode which one it actually is. .firstMatch: SwiftUI
+        // propagates the identifier onto more than one node of the row's
+        // own merged accessibility subtree (confirmed by CI: the plain
+        // subscript lookup found the row fine but then failed to tap it as
+        // ambiguous, "Multiple matching elements found") -- picking the
+        // first is fine, they're all the same row.
+        let settingsButton = app.descendants(matching: .any)["settingsButton"].firstMatch
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
         settingsButton.tap()
 
