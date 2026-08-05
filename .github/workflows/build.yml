@@ -285,3 +285,32 @@ jobs:
       - name: Run overlay.spec.mjs
         working-directory: clients/web
         run: npx playwright test
+
+  ios:
+    name: ios (XcodeGen + xcodebuild, Simulator)
+    # The only real verification this client gets, full stop -- see
+    # clients/ios/README.md's own comment: Xcode/SwiftUI don't exist on
+    # Linux at all, unlike every other client's devkitPro/emsdk toolchain,
+    # so there's no local "does it compile" step before this job runs.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: clients/ios
+        run: xcodegen generate
+      - name: Build (Simulator, no signing)
+        working-directory: clients/ios
+        run: |
+          xcodebuild build \
+            -project Unison.xcodeproj -scheme Unison \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Run UnisonTests
+        working-directory: clients/ios
+        run: |
+          xcodebuild test \
+            -project Unison.xcodeproj -scheme Unison \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            CODE_SIGNING_ALLOWED=NO

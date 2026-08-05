@@ -219,6 +219,43 @@ def generate_js(strings):
     print(f"wrote {out.relative_to(REPO_ROOT)} ({len(strings)} strings x {len(LANGS)} langs)")
 
 
+# ---------------- iOS (.strings, one .lproj dir per language) ----------------
+# Same OS-resolved-per-key approach as Android's generate_android() above
+# (one qualified directory per language, "Base.lproj"/no dir = the
+# fallback Xcode falls back to) -- NSLocalizedString/String(localized:)
+# do their own per-key locale resolution against whichever .lproj
+# directories exist, same as Android's values-<qualifier>/ resolution.
+# Manual override (Prefs.language, mirroring Android's LocaleHelper) still
+# needs an explicit Bundle(path:) lookup at call time -- see
+# clients/ios/Sources/Models/LocaleHelper.swift.
+def ios_escape(text):
+    text = text.replace("\\", "\\\\").replace('"', '\\"')
+    text = text.replace("\n", "\\n")
+    return text
+
+
+def ios_format(text, placeholders):
+    def repl(m):
+        idx = int(m.group(1))
+        spec = "ld" if placeholders and idx < len(placeholders) and placeholders[idx] == "d" else "@"
+        return f"%{idx + 1}${spec}"
+    return re.sub(r"\{(\d+)\}", repl, text)
+
+
+def generate_ios(strings, lang, dirname):
+    lines = [f"/* {HEADER_NOTE} */"]
+    for key, entry in strings.items():
+        if lang not in entry:
+            continue
+        text = ios_format(entry[lang], entry.get("placeholders"))
+        lines.append(f'"{key}" = "{ios_escape(text)}";')
+    lines.append("")
+    out = REPO_ROOT / f"clients/ios/Sources/Resources/{dirname}.lproj/Localizable.strings"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines), encoding="utf-8")
+    print(f"wrote {out.relative_to(REPO_ROOT)} ({len(strings)} strings)")
+
+
 def main():
     strings = load_strings()
 
@@ -237,6 +274,11 @@ def main():
                          macro_guard="UNISON_STRINGS_GENERATED_H")
 
     generate_js(strings)
+
+    generate_ios(strings, "en", "Base")
+    for lang in LANGS:
+        if lang != "en":
+            generate_ios(strings, lang, lang)
 
 
 if __name__ == "__main__":
