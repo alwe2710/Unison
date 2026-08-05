@@ -42,6 +42,7 @@
 
 #include "audio_ring.h"
 #include "beacon_discovery.h"
+#include "host_port.h"
 #include "language_pref.h"
 #include "screen_choice.h"
 #include "strings_generated.h"
@@ -978,13 +979,21 @@ static void onKeyboardKeyPressed(int key) {
     }
 }
 
-static void promptForIp(char outIp[16]) {
+/* outIp must be at least UNISON_BEACON_HOST_LEN bytes (matches serverIp's
+ * own declaration in main()). *outPort is set to a parsed trailing
+ * ":<port>" (and outIp is truncated at the colon to just the host), or 0
+ * if the typed text was a bare host -- see host_port.h's own comment; this
+ * console has no swkbd/soft-keyboard applet like 3DS/Switch,
+ * keyboardDemoInit() below is libnds's own DS-Lite matrix-keyboard
+ * overlay, but the parsing rule is identical either way. */
+static void promptForIp(char outIp[UNISON_BEACON_HOST_LEN], int *outPort) {
     consoleClear();
     iprintf("%s NDS - Machbarkeitstest\n\n", STR_APP_NAME);
     iprintf("%s\n", STR_IP_PROMPT_TITLE);
     iprintf("(%s)\n\n", STR_HOST_HINT_EXAMPLE);
     outIp[0] = '\0';
-    iscanf("%15s", outIp);
+    iscanf("%63s", outIp);
+    *outPort = unisonNdsSplitHostPort(outIp);
 }
 
 /* Only GC_GBA_LINK (Dolphin) is multi-slot -- every other stream type is
@@ -992,11 +1001,41 @@ static void promptForIp(char outIp[16]) {
  * instead (docs/protocol.md), matching clients/android's MenuActivity.kt,
  * clients/switch's menu_activity.cpp, and clients/3ds's main.cpp, all of
  * which gate their P1-P4-equivalent picker the same way. An empty
- * streamType means "unknown" (manual IP entry has no beacon to read a
- * stream_type from) -- treated as GC_GBA_LINK, same fallback the other
- * three clients' own manual-entry paths already accept. */
+ * streamType means "unknown, no explicit port either" (manual IP entry has
+ * no beacon to read a stream_type from) -- treated as GC_GBA_LINK, same
+ * fallback the other three clients' own manual-entry paths accept for a
+ * bare host. A typed "host:port" bypasses this entirely -- see
+ * promptForIpWithPort() below, which sets a non-empty sentinel streamType
+ * specifically so this returns false for that case instead. */
 static bool streamTypeIsMultiSlot(const char *streamType) {
     return streamType[0] == '\0' || strcmp(streamType, "GC_GBA_LINK") == 0;
+}
+
+/* Wraps promptForIp() with the decision of what to do with a parsed port:
+ * a "host:port" means "connect directly to this single-slot server" (same
+ * as tapping a discovered non-GC_GBA_LINK beacon already does) -- forces
+ * streamTypeIsMultiSlot() to false via a non-empty, non-"GC_GBA_LINK"
+ * sentinel ("MANUAL", never actually displayed anywhere -- slotSelectMenu()
+ * only ever branches on streamTypeIsMultiSlot()'s bool, it doesn't print
+ * streamType itself) and sets *outHandshakePort to dial. A bare host keeps
+ * the old "unknown, assume GC_GBA_LINK" fallback intact. Without this, a
+ * manually-typed single-slot host (e.g. an Azahar/Cemu/melonDS instance,
+ * none of which are GC_GBA_LINK) always fell into the P1-P4 picker instead,
+ * probing PLAYER_BASE_PORT+0..3 against a server that was never Dolphin --
+ * four unreachable slots no matter what's actually running, exactly the
+ * clients/3ds bug this mirrors the fix for. */
+static void promptForIpWithPort(char serverIp[UNISON_BEACON_HOST_LEN],
+                                 char serverStreamType[UNISON_BEACON_STREAM_TYPE_LEN],
+                                 int *outHandshakePort) {
+    int manualPort = 0;
+    promptForIp(serverIp, &manualPort);
+    if (manualPort != 0) {
+        strncpy(serverStreamType, "MANUAL", UNISON_BEACON_STREAM_TYPE_LEN - 1);
+        serverStreamType[UNISON_BEACON_STREAM_TYPE_LEN - 1] = '\0';
+        *outHandshakePort = manualPort;
+    } else {
+        serverStreamType[0] = '\0'; /* unknown, bare host -- see streamTypeIsMultiSlot() */
+    }
 }
 
 /* Cursor-navigable list (UP/DOWN + A to confirm, B to cancel) -- this
@@ -1355,8 +1394,7 @@ int main(void) {
     bool autoDiscovered =
         serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp), serverStreamType, &serverHandshakePort) >= 0;
     if (!autoDiscovered) {
-        promptForIp(serverIp);
-        serverStreamType[0] = '\0'; /* unknown -- see streamTypeIsMultiSlot() */
+        promptForIpWithPort(serverIp, serverStreamType, &serverHandshakePort);
     }
 
     for (;;) {
@@ -1365,15 +1403,13 @@ int main(void) {
             autoDiscovered = serverSelectMenu(&beaconScan, ownIp, serverIp, sizeof(serverIp), serverStreamType,
                                                &serverHandshakePort) >= 0;
             if (!autoDiscovered) {
-                promptForIp(serverIp);
-                serverStreamType[0] = '\0';
+                promptForIpWithPort(serverIp, serverStreamType, &serverHandshakePort);
             }
             continue;
         }
         if (slot == -3) {
-            promptForIp(serverIp);
+            promptForIpWithPort(serverIp, serverStreamType, &serverHandshakePort);
             autoDiscovered = false;
-            serverStreamType[0] = '\0';
             continue;
         }
         if (slot < 0) {

@@ -46,7 +46,17 @@ target_include_directories(test_language_pref PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../source
 )
 
+# host_port.c only needs <stdlib.h>/<string.h> -- no unison_core, no nds.h.
+add_executable(test_host_port
+    test_host_port.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/host_port.c
+)
+target_include_directories(test_host_port PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+)
+
 enable_testing()
 add_test(NAME dual_screen_choice COMMAND test_dual_screen_choice)
 add_test(NAME audio_ring COMMAND test_audio_ring)
 add_test(NAME language_pref COMMAND test_language_pref)
+add_test(NAME host_port COMMAND test_host_port)
