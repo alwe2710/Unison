@@ -54,15 +54,20 @@ final class BeaconListener: ObservableObject {
     private var socketFD: Int32 = -1
     private var staleTimer: Timer?
 
-    func start() {
+    @discardableResult
+    func start() -> Bool {
         stop()
 
         let fd = socket(AF_INET, SOCK_DGRAM, 0)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            NSLog("BeaconListener: socket() failed, errno=\(errno) (\(String(cString: strerror(errno))))")
+            return false
+        }
         var reuse: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_addr.s_addr = INADDR_ANY
         addr.sin_port = UInt16(UNISON_BEACON_PORT).bigEndian
@@ -72,9 +77,11 @@ final class BeaconListener: ObservableObject {
             }
         }
         guard bindResult == 0 else {
+            NSLog("BeaconListener: bind() to port \(UNISON_BEACON_PORT) failed, errno=\(errno) (\(String(cString: strerror(errno))))")
             close(fd)
-            return
+            return false
         }
+        NSLog("BeaconListener: bound to port \(UNISON_BEACON_PORT), fd=\(fd)")
         socketFD = fd
 
         let thread = Thread { [weak self] in
@@ -90,6 +97,7 @@ final class BeaconListener: ObservableObject {
         staleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.pruneStale()
         }
+        return true
     }
 
     /// Closing the socket is what makes receiveLoop's blocking recv() on
@@ -107,19 +115,26 @@ final class BeaconListener: ObservableObject {
     }
 
     private func receiveLoop(fd: Int32) {
+        NSLog("BeaconListener: receiveLoop starting on fd=\(fd)")
         var buffer = [UInt8](repeating: 0, count: 2048)
         while true {
             let n = recv(fd, &buffer, buffer.count, 0)
             if n <= 0 {
+                NSLog("BeaconListener: recv() returned \(n), errno=\(errno) (\(String(cString: strerror(errno)))) -- exiting receiveLoop")
                 return // socket closed (stop()) or a real error either way
             }
+            NSLog("BeaconListener: recv() got \(n) bytes")
             var beacon = unison_beacon()
             let ok = buffer.withUnsafeMutableBufferPointer { ptr in
                 unison_parse_beacon(ptr.baseAddress, n, &beacon) != 0
             }
-            guard ok else { continue } // unrelated UDP noise on the same port, see unison_parse_beacon's own comment
+            guard ok else {
+                NSLog("BeaconListener: unison_parse_beacon rejected the \(n)-byte datagram")
+                continue // unrelated UDP noise on the same port, see unison_parse_beacon's own comment
+            }
 
             let server = DiscoveredServer(from: beacon)
+            NSLog("BeaconListener: parsed beacon from \(server.host) (\(server.emulatorIdentifier))")
             DispatchQueue.main.async { [weak self] in
                 self?.upsert(server)
             }

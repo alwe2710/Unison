@@ -11,7 +11,7 @@ import XCTest
 final class BeaconListenerTests: XCTestCase {
     func testReceivesAndParsesARealBeaconPacket() {
         let listener = BeaconListener()
-        listener.start()
+        XCTAssertTrue(listener.start(), "BeaconListener.start() itself failed -- see NSLog output for the errno")
         defer { listener.stop() }
 
         let json = """
@@ -47,21 +47,30 @@ final class BeaconListenerTests: XCTestCase {
 
     private static func sendUDP(_ text: String, toPort port: UInt16) {
         let fd = socket(AF_INET, SOCK_DGRAM, 0)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            NSLog("BeaconListenerTests: send socket() failed, errno=\(errno)")
+            return
+        }
         defer { close(fd) }
 
         var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = port.bigEndian
         addr.sin_addr.s_addr = inet_addr("127.0.0.1")
 
         let bytes = Array(text.utf8)
-        _ = withUnsafePointer(to: &addr) { ptr in
+        let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 bytes.withUnsafeBufferPointer { buf in
                     sendto(fd, buf.baseAddress, buf.count, 0, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
+        }
+        if result < 0 {
+            NSLog("BeaconListenerTests: sendto() failed, errno=\(errno) (\(String(cString: strerror(errno))))")
+        } else {
+            NSLog("BeaconListenerTests: sendto() sent \(result) bytes to port \(port)")
         }
     }
 }
