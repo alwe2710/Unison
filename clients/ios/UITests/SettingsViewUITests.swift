@@ -32,20 +32,27 @@ final class SettingsViewUITests: XCTestCase {
         // real underlying accessibility element type turned out not to be
         // .button (confirmed by CI: app.buttons[...] stopped finding it).
         // .any sidesteps needing to know/guess what it actually is.
+        // RootView's NavigationSplitView (see that file's own comment)
+        // collapses to *detail-first* on this compact/iPhone Simulator
+        // layout -- confirmed by a real accessibility-tree dump (two prior
+        // guesses, app.buttons[...] then descendants(matching: .any)
+        // without first reaching the sidebar, both failed because the
+        // sidebar's row simply isn't part of the visible hierarchy yet at
+        // that point, not because of its element type). MenuView (Connect)
+        // shows immediately on launch -- same as before RootView existed --
+        // with a system-generated back button (labeled with the sidebar's
+        // own navigationTitle "app_name"/"Unison", identifier "BackButton")
+        // to reach the sidebar where the Settings row lives.
+        let backToSidebar = app.navigationBars.buttons["BackButton"]
+        XCTAssertTrue(backToSidebar.waitForExistence(timeout: 5))
+        backToSidebar.tap()
+
+        // .any rather than .buttons[...]: a List(selection:) row's real
+        // underlying accessibility element type isn't .button (confirmed
+        // by the same dump -- it renders as a Cell), and .any sidesteps
+        // needing to hardcode which one it actually is.
         let settingsButton = app.descendants(matching: .any)["settingsButton"]
-        // Diagnostic only, temporary: two rounds of guessing the right
-        // query for RootView's List(selection:) sidebar row both failed in
-        // CI (app.buttons[...], then descendants(matching: .any)) without
-        // any way to see *why* from this environment (no local
-        // Xcode/Simulator at all -- see clients/ios/README.md). Printing
-        // the real accessibility tree XCUITest actually sees, captured in
-        // CI's own console log, replaces guessing with an actual look.
-        if !settingsButton.waitForExistence(timeout: 5) {
-            print("=== UNISON DEBUG: settingsButton not found, full app.debugDescription ===")
-            print(app.debugDescription)
-            print("=== UNISON DEBUG end ===")
-        }
-        XCTAssertTrue(settingsButton.exists)
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
         settingsButton.tap()
 
         let toggle = app.switches["onScreenControlsToggle"]
