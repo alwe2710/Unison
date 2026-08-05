@@ -34,6 +34,17 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.unison.ios
+        # Sources/Resources/Assets.xcassets/AppIcon.appiconset -- a single
+        # 1024x1024 "universal" icon (modern Xcode/iOS 17+ format, one
+        # image covers iPhone/iPad/App Store, no per-idiom size list
+        # needed), generated from assets/logo/unison-logo.png (already
+        # exactly 1024x1024 RGB with no alpha channel -- App Store
+        # validation rejects an app icon that has one). Without this
+        # setting naming the icon set, Xcode has no way to know
+        # AppIcon.appiconset (vs. any other asset in the catalog) is
+        # *the* app icon -- the app installed with no icon at all until
+        # this was added.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Must exactly match docs/altstore/apps.json's versions[0].version --
         # AltStore rejects a downloaded .ipa whose actual
         # CFBundleShortVersionString (Info.plist's $(MARKETING_VERSION)
