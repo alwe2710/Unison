@@ -62,7 +62,22 @@ struct MenuView: View {
                         }
                     }
 
-                    Section(LocaleHelper.string("discovery_found_header", prefs: prefs)) {
+                    // Reported: "no way to manually trigger the beacon
+                    // scan" -- the "Search for servers" button above isn't
+                    // that (it needs a host already typed above, and probes
+                    // *that* host's four player slots specifically; the
+                    // passive UDP beacon listener this section shows is a
+                    // different mechanism entirely, running continuously in
+                    // the background with nothing to "trigger"). This
+                    // restarts that listener on demand -- a real, visible
+                    // way to retry discovery without relaunching the app,
+                    // useful in particular if the iOS Local Network
+                    // permission prompt was just granted (Settings ->
+                    // Privacy & Security -> Local Network -> Unison) after
+                    // initially being denied/dismissed, one of this
+                    // client's leading suspects for "beacon search doesn't
+                    // find anything" reports.
+                    Section {
                         if beacon.servers.isEmpty {
                             Text(LocaleHelper.string("discovery_none_found", prefs: prefs))
                                 .foregroundStyle(.secondary)
@@ -70,6 +85,18 @@ struct MenuView: View {
                             ForEach(beacon.servers) { server in
                                 discoveredRow(server)
                             }
+                        }
+                    } header: {
+                        HStack {
+                            Text(LocaleHelper.string("discovery_found_header", prefs: prefs))
+                            Spacer()
+                            Button {
+                                beacon.stop()
+                                beacon.start()
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .accessibilityLabel(Text(LocaleHelper.string("discovery_start", prefs: prefs)))
                         }
                     }
                 }
