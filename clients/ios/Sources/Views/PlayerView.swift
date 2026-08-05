@@ -305,14 +305,19 @@ struct PlayerView: View {
             VStack {
                 statusBar
                 Spacer()
-                if viewModel.touchInput {
-                    if viewModel.hasButtons {
-                        ExtendedControlsOverlay(hasSticks: viewModel.hasSticks, viewModel: viewModel)
-                    }
-                } else {
-                    ButtonOverlay { bit, pressed in
-                        viewModel.setButton(bit: bit, pressed: pressed)
-                    }
+                if viewModel.touchInput, viewModel.hasButtons {
+                    ExtendedControlsOverlay(hasSticks: viewModel.hasSticks, viewModel: viewModel)
+                }
+            }
+
+            // Its own ZStack layer, not nested in the VStack above -- it
+            // needs the whole screen's bounds to position L/R/Select/Start/
+            // D-pad/A/B the way PlayerActivity.kt's PlayerScreen() does
+            // (real GBA button placement, corners + edges), not just a
+            // bottom row's worth of space. See ButtonOverlay's own comment.
+            if !viewModel.touchInput {
+                ButtonOverlay { bit, pressed in
+                    viewModel.setButton(bit: bit, pressed: pressed)
                 }
             }
         }
@@ -355,8 +360,11 @@ struct PlayerView: View {
                 // template's own punctuation around the placeholder).
                 Text(String(format: template, reason))
                     .foregroundStyle(.white)
+                // .borderless, same reasoning as MenuView's Connect button
+                // -- consistent native-iOS text-button look across the app.
                 Button(LocaleHelper.string("back", prefs: Prefs())) { dismiss() }
-                    .buttonStyle(.borderedProminent)
+                    .font(.body.bold())
+                    .buttonStyle(.borderless)
             }
             .padding(8)
             .background(.black.opacity(0.6))
@@ -365,21 +373,63 @@ struct PlayerView: View {
     }
 }
 
-/// The 10 GBA_BUTTONS as on-screen hold buttons -- press/release only
-/// (no drag/slide between buttons yet, unlike PlayerActivity's
-/// TouchOverlay), plain gba_buttons sessions only (GC_GBA_LINK).
+/// The 10 GBA_BUTTONS as on-screen hold buttons, corner-anchored to match
+/// PlayerActivity.kt's PlayerScreen() layout (L/R top corners, Select/Start
+/// top-center, D-pad bottom-leading, A/B bottom-trailing) instead of a
+/// single row along the bottom edge -- a plain HStack put every control at
+/// the bottom of the screen, cramped together and far from the real GBA's
+/// actual button placement (reported directly after real-device testing
+/// against Dolphin). HoldButton's own fixed 44x44 circular shape is kept
+/// as-is throughout (Android varies shape/size per role -- rounded-rect
+/// L/R, pill Select/Start, larger A/B circles) -- this ports the
+/// *positions*, not a full shape-for-shape visual redesign. Press/release
+/// only (no drag/slide between D-pad directions like Android's own DPad
+/// gesture) -- same interaction model as every other on-screen control in
+/// this file; a closer 1:1 gesture port is future polish, not required to
+/// fix "buttons all crammed at the bottom".
 private struct ButtonOverlay: View {
     let onButton: (Int, Bool) -> Void
 
+    private func hold(_ label: String) -> some View {
+        // Force-unwrap is safe: GBA_BUTTONS is a fixed, hardcoded 10-entry
+        // list (GbaButtons.swift) that always contains exactly these
+        // labels -- a typo here would be a build-time-obvious programmer
+        // error, not a runtime possibility.
+        let entry = GBA_BUTTONS.first { $0.label == label }!
+        return HoldButton(label: label) { pressed in onButton(entry.bit, pressed) }
+    }
+
     var body: some View {
-        HStack {
-            ForEach(GBA_BUTTONS) { button in
-                HoldButton(label: button.label) { pressed in
-                    onButton(button.bit, pressed)
-                }
+        Color.clear
+            .overlay(alignment: .topLeading) { hold("L").padding() }
+            .overlay(alignment: .topTrailing) { hold("R").padding() }
+            .overlay(alignment: .top) {
+                HStack(spacing: 12) { hold("Select"); hold("Start") }
+                    .padding(.top, 8)
             }
-        }
-        .padding()
+            .overlay(alignment: .bottomLeading) { dPad.padding() }
+            .overlay(alignment: .bottomTrailing) { actionButtons.padding() }
+    }
+
+    /// Plus-shaped cluster (each direction its own independent press
+    /// target) -- matches Android's DPad's corner positions, not its
+    /// continuous drag-between-cells gesture.
+    private var dPad: some View {
+        Color.clear
+            .frame(width: 132, height: 132)
+            .overlay(alignment: .top) { hold("Up") }
+            .overlay(alignment: .bottom) { hold("Down") }
+            .overlay(alignment: .leading) { hold("Left") }
+            .overlay(alignment: .trailing) { hold("Right") }
+    }
+
+    /// B bottom-leading, A top-trailing -- same diagonal as Android's
+    /// ActionButtons.
+    private var actionButtons: some View {
+        Color.clear
+            .frame(width: 132, height: 100)
+            .overlay(alignment: .bottomLeading) { hold("B") }
+            .overlay(alignment: .topTrailing) { hold("A") }
     }
 }
 

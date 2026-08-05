@@ -37,7 +37,12 @@ No `.xcodeproj` is committed (binary-ish, unreviewable diffs) — instead
 reasoning as `clients/switch`'s CMakeLists.txt not committing a generated
 `build/`.
 
-- `Sources/App/` — app entry point (`@main`).
+- `Sources/App/` — app entry point (`@main`) plus `RootView` (the
+  `NavigationSplitView` root: a Connect/Settings sidebar + detail pane,
+  collapsing to a single column on iPhone -- added after real-device
+  iPad feedback that a plain `MenuView`-as-root read as "an upscaled
+  iPhone app", not verified against an actual iPad Simulator since CI
+  only has an iPhone 16 destination).
 - `Sources/Models/` — `Prefs`, `LocaleHelper`, `GbaButtons`,
   `ExtButtons`, `UnisonProtocolConstants` — direct ports of the
   equivalently-named Android files, kept structurally identical (same

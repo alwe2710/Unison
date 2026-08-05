@@ -50,13 +50,6 @@ struct MenuView: View {
                         }
                         .disabled(host.isEmpty || lobby.searching)
 
-                        if lobby.pickerVisible {
-                            HStack(spacing: 8) {
-                                ForEach(0..<4, id: \.self) { slot in
-                                    slotButton(slot)
-                                }
-                            }
-                        }
                         if !lobby.statusText.isEmpty {
                             Text(lobby.statusText)
                                 .font(.caption)
@@ -76,20 +69,51 @@ struct MenuView: View {
                     }
                 }
 
+                // Deliberately NOT a Form/List row (moved out of the Form's
+                // Section above, where this used to live as four
+                // NavigationLinks crammed into one HStack): reported
+                // directly after real-device testing as navigating to the
+                // wrong slot (tapping P1 opened P2's PlayerView, and Back
+                // popped through a *second* stacked PlayerView before
+                // reaching the menu) -- Form/List rows are built around one
+                // primary tap target per row, and four separate
+                // NavigationLinks sharing one row's tap-gesture/selection
+                // machinery is exactly the kind of setup known to misfire
+                // like that. A plain HStack outside the Form, same pattern
+                // the Connect button below already uses, sidesteps List row
+                // semantics entirely instead of trying to out-guess them.
+                if lobby.pickerVisible {
+                    HStack(spacing: 8) {
+                        ForEach(0..<4, id: \.self) { slot in
+                            slotButton(slot)
+                        }
+                    }
+                }
+
                 // NavigationLink(value:) needs a real Int32 (matching
                 // navigationDestination(for: Int32.self) below) rather than
                 // an Optional -- only offered at all once the port field
                 // actually parses to one; wrapped in an always-present but
                 // disabled Button otherwise so the control doesn't jump
                 // around as the user types.
+                //
+                // .borderless (plain tinted text, no filled pill) rather
+                // than .borderedProminent -- reported directly after
+                // real-device testing as not matching the standard iOS
+                // convention (system apps use colored text for this kind of
+                // action, not a filled white-on-color button). .font(.body.bold())
+                // keeps it visually the screen's primary action despite the
+                // lighter-weight style.
                 if let port = parsedPort {
                     NavigationLink(value: port) {
                         Text(LocaleHelper.string("menu_connect", prefs: prefs))
+                            .font(.body.bold())
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderless)
                 } else {
                     Button(LocaleHelper.string("menu_connect", prefs: prefs)) {}
-                        .buttonStyle(.borderedProminent)
+                        .font(.body.bold())
+                        .buttonStyle(.borderless)
                         .disabled(true)
                 }
             }
@@ -97,9 +121,10 @@ struct MenuView: View {
             // A plain unconstrained VStack stretches its Form full-width,
             // which reads fine on an iPhone but leaves the text fields
             // absurdly wide on an iPad -- capping and centering the
-            // content column is the standard lightweight "adaptive
-            // enough" iPad treatment short of a full NavigationSplitView
-            // rebuild of this screen (not warranted for a single form).
+            // content column keeps this screen itself readable regardless
+            // of how much width the surrounding NavigationSplitView detail
+            // pane actually gives it (RootView.swift is what makes the app
+            // as a whole read as an iPad app, not this cap by itself).
             .frame(maxWidth: 500)
             .frame(maxWidth: .infinity)
             .navigationDestination(for: Int32.self) { port in
@@ -108,18 +133,9 @@ struct MenuView: View {
             .navigationDestination(for: Connection.self) { connection in
                 PlayerView(host: connection.host, port: connection.port)
             }
-            // Same "settings button opens SettingsActivity" role as
-            // MenuActivity.kt's own top-bar icon.
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityIdentifier("settingsButton")
-                }
-            }
+            // No gear-icon toolbar link to SettingsView anymore -- Settings
+            // is its own top-level sidebar entry now (RootView.swift), same
+            // level as Connect rather than nested a screen below it.
             .onAppear { beacon.start() }
             .onDisappear { beacon.stop() }
         }

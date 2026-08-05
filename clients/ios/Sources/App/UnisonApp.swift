@@ -6,7 +6,7 @@ struct UnisonApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MenuView()
+            RootView()
                 .tint(UnisonTheme.cyan)
         }
     }
