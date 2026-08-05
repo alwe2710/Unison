@@ -312,7 +312,7 @@ jobs:
             -project Unison.xcodeproj -scheme Unison \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
-      - name: Run UnisonTests
+      - name: Run UnisonTests + UnisonUITests
         working-directory: clients/ios
         # macos-15's Xcode 16.4 doesn't ship an "iPhone 15" simulator
         # anymore (real first run, 2026-08-05: only iPhone 16+ and iPad

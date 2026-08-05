@@ -50,6 +50,18 @@ struct MenuView: View {
             .navigationDestination(for: Int32.self) { port in
                 PlayerView(host: host, port: port)
             }
+            // Same "settings button opens SettingsActivity" role as
+            // MenuActivity.kt's own top-bar icon.
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityIdentifier("settingsButton")
+                }
+            }
         }
     }
 

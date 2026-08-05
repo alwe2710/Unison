@@ -32,6 +32,9 @@ final class GbaStreamClient {
     }
 
     static let videoModeDefault = Prefs.videoModeDefault
+    // Mirrors GbaStreamClient.kt's own companion-object constants.
+    static let streamTypeGcGbaLink = "GC_GBA_LINK"
+    static let playerBasePort: Int32 = 6801
 
     private weak var listener: Listener?
     private var handle: OpaquePointer?

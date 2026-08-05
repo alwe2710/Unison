@@ -82,6 +82,17 @@ targets:
     dependencies:
       - target: Unison
 
+  UnisonUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        TEST_TARGET_NAME: Unison
+
 schemes:
   Unison:
     build:
@@ -93,3 +104,4 @@ schemes:
       config: Debug
       targets:
         - UnisonTests
+        - UnisonUITests
