@@ -76,6 +76,17 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        # XcodeGen (re)generates Sources/Info.plist from this properties:
+        # dict on every `xcodegen generate` -- the file at `path` is
+        # write-target, not a static source it merges into (a hand-edit to
+        # the committed file alone had no effect: CI's built .ipa still
+        # reported CFBundleShortVersionString "1.0"). These two keys must
+        # live here for real, same $(MARKETING_VERSION)/
+        # $(CURRENT_PROJECT_VERSION) substitution syntax as any Xcode
+        # project -- resolved against this target's own build settings
+        # above at build time.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleLocalizations: [en, de, fr, it, es]
         CFBundleDevelopmentRegion: en
         ITSAppUsesNonExemptEncryption: false

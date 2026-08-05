@@ -2,21 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Without these, Xcode leaves CFBundleShortVersionString/
-         CFBundleVersion out of the built Info.plist entirely (this file
-         is a static source, not GENERATE_INFOPLIST_FILE-synthesized, so
-         project.yml's MARKETING_VERSION/CURRENT_PROJECT_VERSION build
-         settings never get auto-injected the way they would into an
-         Xcode-generated plist) -- the build then silently defaults the
-         missing version to "1.0", which is exactly why AltStore rejected
-         a downloaded .ipa as not matching apps.json's declared version:
-         "Expected: 0.1.0-dev Found: 1.0". $(MARKETING_VERSION)/
-         $(CURRENT_PROJECT_VERSION) are ordinary Xcode build-setting
-         variable substitutions, resolved into the final Info.plist at
-         build time same as any Xcode-generated one. -->
-    <key>CFBundleShortVersionString</key>
-    <string>$(MARKETING_VERSION)</string>
-    <key>CFBundleVersion</key>
-    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <!-- XcodeGen (re)generates this entire file from project.yml's
+         `info.properties` dict on every `xcodegen generate` -- this path
+         is a write-target, not a source XcodeGen merges into, so nothing
+         added here by hand actually survives a build (confirmed the hard
+         way: a previous hand-edit here had zero effect on the built .ipa).
+         CFBundleShortVersionString/CFBundleVersion in particular live in
+         project.yml now, not here -- see that file's own comment. -->
 </dict>
 </plist>
