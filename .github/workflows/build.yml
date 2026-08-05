@@ -274,3 +274,14 @@ jobs:
         run: node clients/web/settings_test.mjs
       - name: Run keybindings_test.mjs
         run: node clients/web/keybindings_test.mjs
+      # Real-browser tests (universal-client test category) -- needs its
+      # own npm install (playwright/ws, clients/web/package.json) and a
+      # real Chromium download, unlike the plain-node tests above.
+      - name: Install Playwright + Chromium
+        working-directory: clients/web
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Run overlay.spec.mjs
+        working-directory: clients/web
+        run: npx playwright test

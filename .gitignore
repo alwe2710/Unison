@@ -30,3 +30,11 @@ clients/switch/nsp/tools/
 # touching this file for the video-mode negotiation feature.
 clients/web/emsdk/
 clients/web/finlink_core_wasm/
+
+# Web -- Playwright (overlay.spec.mjs): npm packages fetched from
+# package.json/package-lock.json (both committed), Chromium binary fetched
+# by `npx playwright install`, and the two dirs it writes its own run
+# output to.
+clients/web/node_modules/
+clients/web/test-results/
+clients/web/playwright-report/
