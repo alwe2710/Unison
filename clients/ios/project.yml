@@ -34,7 +34,13 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.unison.ios
-        MARKETING_VERSION: "0.1.0"
+        # Must exactly match docs/altstore/apps.json's versions[0].version --
+        # AltStore rejects a downloaded .ipa whose actual
+        # CFBundleShortVersionString (Info.plist's $(MARKETING_VERSION)
+        # substitution, see Sources/Info.plist) doesn't byte-for-byte match
+        # what the source declared. "-dev" marks this as the rolling
+        # ios-latest build, distinct from the tagged v0.1.0 release.
+        MARKETING_VERSION: "0.1.0-dev"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         # No code signing -- CI only ever builds for the Simulator
