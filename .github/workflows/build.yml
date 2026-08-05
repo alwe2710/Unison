@@ -312,7 +312,17 @@ jobs:
             -project Unison.xcodeproj -scheme Unison \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
-      - name: Run UnisonTests + UnisonUITests
+      # Run separately, not as one `-scheme Unison` test action covering
+      # both bundles -- real CI run (2026-08-05): BeaconListenerTests
+      # (UnisonTests, injected into the host app process) and
+      # SettingsViewUITests (UnisonUITests, which launches its own real
+      # app instance) executed concurrently and both bound a real UDP
+      # socket to the same fixed UNISON_BEACON_PORT at the same time --
+      # the Simulator shares one real network stack across processes
+      # (unlike separate physical devices), so the second bind() failed
+      # with EADDRINUSE. Running the two bundles one after another removes
+      # the overlap entirely.
+      - name: Run UnisonTests
         working-directory: clients/ios
         # macos-15's Xcode 16.4 doesn't ship an "iPhone 15" simulator
         # anymore (real first run, 2026-08-05: only iPhone 16+ and iPad
@@ -320,6 +330,15 @@ jobs:
         run: |
           xcodebuild test \
             -project Unison.xcodeproj -scheme Unison \
+            -only-testing:UnisonTests \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Run UnisonUITests
+        working-directory: clients/ios
+        run: |
+          xcodebuild test \
+            -project Unison.xcodeproj -scheme Unison \
+            -only-testing:UnisonUITests \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO
       # Unsigned device .ipa -- no Apple Developer account configured (see
