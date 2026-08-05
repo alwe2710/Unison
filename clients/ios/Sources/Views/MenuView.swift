@@ -1,34 +1,27 @@
 import SwiftUI
 
-/// Carries a discovered single-client server's connect target through
+/// Carries a connect target (manual entry's parsed port, a discovered
+/// single-client server, or a picked GC_GBA_LINK player slot) through
 /// SwiftUI's value-based navigation (NavigationLink(value:) +
 /// navigationDestination(for:)) -- see MenuView.discoveredRow's own
-/// comment for why this isn't just the shared Int32 the manual-entry form
-/// uses.
-private struct DiscoveredConnection: Hashable {
+/// comment for why a dedicated type rather than reusing @State directly.
+private struct Connection: Hashable {
     let host: String
     let port: Int32
 }
 
-/// Mirrors MenuActivity.kt's connect form fields (manual host:port entry)
-/// plus its UDP discovery-beacon listener (BeaconListener.swift), but not
-/// yet its lobby/slot-picker flow for GC_GBA_LINK entries specifically
-/// (MenuActivity.kt is ~430 lines; porting the P1-P4 HTTP GET /status
-/// probing is a later phase, not this one -- see clients/ios/README.md's
-/// "Phasing"). Tapping Connect (manual entry) or a discovered single-
-/// client server (Cemu/Azahar/melonDS -- anything that isn't
-/// GC_GBA_LINK) pushes PlayerView directly, same "MenuActivity starts
+/// Mirrors MenuActivity.kt's connect form fields (manual host:port entry),
+/// its UDP discovery-beacon listener (BeaconListener.swift), and its
+/// GC_GBA_LINK P1-P4 slot picker (LobbyModel.swift). Tapping Connect
+/// (manual entry, single-client host), a discovered single-client server,
+/// or a free P-slot pushes PlayerView directly, same "MenuActivity starts
 /// PlayerActivity with host/port extras, PlayerActivity does the actual
-/// connecting" split as Android. A discovered GC_GBA_LINK entry can't be
-/// connected to directly this way -- its beacon's handshake_port is
-/// Dolphin's *lobby* port (6800), not a specific player slot (6801-6804)
-/// -- so tapping one instead just fills the manual fields with its host,
-/// leaving the actual port entry (and therefore slot) to the user, same
-/// as if they'd typed the host in by hand.
+/// connecting" split as Android.
 struct MenuView: View {
     @State private var host: String = ""
     @State private var port: String = "6800"
     @StateObject private var beacon = BeaconListener()
+    @StateObject private var lobby = LobbyModel()
     private let prefs = Prefs()
 
     var body: some View {
@@ -45,6 +38,30 @@ struct MenuView: View {
                             .autocorrectionDisabled()
                         TextField("Port", text: $port)
                             .keyboardType(.numberPad)
+
+                        // GC_GBA_LINK's lobby probe -- a bare host (this
+                        // app has no combined "host:port" single-field
+                        // parsing like MenuActivity.kt's own searchLobby(),
+                        // the Port field above already covers that case)
+                        // means "search all four player slots", same
+                        // GET /status convenience endpoint that file uses.
+                        Button(LocaleHelper.string("discovery_start", prefs: prefs)) {
+                            search()
+                        }
+                        .disabled(host.isEmpty || lobby.searching)
+
+                        if lobby.pickerVisible {
+                            HStack(spacing: 8) {
+                                ForEach(0..<4, id: \.self) { slot in
+                                    slotButton(slot)
+                                }
+                            }
+                        }
+                        if !lobby.statusText.isEmpty {
+                            Text(lobby.statusText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Section(LocaleHelper.string("discovery_found_header", prefs: prefs)) {
@@ -88,7 +105,7 @@ struct MenuView: View {
             .navigationDestination(for: Int32.self) { port in
                 PlayerView(host: host, port: port)
             }
-            .navigationDestination(for: DiscoveredConnection.self) { connection in
+            .navigationDestination(for: Connection.self) { connection in
                 PlayerView(host: connection.host, port: connection.port)
             }
             // Same "settings button opens SettingsActivity" role as
@@ -105,6 +122,27 @@ struct MenuView: View {
             }
             .onAppear { beacon.start() }
             .onDisappear { beacon.stop() }
+        }
+    }
+
+    private func search() {
+        let target = host
+        Task { await lobby.search(host: target, prefs: prefs) }
+    }
+
+    @ViewBuilder
+    private func slotButton(_ slot: Int) -> some View {
+        let state = lobby.slotStates[slot]
+        if state == .free, let searchedHost = lobby.lastSearchedHost {
+            NavigationLink(value: Connection(host: searchedHost, port: GbaStreamClient.playerBasePort + Int32(slot))) {
+                Text("P\(slot + 1)")
+            }
+            .buttonStyle(.bordered)
+        } else {
+            Button("P\(slot + 1)") {}
+                .buttonStyle(.bordered)
+                .disabled(true)
+                .opacity(state == .occupied ? 0.5 : 0.3)
         }
     }
 
@@ -125,13 +163,18 @@ struct MenuView: View {
             // hazard between a gesture side effect and SwiftUI's own
             // navigation timing. This carries host+port with the
             // navigation value itself instead, so there's nothing to race.
-            NavigationLink(value: DiscoveredConnection(host: server.host, port: server.handshakePort)) {
+            NavigationLink(value: Connection(host: server.host, port: server.handshakePort)) {
                 discoveredLabel(title: title, subtitle: subtitle)
             }
         } else if server.compatible {
+            // GC_GBA_LINK: same "fill the fields and run the P1-P4 probe"
+            // treatment as MenuActivity.kt's own discovered-entry handling
+            // (runSearch(server.host)) -- its beacon's handshake_port is
+            // Dolphin's *lobby* port, not a specific player slot, so there's
+            // nothing to connect straight to.
             Button {
                 host = server.host
-                port = String(server.handshakePort)
+                search()
             } label: {
                 discoveredLabel(title: title, subtitle: subtitle)
             }

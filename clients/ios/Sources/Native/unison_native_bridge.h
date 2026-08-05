@@ -18,9 +18,12 @@ typedef struct {
     void *user_data;
     // touch_input/has_buttons/extended_input mirror GbaStreamClient.
     // Listener.onConnected's own params (see that interface's comment) --
-    // this MVP bridge only ever actually drives a gba_buttons session
-    // (touch_input=false), but the fields are still reported for parity/
-    // future PlayerView reuse once touch-input streams are wired up too.
+    // touch_input selects between unison_native_send_input() (gba_buttons)
+    // and unison_native_send_touch()/unison_native_send_extended_input()
+    // (any touch-capable session); has_buttons/extended_input further pick
+    // which of the three touch-frame shapes unison_native_send_touch()
+    // itself builds, same three-way selection as jni_bridge.c's own
+    // maybe_send_touch().
     void (*on_connected)(void *user_data, int touch_input, int has_buttons, int extended_input,
                           int32_t width, int32_t height, const char *granted_video_mode);
     // rgb565 is only valid for the duration of this call (owned by the
@@ -49,8 +52,35 @@ unison_native_client *unison_native_connect(const char *host, int port, const ch
 // Sets the current gba_buttons keymask (protocol.h's unison_key bits,
 // OR'd together) -- resent (only if changed) once per session-loop
 // iteration, same "latest wins" contract as
-// GbaStreamClient.nativeSendInput/maybe_send_input in jni_bridge.c.
+// GbaStreamClient.nativeSendInput/maybe_send_input in jni_bridge.c. Only
+// meaningful for a session where on_connected reported touch_input=0.
 void unison_native_send_input(unison_native_client *client, uint16_t keymask);
+
+// Sets the current touch state for a touch-capable session (on_connected
+// reported touch_input!=0) -- x/y are ignored (sent as 0) whenever pressed
+// is 0, same convention as unison_touch_state itself (protocol.h). Which
+// of the three wire shapes this actually sends (n3ds_touch/
+// touch_and_buttons/n3ds_touch_and_buttons) is picked automatically from
+// has_buttons/extended_input as reported by on_connected, same as
+// jni_bridge.c's own maybe_send_touch(). buttons/stick state (set
+// separately via unison_native_send_extended_input(), only meaningful
+// when has_buttons!=0) rides along in the touch_and_buttons/
+// n3ds_touch_and_buttons frame shapes.
+void unison_native_send_touch(unison_native_client *client, int pressed, uint16_t x, uint16_t y);
+
+// Sets the current buttons/analog-stick state -- only meaningful for a
+// has_buttons (touch_and_buttons/n3ds_touch_and_buttons) session; left/
+// right stick values are only ever sent (non-zero in the wire frame) when
+// extended_input was also reported true, matching
+// unison_extended_input's own right-stick-always-(0,0)-otherwise
+// convention (protocol.h). Buttons is a unison_button_bit bitmask.
+// Doesn't itself trigger a send -- rides along with whatever
+// unison_native_send_touch() last set (buttons/sticks aren't gated on
+// touch's own pressed state, e.g. holding a button with no finger on the
+// touch area at all is a real, valid, independent input -- same as
+// jni_bridge.c's own nativeSendExtendedInput/maybe_send_touch split).
+void unison_native_send_extended_input(unison_native_client *client, uint32_t buttons, int16_t left_x,
+                                        int16_t left_y, int16_t right_x, int16_t right_y);
 
 // Signals the background thread to stop and blocks until it has (closing
 // the socket, freeing `client`) -- same as GbaStreamClient.disconnect()'s

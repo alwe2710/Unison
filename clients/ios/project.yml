@@ -73,6 +73,23 @@ targets:
         CFBundleLocalizations: [en, de, fr, it, es]
         CFBundleDevelopmentRegion: en
         ITSAppUsesNonExemptEncryption: false
+        # LobbyModel's GET /status probe (GC_GBA_LINK's P1-P4 picker) is
+        # plain HTTP to a private-network IP, not HTTPS -- ATS blocks that
+        # by default. NSAllowsLocalNetworking (iOS 10+) permits HTTP
+        # specifically to local-network hosts (private IP ranges, .local
+        # domains) without needing the much broader NSAllowsArbitraryLoads.
+        # GbaStreamClient's own WebSocket handshake connection is
+        # unaffected either way -- it's raw POSIX sockets, not URLSession/
+        # NSURLConnection, and ATS only ever applies to those.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # Not strictly required for a plain unicast GET to an IP the user
+        # entered themselves (that permission specifically gates mDNS/
+        # Bonjour discovery and LAN broadcast/multicast, which is what
+        # BeaconListener's UDP receive arguably *does* trigger on a real
+        # device, unlike the Simulator) -- included anyway since it costs
+        # nothing and is the right thing to have declared regardless.
+        NSLocalNetworkUsageDescription: "Unison discovers and connects to emulator hosts on your local network."
 
   UnisonTests:
     type: bundle.unit-test

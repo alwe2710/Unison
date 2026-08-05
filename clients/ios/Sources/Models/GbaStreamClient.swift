@@ -92,8 +92,27 @@ final class GbaStreamClient {
     /// Sets the current gba_buttons keymask (GbaKey bits, OR'd together) --
     /// resent (only if changed) once per session-loop iteration, same
     /// "latest wins" contract as GbaStreamClient.kt's nativeSendInput.
+    /// Only meaningful when listener.onConnected reported touchInput=false.
     func sendInput(keymask: UInt16) {
         unison_native_send_input(handle, keymask)
+    }
+
+    /// Sets the current touch state for a touch-capable session
+    /// (onConnected reported touchInput=true) -- x/y are ignored whenever
+    /// pressed is false, same convention as the C bridge and
+    /// unison_touch_state itself. Which of the three wire shapes this
+    /// actually sends is picked automatically by the C bridge from
+    /// hasButtons/hasSticks, same as GbaStreamClient.kt's own
+    /// nativeSendTouch.
+    func sendTouch(pressed: Bool, x: UInt16, y: UInt16) {
+        unison_native_send_touch(handle, pressed ? 1 : 0, x, y)
+    }
+
+    /// Sets the current buttons/analog-stick state -- only meaningful for
+    /// a hasButtons session; see unison_native_send_extended_input's own
+    /// header comment for why this doesn't itself trigger a send.
+    func sendExtendedInput(buttons: UInt32, leftX: Int16, leftY: Int16, rightX: Int16, rightY: Int16) {
+        unison_native_send_extended_input(handle, buttons, leftX, leftY, rightX, rightY)
     }
 
     /// Blocks until the background thread has stopped (unison_native_

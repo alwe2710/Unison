@@ -78,6 +78,28 @@ struct unison_native_client {
     atomic_bool stop;
     atomic_int pending_keymask;
     atomic_bool input_dirty;
+    // Set once from app_handshake_result right after a successful
+    // handshake, read by maybe_send_touch() to pick which of three touch
+    // frame shapes to build -- same three-way selection, and the same
+    // "extended_input implies has_buttons" relationship, as jni_bridge.c's
+    // own maybe_send_touch().
+    atomic_bool touch_input;
+    atomic_bool has_buttons;
+    atomic_bool extended_input;
+    atomic_int pending_touch_x;
+    atomic_int pending_touch_y;
+    atomic_bool pending_touch_pressed;
+    atomic_bool touch_dirty;
+    // Buttons/sticks are NOT gated on touch's own pressed state (e.g.
+    // holding a button with no finger on the touch area at all is a real,
+    // valid, independent input) -- same as jni_bridge.c's own
+    // nativeSendExtendedInput/maybe_send_touch split. Meaningless (left
+    // at zero) whenever has_buttons is false.
+    atomic_int pending_buttons;
+    atomic_int pending_left_x;
+    atomic_int pending_left_y;
+    atomic_int pending_right_x;
+    atomic_int pending_right_y;
 };
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -491,6 +513,57 @@ static void maybe_send_input(unison_native_client *c) {
     }
 }
 
+// Touch counterpart to maybe_send_input() above -- same "only on change,
+// polled once per loop iteration" reasoning applies. Never called for a
+// gba_buttons session since PlayerView only ever calls
+// unison_native_send_touch() in touch mode, so touch_dirty simply never
+// gets set there. Ported from jni_bridge.c's own maybe_send_touch(),
+// same three-way frame-shape selection.
+static void maybe_send_touch(unison_native_client *c) {
+    if (!atomic_exchange(&c->touch_dirty, false)) {
+        return;
+    }
+
+    const bool pressed = atomic_load(&c->pending_touch_pressed);
+    uint8_t payload[UNISON_EXTENDED_INPUT_FRAME_SIZE];
+    size_t payload_len;
+    if (atomic_load(&c->extended_input)) {
+        unison_extended_input input;
+        input.pressed = pressed ? 1 : 0;
+        input.touch_x = pressed ? (uint16_t)atomic_load(&c->pending_touch_x) : 0;
+        input.touch_y = pressed ? (uint16_t)atomic_load(&c->pending_touch_y) : 0;
+        input.buttons = (uint32_t)atomic_load(&c->pending_buttons);
+        input.left_x = (int16_t)atomic_load(&c->pending_left_x);
+        input.left_y = (int16_t)atomic_load(&c->pending_left_y);
+        input.right_x = (int16_t)atomic_load(&c->pending_right_x);
+        input.right_y = (int16_t)atomic_load(&c->pending_right_y);
+        payload_len = unison_build_extended_input_frame(&input, payload);
+    } else if (atomic_load(&c->has_buttons)) {
+        unison_touch_and_buttons input;
+        input.pressed = pressed ? 1 : 0;
+        input.touch_x = pressed ? (uint16_t)atomic_load(&c->pending_touch_x) : 0;
+        input.touch_y = pressed ? (uint16_t)atomic_load(&c->pending_touch_y) : 0;
+        input.buttons = (uint32_t)atomic_load(&c->pending_buttons);
+        payload_len = unison_build_touch_and_buttons_frame(&input, payload);
+    } else {
+        unison_touch_state touch;
+        touch.pressed = pressed ? 1 : 0;
+        touch.x = pressed ? (uint16_t)atomic_load(&c->pending_touch_x) : 0;
+        touch.y = pressed ? (uint16_t)atomic_load(&c->pending_touch_y) : 0;
+        payload_len = unison_build_touch_frame(&touch, payload);
+    }
+
+    uint8_t mask_key[4];
+    arc4random_buf(mask_key, sizeof(mask_key));
+
+    uint8_t frame_buf[UNISON_EXTENDED_INPUT_FRAME_SIZE + 10];
+    size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, payload_len,
+                                               mask_key, frame_buf, sizeof(frame_buf));
+    if (frame_len > 0) {
+        send_all(c->sockfd, frame_buf, frame_len, &c->stop);
+    }
+}
+
 static void run_session_loop(unison_native_client *c, byte_buf *buf) {
     uint8_t chunk[4096];
     uint8_t *inflate_out = NULL;
@@ -547,6 +620,7 @@ static void run_session_loop(unison_native_client *c, byte_buf *buf) {
         }
 
         maybe_send_input(c);
+        maybe_send_touch(c);
     }
 
     free(inflate_out);
@@ -579,6 +653,10 @@ static void *client_thread_main(void *arg) {
         return NULL;
     }
 
+    atomic_store(&c->touch_input, hs.touch_input);
+    atomic_store(&c->has_buttons, hs.has_buttons);
+    atomic_store(&c->extended_input, hs.extended_input);
+
     if (c->callbacks.on_connected) {
         c->callbacks.on_connected(c->callbacks.user_data, hs.touch_input, hs.has_buttons,
                                    hs.extended_input, hs.width, hs.height, hs.granted_video_mode);
@@ -608,6 +686,18 @@ unison_native_client *unison_native_connect(const char *host, int port, const ch
     atomic_init(&c->stop, false);
     atomic_init(&c->pending_keymask, 0);
     atomic_init(&c->input_dirty, false);
+    atomic_init(&c->touch_input, false);
+    atomic_init(&c->has_buttons, false);
+    atomic_init(&c->extended_input, false);
+    atomic_init(&c->pending_touch_x, 0);
+    atomic_init(&c->pending_touch_y, 0);
+    atomic_init(&c->pending_touch_pressed, false);
+    atomic_init(&c->touch_dirty, false);
+    atomic_init(&c->pending_buttons, 0);
+    atomic_init(&c->pending_left_x, 0);
+    atomic_init(&c->pending_left_y, 0);
+    atomic_init(&c->pending_right_x, 0);
+    atomic_init(&c->pending_right_y, 0);
 
     if (pthread_create(&c->thread, NULL, client_thread_main, c) != 0) {
         free(c);
@@ -622,6 +712,32 @@ void unison_native_send_input(unison_native_client *c, uint16_t keymask) {
     }
     atomic_store(&c->pending_keymask, keymask);
     atomic_store(&c->input_dirty, true);
+}
+
+void unison_native_send_touch(unison_native_client *c, int pressed, uint16_t x, uint16_t y) {
+    if (!c) {
+        return;
+    }
+    atomic_store(&c->pending_touch_pressed, pressed != 0);
+    atomic_store(&c->pending_touch_x, x);
+    atomic_store(&c->pending_touch_y, y);
+    atomic_store(&c->touch_dirty, true);
+}
+
+void unison_native_send_extended_input(unison_native_client *c, uint32_t buttons, int16_t left_x,
+                                        int16_t left_y, int16_t right_x, int16_t right_y) {
+    if (!c) {
+        return;
+    }
+    atomic_store(&c->pending_buttons, buttons);
+    atomic_store(&c->pending_left_x, left_x);
+    atomic_store(&c->pending_left_y, left_y);
+    atomic_store(&c->pending_right_x, right_x);
+    atomic_store(&c->pending_right_y, right_y);
+    // Doesn't set touch_dirty itself -- rides along with whatever
+    // unison_native_send_touch() next marks dirty, same as
+    // jni_bridge.c's own nativeSendExtendedInput not being a send trigger
+    // on its own (see this function's own header-comment on why).
 }
 
 void unison_native_disconnect(unison_native_client *c) {

@@ -2,11 +2,12 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// MVP streaming screen -- direct-enough analog of PlayerActivity.kt for
-/// this phase's scope (GC_GBA_LINK, gba_buttons only: no touch overlay, no
-/// mic, no h264/h265, see clients/ios/README.md's "Phasing"). Renders
-/// decoded RGB565 frames, plays PCM audio via AVAudioEngine, and sends the
-/// 10 GBA_BUTTONS as on-screen hold buttons.
+/// Streaming screen -- direct-enough analog of PlayerActivity.kt. Renders
+/// decoded RGB565 frames, plays PCM audio via AVAudioEngine, and sends
+/// input: plain gba_buttons for GC_GBA_LINK, or touch (+ buttons + analog
+/// sticks, depending on what the session actually negotiated) for
+/// Cemu/Azahar/melonDS. Still no mic or h264/h265 (see clients/ios/
+/// README.md's "Phasing").
 final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listener {
     enum Status: Equatable {
         case connecting
@@ -16,10 +17,41 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
 
     @Published private(set) var status: Status = .connecting
     @Published private(set) var currentFrame: UIImage?
+    // Set from onConnected -- not known before that point, so all default
+    // to the plain gba_buttons shape (matches PlayerActivity.kt's own
+    // touchMode/hasButtonsMode/hasSticksMode defaults). streamWidth/Height
+    // is session_ready.video's final resolution, known regardless of
+    // negotiated video_mode -- TouchOverlay uses this instead of
+    // currentFrame's own width/height so touch input still works for an
+    // h264/h265 session once one of those is actually decoded (currentFrame
+    // is never populated at all for those yet, see onVideoFrame below).
+    @Published private(set) var touchInput = false
+    @Published private(set) var hasButtons = false
+    @Published private(set) var hasSticks = false
+    @Published private(set) var streamWidth: Int32 = 0
+    @Published private(set) var streamHeight: Int32 = 0
 
     private var client: GbaStreamClient?
     private var keymask: UInt16 = 0
     private let prefs = Prefs()
+
+    // Extended-input (touchInput && hasButtons) state: touch, buttons, and
+    // both analog sticks all merge into ONE unison_extended_input/
+    // unison_touch_and_buttons frame per change (see GbaStreamClient.
+    // sendExtendedInput's own comment) -- every source that changes any
+    // one of these calls sendCombined() below, which resends all of them
+    // together, not just its own piece. Direct port of PlayerActivity.kt's
+    // own extTouchPressed/extButtons/... state, minus the physical-key
+    // contribution (KeyBindingsView isn't wired into PlayerView yet -- a
+    // later addition, not this pass).
+    private var extTouchPressed = false
+    private var extTouchX: UInt16 = 0
+    private var extTouchY: UInt16 = 0
+    private var extButtons: UInt32 = 0
+    private var extLeftX: Int16 = 0
+    private var extLeftY: Int16 = 0
+    private var extRightX: Int16 = 0
+    private var extRightY: Int16 = 0
 
     // Audio playback state -- only ever touched from GbaStreamClient's
     // callbacks, which (see unison_native_bridge.c's run_session_loop) all
@@ -46,7 +78,8 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         audioFormat = nil
     }
 
-    /// Called from PlayerView's button views on press/release.
+    /// Called from PlayerView's button views on press/release, plain
+    /// gba_buttons sessions only (!touchInput).
     func setButton(bit: Int, pressed: Bool) {
         if pressed {
             keymask |= UInt16(bit)
@@ -56,12 +89,74 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         client?.sendInput(keymask: keymask)
     }
 
+    // MARK: - Touch-capable session input (touchInput sessions only)
+
+    /// Routes a touch update through sendTouch (plain "n3ds_touch"
+    /// session) or the combined extended-input send (hasButtons, which
+    /// needs the current button/stick state resent alongside every touch
+    /// change too, not just touch's own) -- same split as
+    /// PlayerActivity.kt's own sendTouchState().
+    func updateTouch(pressed: Bool, x: UInt16, y: UInt16) {
+        if hasButtons {
+            extTouchPressed = pressed
+            extTouchX = x
+            extTouchY = y
+            sendCombined()
+        } else {
+            client?.sendTouch(pressed: pressed, x: x, y: y)
+        }
+    }
+
+    /// hasButtons sessions only -- the shared GBA-mapped buttons (L/R/
+    /// Select/Start/Up/Down/Left/Right/A/B) plus X/Y.
+    func setExtButton(bit: UInt32, pressed: Bool) {
+        if pressed {
+            extButtons |= bit
+        } else {
+            extButtons &= ~bit
+        }
+        sendCombined()
+    }
+
+    /// hasSticks sessions only. y is already in "positive = pushed up"
+    /// convention (VirtualStick's own job, see that view's comment).
+    func setLeftStick(x: Int16, y: Int16) {
+        extLeftX = x
+        extLeftY = y
+        sendCombined()
+    }
+
+    func setRightStick(x: Int16, y: Int16) {
+        extRightX = x
+        extRightY = y
+        sendCombined()
+    }
+
+    /// Updates the extended-input state (buttons/sticks) first, then
+    /// triggers the actual frame send via sendTouch -- unison_native_send_
+    /// extended_input() only updates the C bridge's persistent state, it
+    /// doesn't itself mark anything dirty (see that function's own header
+    /// comment); sendTouch()'s dirty flag is what makes maybe_send_touch()
+    /// actually build and send a frame, picking up whatever
+    /// extButtons/sticks currently hold either way.
+    private func sendCombined() {
+        client?.sendExtendedInput(buttons: extButtons, leftX: extLeftX, leftY: extLeftY, rightX: extRightX,
+                                   rightY: extRightY)
+        client?.sendTouch(pressed: extTouchPressed, x: extTouchX, y: extTouchY)
+    }
+
     // MARK: - GbaStreamClient.Listener (fires on the background session thread)
 
     func onConnected(touchInput: Bool, hasButtons: Bool, hasSticks: Bool, width: Int32, height: Int32,
                       grantedVideoMode: String) {
         DispatchQueue.main.async { [weak self] in
-            self?.status = .connected
+            guard let self else { return }
+            self.status = .connected
+            self.touchInput = touchInput
+            self.hasButtons = hasButtons
+            self.hasSticks = hasSticks
+            self.streamWidth = width
+            self.streamHeight = height
         }
     }
 
@@ -197,11 +292,27 @@ struct PlayerView: View {
                     .aspectRatio(contentMode: .fit)
             }
 
+            // Behind the buttons/sticks below (earlier in this ZStack, so
+            // they draw underneath and lose the hit-test to whichever
+            // control -- if any -- sits on top of a given point).
+            if viewModel.touchInput {
+                TouchOverlay(streamWidth: viewModel.streamWidth, streamHeight: viewModel.streamHeight) {
+                    pressed, x, y in
+                    viewModel.updateTouch(pressed: pressed, x: x, y: y)
+                }
+            }
+
             VStack {
                 statusBar
                 Spacer()
-                ButtonOverlay { bit, pressed in
-                    viewModel.setButton(bit: bit, pressed: pressed)
+                if viewModel.touchInput {
+                    if viewModel.hasButtons {
+                        ExtendedControlsOverlay(hasSticks: viewModel.hasSticks, viewModel: viewModel)
+                    }
+                } else {
+                    ButtonOverlay { bit, pressed in
+                        viewModel.setButton(bit: bit, pressed: pressed)
+                    }
                 }
             }
         }
@@ -256,7 +367,7 @@ struct PlayerView: View {
 
 /// The 10 GBA_BUTTONS as on-screen hold buttons -- press/release only
 /// (no drag/slide between buttons yet, unlike PlayerActivity's
-/// TouchOverlay), same MVP scope as the rest of this phase.
+/// TouchOverlay), plain gba_buttons sessions only (GC_GBA_LINK).
 private struct ButtonOverlay: View {
     let onButton: (Int, Bool) -> Void
 
@@ -269,6 +380,69 @@ private struct ButtonOverlay: View {
             }
         }
         .padding()
+    }
+}
+
+/// touchInput && hasButtons sessions (Cemu/Azahar/melonDS): the shared
+/// GBA-mapped buttons (GBA_PREFKEY_TO_EXT_BUTTON_BIT -- L/R/Select/Start/
+/// Up/Down/Left/Right/A/B) plus X/Y (EXT_BUTTONS), and -- only when the
+/// session also has real analog input (hasSticks, Azahar's
+/// N3DS_BOTTOM_SCREEN) -- ZL/ZR (EXT_BUTTONS_LIMITED) and both
+/// VirtualSticks. A single wrapped row rather than PlayerActivity.kt's
+/// own diamond/D-pad/corner-anchored layout -- functionally complete
+/// (every button/stick reachable), simplified layout given this is
+/// already a large feature addition; a closer visual port is a later
+/// polish pass, not blocking touch input from working at all.
+private struct ExtendedControlsOverlay: View {
+    let hasSticks: Bool
+    @ObservedObject var viewModel: PlayerViewModel
+
+    var body: some View {
+        HStack(alignment: .bottom) {
+            if hasSticks {
+                Stick { x, y in viewModel.setLeftStick(x: x, y: y) }
+            }
+            Spacer()
+            VStack(spacing: 8) {
+                if hasSticks {
+                    HStack {
+                        ExtHoldButton(label: "ZL", bit: UInt32(ExtButtonBit.ZL), viewModel: viewModel)
+                        ExtHoldButton(label: "ZR", bit: UInt32(ExtButtonBit.ZR), viewModel: viewModel)
+                    }
+                }
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(44)), count: 6), spacing: 8) {
+                    ForEach(sharedExtButtons, id: \.label) { entry in
+                        ExtHoldButton(label: entry.label, bit: entry.bit, viewModel: viewModel)
+                    }
+                    ExtHoldButton(label: "X", bit: UInt32(ExtButtonBit.X), viewModel: viewModel)
+                    ExtHoldButton(label: "Y", bit: UInt32(ExtButtonBit.Y), viewModel: viewModel)
+                }
+            }
+            if hasSticks {
+                Spacer()
+                Stick { x, y in viewModel.setRightStick(x: x, y: y) }
+            }
+        }
+        .padding()
+    }
+
+    private var sharedExtButtons: [(label: String, bit: UInt32)] {
+        GBA_BUTTONS.compactMap { button in
+            guard let bit = GBA_PREFKEY_TO_EXT_BUTTON_BIT[button.prefKey] else { return nil }
+            return (button.label, UInt32(bit))
+        }
+    }
+}
+
+private struct ExtHoldButton: View {
+    let label: String
+    let bit: UInt32
+    @ObservedObject var viewModel: PlayerViewModel
+
+    var body: some View {
+        HoldButton(label: label) { pressed in
+            viewModel.setExtButton(bit: bit, pressed: pressed)
+        }
     }
 }
 
@@ -290,5 +464,86 @@ private struct HoldButton: View {
             } onPressingChanged: { pressing in
                 onPress(pressing)
             }
+    }
+}
+
+/// The whole video area doubles as the touch surface: press, drag, and
+/// release all map 1:1 to unison_touch_state's pressed/x/y (protocol.h).
+/// One continuous gesture -- a drag needs to keep reporting positions all
+/// the way to release, not just an initial tap. Direct port of
+/// PlayerActivity.kt's own TouchOverlay + sendMappedTouch.
+private struct TouchOverlay: View {
+    let streamWidth: Int32
+    let streamHeight: Int32
+    let onTouch: (Bool, UInt16, UInt16) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in sendMapped(value.location, in: geo.size) }
+                        .onEnded { _ in onTouch(false, 0, 0) }
+                )
+        }
+    }
+
+    /// Maps a position (in this view's own point coordinates) through the
+    /// same "centered, scaled to fit, aspect preserved" letterboxing math
+    /// as the Image displaying the video underneath (.aspectRatio(contentMode:
+    /// .fit)) to the video's native pixel coordinates. A position that
+    /// lands in the letterbox bars (mismatched container/content aspect
+    /// ratio) clamps to the nearest edge rather than being dropped, so a
+    /// drag that wanders there still tracks instead of going silent.
+    private func sendMapped(_ position: CGPoint, in containerSize: CGSize) {
+        guard containerSize.width > 0, containerSize.height > 0, streamWidth > 0, streamHeight > 0 else {
+            return
+        }
+        let bw = CGFloat(streamWidth)
+        let bh = CGFloat(streamHeight)
+        let scale = min(containerSize.width / bw, containerSize.height / bh)
+        let offsetX = (containerSize.width - bw * scale) / 2
+        let offsetY = (containerSize.height - bh * scale) / 2
+
+        let x = min(max((position.x - offsetX) / scale, 0), bw - 1)
+        let y = min(max((position.y - offsetY) / scale, 0), bh - 1)
+        onTouch(true, UInt16(x), UInt16(y))
+    }
+}
+
+/// A draggable virtual analog stick -- knob clamped to a circle, reporting
+/// (x, y) in unison_extended_input's own -32767...32767 range, y positive
+/// = pushed up (screen-space drag is y-down, so this negates it). Direct
+/// port of PlayerActivity.kt's own VirtualStick.
+private struct Stick: View {
+    let onChange: (Int16, Int16) -> Void
+    private let radius: CGFloat = 40
+
+    @State private var knobOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack {
+            Circle().fill(.white.opacity(0.15)).frame(width: radius * 2, height: radius * 2)
+            Circle().fill(.white.opacity(0.4)).frame(width: 36, height: 36).offset(knobOffset)
+        }
+        .contentShape(Circle().size(width: radius * 2, height: radius * 2))
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    let distance = min((dx * dx + dy * dy).squareRoot(), radius)
+                    let angle = atan2(dy, dx)
+                    let clampedX = cos(angle) * distance
+                    let clampedY = sin(angle) * distance
+                    knobOffset = CGSize(width: clampedX, height: clampedY)
+                    onChange(Int16((clampedX / radius) * 32767), Int16((-clampedY / radius) * 32767))
+                }
+                .onEnded { _ in
+                    knobOffset = .zero
+                    onChange(0, 0)
+                }
+        )
     }
 }
