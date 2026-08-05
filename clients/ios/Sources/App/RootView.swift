@@ -29,34 +29,32 @@ struct RootView: View {
     private let prefs = Prefs()
 
     var body: some View {
+        // List(selection:) + .tag() -- not a plain List with nested Buttons
+        // manually writing `selection` (tried first, and confirmed wrong by
+        // CI: the collapsed/compact iPhone layout never pushed to the
+        // detail pane on a tap, since that push is driven by
+        // NavigationSplitView actually observing this *same* selection
+        // binding change through List(selection:)'s own official channel,
+        // not just any code that happens to write the same @State var).
+        // Each row is a single Label (not a Button) -- one selection
+        // mechanism per row, not the "two interactive mechanisms sharing
+        // one row" shape that caused MenuView's P1-P4 picker to navigate to
+        // the wrong slot (that case was genuinely two competing
+        // NavigationLinks; this is List(selection:) used the one way it's
+        // actually meant to be used).
         NavigationSplitView {
-            // Deliberately a plain List, not List(selection:) with .tag()
-            // rows -- that pairs its own built-in row-tap/selection
-            // machinery with these rows' own Button gestures, exactly the
-            // "two interactive mechanisms fighting over one row" shape that
-            // caused MenuView's P1-P4 picker to navigate to the wrong slot
-            // (see that file's own comment) -- selection here is plain
-            // @State, written only from each Button's own action, nothing
-            // else touches it.
-            List {
-                // Real Buttons so each row is a genuine `.buttons[...]`
-                // element for XCUITest -- SettingsViewUITests already
-                // queries app.buttons["settingsButton"], and a List row's
-                // exact accessibility element type isn't something worth
-                // risking a change to sight-unseen (no iPad Simulator lane
-                // in CI to verify against either way).
-                Button {
-                    selection = .connect
-                } label: {
-                    Label(LocaleHelper.string("app_name", prefs: prefs), systemImage: "network")
-                }
+            List(selection: $selection) {
+                Label(LocaleHelper.string("app_name", prefs: prefs), systemImage: "network")
+                    .tag(Section.connect)
 
-                Button {
-                    selection = .settings
-                } label: {
-                    Label(LocaleHelper.string("settings", prefs: prefs), systemImage: "gearshape")
-                }
-                .accessibilityIdentifier("settingsButton")
+                Label(LocaleHelper.string("settings", prefs: prefs), systemImage: "gearshape")
+                    .tag(Section.settings)
+                    // A List(selection:) row's own tap/selection target is
+                    // exposed to XCUITest with the .button accessibility
+                    // trait -- SettingsViewUITests' existing
+                    // app.buttons["settingsButton"] query still matches
+                    // this unchanged.
+                    .accessibilityIdentifier("settingsButton")
             }
             .navigationTitle(LocaleHelper.string("app_name", prefs: prefs))
         } detail: {
