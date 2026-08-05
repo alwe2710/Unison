@@ -1,4 +1,4 @@
-// finlink for Nintendo 3DS: by default, top screen shows the GBA stream,
+// Unison for Nintendo 3DS: by default, top screen shows the GBA stream,
 // bottom screen shows Menu/Settings before connecting and a status +
 // "Trennen" button while playing -- the 3DS's dual screens map onto
 // Menu/Settings/Player far more naturally than the single-screen-at-a-time
@@ -32,7 +32,7 @@
 #include <3ds.h>
 #include <citro2d.h>
 
-#include "finlink/handshake.h"
+#include "unison/handshake.h"
 
 #include "audio.hpp"
 #include "discovery.hpp"
@@ -540,7 +540,7 @@ void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pre
     ui::drawText(textBuf, strings::kSettingsVideoMode, 8, 8, 0.55f, ui::kColorText);
 
     struct VideoModeOption {
-        const char *value; // wire-format string, see finlink/docs/protocol.md
+        const char *value; // wire-format string, see unison/docs/protocol.md
         const char *label;
     };
     // NOT sorted alphabetically, unlike the language list above --
@@ -686,7 +686,7 @@ int main(int argc, char *argv[]) {
 
         // Which physical screen gets the video vs. the status/menu/settings
         // UI -- see this file's own top comment. Pre-connect, video (or the
-        // "finlink" placeholder) always stays on top and the UI on bottom,
+        // "Unison" placeholder) always stays on top and the UI on bottom,
         // same as always: connectedStreamType is only known once connected,
         // and there's nothing stream-type-specific to show before then
         // anyway.

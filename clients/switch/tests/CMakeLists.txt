@@ -1,5 +1,5 @@
 # Standalone, host-buildable test project for
-# finlink_switch_remix_and_resample_to_stereo() (audio_remix.hpp/.cpp) --
+# unison_switch_remix_and_resample_to_stereo() (audio_remix.hpp/.cpp) --
 # NOT part of the actual Switch devkitA64/borealis build (see
 # clients/switch/CMakeLists.txt for that). audio_remix.cpp is deliberately
 # free of any borealis/libnx types, so it can be built and tested with a
@@ -7,7 +7,7 @@
 # Switch/yuzu hardware -- same reasoning as clients/3ds/tests and
 # clients/nds/arm9/tests.
 cmake_minimum_required(VERSION 3.16)
-project(finlink_switch_audio_remix_test CXX)
+project(unison_switch_audio_remix_test CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

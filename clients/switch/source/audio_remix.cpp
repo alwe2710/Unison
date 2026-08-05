@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-std::vector<int16_t> finlink_switch_remix_and_resample_to_stereo(const std::vector<int16_t> &pcm,
+std::vector<int16_t> unison_switch_remix_and_resample_to_stereo(const std::vector<int16_t> &pcm,
                                                                    uint32_t sampleRate, uint8_t channels) {
     if (sampleRate == 0 || channels == 0 || pcm.empty()) {
         return {};

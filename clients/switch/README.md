@@ -52,11 +52,11 @@ export DEVKITA64=$DEVKITPRO/devkitA64
 export PATH=$DEVKITPRO/tools/bin:$PATH
 
 cmake -S clients/switch -B clients/switch/build -DPLATFORM_SWITCH=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build clients/switch/build --target finlink-switch.nro
+cmake --build clients/switch/build --target unison-switch.nro
 ```
 
-Output: `clients/switch/build/finlink-switch.nro`. Copy it to the SD card at
-`/switch/finlink/finlink-switch.nro` and launch it through the Homebrew
+Output: `clients/switch/build/unison-switch.nro`. Copy it to the SD card at
+`/switch/unison/unison-switch.nro` and launch it through the Homebrew
 Menu.
 
 ## Status

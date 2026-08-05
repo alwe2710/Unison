@@ -6,28 +6,28 @@
 # function -- can be built and tested with a plain host compiler instead of
 # needing the devkitARM toolchain or actual 3DS/citra hardware.
 cmake_minimum_required(VERSION 3.16)
-project(finlink_3ds_dual_screen_choice_test CXX C)
+project(unison_3ds_dual_screen_choice_test CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT DEFINED FINLINK_CORE_DIR)
-    set(FINLINK_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../core")
+if(NOT DEFINED UNISON_CORE_DIR)
+    set(UNISON_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../core")
 endif()
 
 add_executable(test_dual_screen_choice
     test_dual_screen_choice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/prefs.cpp
-    ${FINLINK_CORE_DIR}/src/handshake.c
-    ${FINLINK_CORE_DIR}/src/json.c
+    ${UNISON_CORE_DIR}/src/handshake.c
+    ${UNISON_CORE_DIR}/src/json.c
 )
 target_include_directories(test_dual_screen_choice PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../source
-    ${FINLINK_CORE_DIR}/include
+    ${UNISON_CORE_DIR}/include
 )
 
 # audio_remix.cpp is deliberately free of <3ds.h>/NDSP types (unlike the
-# rest of source/audio.cpp), so it needs no finlink_core at all here.
+# rest of source/audio.cpp), so it needs no unison_core at all here.
 add_executable(test_audio_remix
     test_audio_remix.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/audio_remix.cpp
@@ -38,18 +38,18 @@ target_include_directories(test_audio_remix PRIVATE
 
 # language_pref.cpp is deliberately free of <3ds.h>/cfgu (unlike the rest
 # of main.cpp's resolveLanguage()); links prefs.cpp for the same reason as
-# test_dual_screen_choice above (needs finlink_core too, prefs.cpp itself
-# calls finlink_stream_type_prefers_secondary_screen()).
+# test_dual_screen_choice above (needs unison_core too, prefs.cpp itself
+# calls unison_stream_type_prefers_secondary_screen()).
 add_executable(test_language_and_bilinear
     test_language_and_bilinear.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/language_pref.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/prefs.cpp
-    ${FINLINK_CORE_DIR}/src/handshake.c
-    ${FINLINK_CORE_DIR}/src/json.c
+    ${UNISON_CORE_DIR}/src/handshake.c
+    ${UNISON_CORE_DIR}/src/json.c
 )
 target_include_directories(test_language_and_bilinear PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../source
-    ${FINLINK_CORE_DIR}/include
+    ${UNISON_CORE_DIR}/include
 )
 
 enable_testing()

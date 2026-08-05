@@ -1,4 +1,4 @@
-# CIA RSF for finlink-3ds. Full manual AccessControlInfo (not "-desc"'s
+# CIA RSF for unison-3ds. Full manual AccessControlInfo (not "-desc"'s
 # built-in template) -- adapted from the canonical makerom sample
 # (https://gist.github.com/jakcron/9f9f02ffd94d98a72632, linked from
 # Project_CTR/makerom's own README as the reference for hand-written
@@ -12,7 +12,7 @@
 # fails at runtime on real hardware in a way this build can't catch,
 # while over-provisioning is harmless.
 BasicInfo:
-  Title                   : finlink
+  Title                   : unison
   ProductCode             : CTR-P-FNLK
   Logo                    : Nintendo
 

@@ -1,10 +1,10 @@
 // Minimal real HTTP + WebSocket server for overlay.spec.mjs -- serves this
 // directory's own static files (the same index.html/settings.js/
-// keybindings.js/finlink_core.js a real finlink host's browser client
+// keybindings.js/unison_core.js a real Unison host's browser client
 // would load) on one port, and accepts real WebSocket connections on
 // another, recording every binary frame a connected page sends.
 //
-// Does run a real (if minimal) finlink app-level handshake -- sends
+// Does run a real (if minimal) Unison app-level handshake -- sends
 // `hello` on connect, replies `session_ready` to the client's `hello_ack`
 // -- found to be necessary the hard way: #touchControls turns out to be
 // nested *inside* #game (confirmed by counting divs in index.html, not
@@ -70,14 +70,14 @@ const SESSION_READY_JSON = JSON.stringify({
 });
 
 // receivedFrames: array of Buffer, one per *binary* WS message the page
-// sent us (Video/Audio/Input, finlink/protocol.h), in order -- the actual
+// sent us (Video/Audio/Input, unison/protocol.h), in order -- the actual
 // thing overlay.spec.mjs's "protocol-conformant bytes" assertions read.
 // Runs the minimal real handshake above so the page actually reaches
 // showGame() (see this file's own top comment on why that's required, not
 // optional, for the overlay to ever become visible at all) -- doesn't
 // inspect the client's own hello_ack content at all, since that's already
 // covered by settings_test.mjs/keybindings_test.mjs and every host's own
-// FinlinkMessages tests, not this test category's concern.
+// UnisonMessages tests, not this test category's concern.
 export async function startWsServer() {
   const receivedFrames = [];
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });

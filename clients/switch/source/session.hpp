@@ -37,7 +37,7 @@ class GbaSession {
 
     // Starts the background thread. Only one connection at a time; call
     // disconnect() before reusing this object. videoMode is sent verbatim
-    // as hello_ack.video_mode (finlink/docs/protocol.md).
+    // as hello_ack.video_mode (unison/docs/protocol.md).
     void connect(std::string host, int port, std::string videoMode, Listener listener);
 
     // Merges into whatever mask is already pending and marks it dirty;

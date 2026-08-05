@@ -1,5 +1,5 @@
 // Host-buildable (plain g++/clang++, no devkitA64) unit test for
-// finlink_switch_remix_and_resample_to_stereo() (audio_remix.hpp/.cpp) --
+// unison_switch_remix_and_resample_to_stereo() (audio_remix.hpp/.cpp) --
 // the dual-audio-client test category's "Audiosignal wird empfangen und
 // wiedergegeben" check for the Switch client's remix+resample step.
 
@@ -20,7 +20,7 @@ static void TestAlreadyNativeRateSkipsResampling() {
     // sampleRate == 48000 -- only remix, frame count must stay unchanged
     // (no up/downsampling math applied at all).
     const std::vector<int16_t> mono = {100, -200, 300};
-    auto out = finlink_switch_remix_and_resample_to_stereo(mono, 48000, 1);
+    auto out = unison_switch_remix_and_resample_to_stereo(mono, 48000, 1);
     CHECK(out.size() == mono.size() * 2);
     CHECK(out[0] == 100 && out[1] == 100);
     CHECK(out[2] == -200 && out[3] == -200);
@@ -29,14 +29,14 @@ static void TestAlreadyNativeRateSkipsResampling() {
 
 static void TestMonoDuplicatesToBothChannels() {
     const std::vector<int16_t> mono = {42};
-    auto out = finlink_switch_remix_and_resample_to_stereo(mono, 48000, 1);
+    auto out = unison_switch_remix_and_resample_to_stereo(mono, 48000, 1);
     CHECK(out.size() == 2);
     CHECK(out[0] == 42 && out[1] == 42);
 }
 
 static void TestStereoPassesThroughVerbatimAtNativeRate() {
     const std::vector<int16_t> stereo = {10, -10, 20, -20};
-    auto out = finlink_switch_remix_and_resample_to_stereo(stereo, 48000, 2);
+    auto out = unison_switch_remix_and_resample_to_stereo(stereo, 48000, 2);
     CHECK(out.size() == 4);
     CHECK(out[0] == 10 && out[1] == -10);
     CHECK(out[2] == 20 && out[3] == -20);
@@ -46,7 +46,7 @@ static void TestUpsamplingDoublesFrameCount() {
     // 24000Hz -> 48000Hz is an exact 2x upsample -- output frame count must
     // be exactly double the input's.
     const std::vector<int16_t> mono = {0, 1000, 2000, 3000};
-    auto out = finlink_switch_remix_and_resample_to_stereo(mono, 24000, 1);
+    auto out = unison_switch_remix_and_resample_to_stereo(mono, 24000, 1);
     CHECK(out.size() == mono.size() * 2 * 2);  // *2 for stereo, *2 for 2x upsample
 }
 
@@ -55,7 +55,7 @@ static void TestUpsamplingInterpolatesBetweenSamples() {
     // 1000 -- the 48kHz output's second sample should land exactly halfway
     // between them (linear interpolation, not nearest-neighbor).
     const std::vector<int16_t> mono = {0, 1000};
-    auto out = finlink_switch_remix_and_resample_to_stereo(mono, 24000, 1);
+    auto out = unison_switch_remix_and_resample_to_stereo(mono, 24000, 1);
     // outFrames = 2 * 48000 / 24000 = 4 frames
     CHECK(out.size() == 8);
     CHECK(out[0] == 0);       // frame 0: srcPos 0.0 -> sample 0 exactly
@@ -69,7 +69,7 @@ static void TestDownsamplingReducesFrameCount() {
     for (size_t i = 0; i < mono.size(); i++) {
         mono[i] = static_cast<int16_t>(i * 100);
     }
-    auto out = finlink_switch_remix_and_resample_to_stereo(mono, 96000, 1);
+    auto out = unison_switch_remix_and_resample_to_stereo(mono, 96000, 1);
     CHECK(out.size() == 8);  // 4 output frames * 2 channels
 }
 
@@ -80,7 +80,7 @@ static void TestResampleDoesNotReadPastLastFrame() {
     // clamp in the implementation). A crash or garbage value here is
     // exactly the bug this test exists to catch.
     const std::vector<int16_t> mono = {10, 20, 30};
-    auto out = finlink_switch_remix_and_resample_to_stereo(mono, 44100, 1);
+    auto out = unison_switch_remix_and_resample_to_stereo(mono, 44100, 1);
     CHECK(!out.empty());
     // Last frame's value should be close to the last source sample (30),
     // not garbage from reading past the buffer.
@@ -88,9 +88,9 @@ static void TestResampleDoesNotReadPastLastFrame() {
 }
 
 static void TestEmptyOrZeroInputReturnsEmpty() {
-    CHECK(finlink_switch_remix_and_resample_to_stereo({}, 48000, 2).empty());
-    CHECK(finlink_switch_remix_and_resample_to_stereo({1, 2, 3}, 0, 1).empty());
-    CHECK(finlink_switch_remix_and_resample_to_stereo({1, 2, 3}, 48000, 0).empty());
+    CHECK(unison_switch_remix_and_resample_to_stereo({}, 48000, 2).empty());
+    CHECK(unison_switch_remix_and_resample_to_stereo({1, 2, 3}, 0, 1).empty());
+    CHECK(unison_switch_remix_and_resample_to_stereo({1, 2, 3}, 48000, 0).empty());
 }
 
 int main() {

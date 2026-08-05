@@ -1,4 +1,4 @@
-// finlink for Nintendo Switch: Menu -> Settings / Player, same structure
+// Unison for Nintendo Switch: Menu -> Settings / Player, same structure
 // as clients/android/. See clients/switch/README.md for the toolchain and
 // architecture notes.
 
@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    brls::Application::createWindow("finlink");
+    brls::Application::createWindow("Unison");
 
     // Start (Plus) is a GBA button (see PlayerActivity), not a "quit app"
     // shortcut here -- the Android client has no such gesture either, and

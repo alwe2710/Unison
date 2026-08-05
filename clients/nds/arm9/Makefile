@@ -10,7 +10,7 @@ include $(DEVKITARM)/ds_rules
 #---------------------------------------------------------------------------------
 # BUILD is the directory where object files & intermediate files will be placed
 # SOURCES is a list of directories containing source code -- includes
-#   finlink_core (protocol/WS/deflate, shared with every other client, see
+#   unison_core (protocol/WS/deflate, shared with every other client, see
 #   ../../../core/README.md) directly as source dirs rather than a linked
 #   library: there's no CMake add_subdirectory() equivalent in this
 #   classic devkitARM Makefile world, and core/ is small/portable enough

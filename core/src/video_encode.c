@@ -1,8 +1,8 @@
-#include "finlink/video_encode.h"
+#include "unison/video_encode.h"
 
-#include "finlink/deflate.h"
-#include "finlink/endian.h"
-#include "finlink/protocol.h"
+#include "unison/deflate.h"
+#include "unison/endian.h"
+#include "unison/protocol.h"
 
 #include <string.h>
 
@@ -14,11 +14,11 @@ static size_t tiles_per_col(uint32_t height) {
     return ((size_t)height + 7) / 8;
 }
 
-size_t finlink_video_encode_max_size(uint32_t width, uint32_t height) {
-    return finlink_deflate_max_size(finlink_video_encode_scratch_size(width, height));
+size_t unison_video_encode_max_size(uint32_t width, uint32_t height) {
+    return unison_deflate_max_size(unison_video_encode_scratch_size(width, height));
 }
 
-size_t finlink_video_encode_scratch_size(uint32_t width, uint32_t height) {
+size_t unison_video_encode_scratch_size(uint32_t width, uint32_t height) {
     size_t max_tile_count = tiles_per_row(width) * tiles_per_col(height);
     /* u16 tile_count header + up to max_tile_count u16 indices + up to
      * max_tile_count full padded 8x8 (64px * 2 bytes) tiles -- see the
@@ -29,7 +29,7 @@ size_t finlink_video_encode_scratch_size(uint32_t width, uint32_t height) {
 /* True if any in-bounds pixel of the 8x8 tile at (tile_col, tile_row)
  * differs between current_rgb565 and previous_rgb565 -- out-of-bounds
  * pixels (width/height not a multiple of 8) never participate, same as
- * finlink_decode_video_frame() never writing them. */
+ * unison_decode_video_frame() never writing them. */
 static int tile_changed(const uint8_t *current_rgb565, const uint8_t *previous_rgb565, uint32_t width,
                          uint32_t height, size_t tile_col, size_t tile_row) {
     size_t origin_x = tile_col * 8;
@@ -48,7 +48,7 @@ static int tile_changed(const uint8_t *current_rgb565, const uint8_t *previous_r
 
 /* Writes one tile's 64 pixels (row-major, per docs/protocol.md) into
  * dst -- out-of-bounds positions (edge tiles) are written as 0, never read
- * back by finlink_decode_video_frame() since it bounds-checks px/py before
+ * back by unison_decode_video_frame() since it bounds-checks px/py before
  * writing to the framebuffer, but the fixed 64-pixel-per-tile layout still
  * needs *something* in that slot to keep every later tile's offset correct. */
 static void write_tile_pixels(uint8_t *dst, const uint8_t *current_rgb565, uint32_t width, uint32_t height,
@@ -72,18 +72,18 @@ static void write_tile_pixels(uint8_t *dst, const uint8_t *current_rgb565, uint3
     }
 }
 
-static finlink_encode_status encode_full_frame(const uint8_t *current_rgb565, uint32_t width, uint32_t height,
+static unison_encode_status encode_full_frame(const uint8_t *current_rgb565, uint32_t width, uint32_t height,
                                                  uint8_t *out_buf, size_t out_capacity, size_t *out_size,
                                                  uint8_t *out_format) {
     size_t pixel_bytes = (size_t)width * (size_t)height * 2;
-    if (finlink_deflate_raw(current_rgb565, pixel_bytes, out_buf, out_capacity, out_size) != FINLINK_DEFLATE_OK) {
-        return FINLINK_ENCODE_ERR;
+    if (unison_deflate_raw(current_rgb565, pixel_bytes, out_buf, out_capacity, out_size) != UNISON_DEFLATE_OK) {
+        return UNISON_ENCODE_ERR;
     }
     *out_format = 0;
-    return FINLINK_ENCODE_OK;
+    return UNISON_ENCODE_OK;
 }
 
-finlink_encode_status finlink_encode_video_frame(const uint8_t *current_rgb565,
+unison_encode_status unison_encode_video_frame(const uint8_t *current_rgb565,
                                                    const uint8_t *previous_rgb565, uint32_t width,
                                                    uint32_t height, uint8_t *scratch_buf,
                                                    size_t scratch_capacity, uint8_t *out_buf,
@@ -101,14 +101,14 @@ finlink_encode_status finlink_encode_video_frame(const uint8_t *current_rgb565,
      * index list starts right after the (not-yet-known) u16le tile_count,
      * i.e. at scratch_buf + 2 -- filled in once the final count is known,
      * same "write payload first, patch the count header last" approach
-     * finlink_deflate_raw()'s caller-owns-buffers style already implies. */
+     * unison_deflate_raw()'s caller-owns-buffers style already implies. */
     if (scratch_capacity < 2) {
-        return FINLINK_ENCODE_ERR;
+        return UNISON_ENCODE_ERR;
     }
     uint8_t *index_list = scratch_buf + 2;
     size_t indices_capacity = scratch_capacity - 2;
     if (indices_capacity < max_tile_count * 2) {
-        return FINLINK_ENCODE_ERR;
+        return UNISON_ENCODE_ERR;
     }
 
     uint16_t tile_count = 0;
@@ -116,22 +116,22 @@ finlink_encode_status finlink_encode_video_frame(const uint8_t *current_rgb565,
         for (size_t tile_col = 0; tile_col < row_stride; tile_col++) {
             if (tile_changed(current_rgb565, previous_rgb565, width, height, tile_col, tile_row)) {
                 uint16_t tile_index = (uint16_t)(tile_row * row_stride + tile_col);
-                finlink_write_u16le(index_list + (size_t)tile_count * 2, tile_index);
+                unison_write_u16le(index_list + (size_t)tile_count * 2, tile_index);
                 tile_count++;
             }
         }
     }
 
     if (tile_count == 0) {
-        return FINLINK_ENCODE_UNCHANGED;
+        return UNISON_ENCODE_UNCHANGED;
     }
 
     size_t pixel_data_offset = 2 + (size_t)tile_count * 2;
     size_t pixel_data_bytes = (size_t)tile_count * 64 * 2;
     if (scratch_capacity < pixel_data_offset + pixel_data_bytes) {
-        return FINLINK_ENCODE_ERR;
+        return UNISON_ENCODE_ERR;
     }
-    finlink_write_u16le(scratch_buf, tile_count);
+    unison_write_u16le(scratch_buf, tile_count);
 
     /* Second pass, independently re-deciding "changed?" per tile (cheap --
      * a handful of memcmp calls) rather than reading back the index list
@@ -152,10 +152,10 @@ finlink_encode_status finlink_encode_video_frame(const uint8_t *current_rgb565,
         }
     }
 
-    if (finlink_deflate_raw(scratch_buf, pixel_data_offset + pixel_data_bytes, out_buf, out_capacity, out_size) !=
-        FINLINK_DEFLATE_OK) {
-        return FINLINK_ENCODE_ERR;
+    if (unison_deflate_raw(scratch_buf, pixel_data_offset + pixel_data_bytes, out_buf, out_capacity, out_size) !=
+        UNISON_DEFLATE_OK) {
+        return UNISON_ENCODE_ERR;
     }
-    *out_format = FINLINK_VIDEO_FORMAT_TILES;
-    return FINLINK_ENCODE_OK;
+    *out_format = UNISON_VIDEO_FORMAT_TILES;
+    return UNISON_ENCODE_OK;
 }

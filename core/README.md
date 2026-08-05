@@ -7,7 +7,7 @@ since that part is unavoidably platform-specific anyway (BSD sockets via libctru
 APIs). Everything that's pure logic on top of those bytes — including the WebSocket handshake and
 framing itself — lives here, since 3DS/Switch homebrew ship no built-in WebSocket client at all.
 
-- `include/finlink/websocket.h` + `src/websocket.c` — RFC6455 client handshake (key generation,
+- `include/unison/websocket.h` + `src/websocket.c` — RFC6455 client handshake (key generation,
   request construction, accept validation) and frame reader/writer, matched to the server-side
   behavior every emulator fork's server implements (unmasked, unfragmented server frames; masked
   client frames; no ping/pong, no permessage-deflate, see
@@ -15,11 +15,11 @@ framing itself — lives here, since 3DS/Switch homebrew ship no built-in WebSoc
   originally matched against dolphin-gba-stream's `GBAStreamHost.cpp`, the first reference
   implementation. Uses vendored `teeny-sha1` (MIT, see `third_party/teeny-sha1/LICENSE`) for the
   SHA1 in the handshake.
-- `include/finlink/protocol.h` + `src/protocol.c` — (de)serialization of the three message types
+- `include/unison/protocol.h` + `src/protocol.c` — (de)serialization of the three message types
   (video header, audio frame, input bitmask) within a WebSocket frame payload.
-- `include/finlink/inflate.h` + `src/inflate.c` — raw-deflate inflate of the video payload, a
+- `include/unison/inflate.h` + `src/inflate.c` — raw-deflate inflate of the video payload, a
   wrapper around vendored `tinfl` (miniz, MIT, see `third_party/miniz/LICENSE`).
-- `include/finlink/endian.h` — portable little-endian reads/writes for the wire format.
+- `include/unison/endian.h` — portable little-endian reads/writes for the wire format.
 
 RGB565 conversion, PCM audio buffering, and input polling are deliberately not part of core —
 those depend on each platform's own rendering/audio APIs. Where the random bytes needed for the

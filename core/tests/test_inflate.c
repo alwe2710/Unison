@@ -1,4 +1,4 @@
-#include "finlink/inflate.h"
+#include "unison/inflate.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,10 +26,10 @@ int main(void) {
 
     uint8_t out[8];
     size_t out_size = 0;
-    finlink_inflate_status status =
-        finlink_inflate_raw(compressed, sizeof(compressed), out, sizeof(out), &out_size);
+    unison_inflate_status status =
+        unison_inflate_raw(compressed, sizeof(compressed), out, sizeof(out), &out_size);
 
-    CHECK(status == FINLINK_INFLATE_OK);
+    CHECK(status == UNISON_INFLATE_OK);
     CHECK(out_size == 2);
     CHECK(memcmp(out, "AB", 2) == 0);
 
@@ -37,8 +37,8 @@ int main(void) {
      * not overflow. */
     uint8_t tiny_out[1];
     size_t tiny_out_size = 0;
-    status = finlink_inflate_raw(compressed, sizeof(compressed), tiny_out, sizeof(tiny_out), &tiny_out_size);
-    CHECK(status == FINLINK_INFLATE_ERR);
+    status = unison_inflate_raw(compressed, sizeof(compressed), tiny_out, sizeof(tiny_out), &tiny_out_size);
+    CHECK(status == UNISON_INFLATE_ERR);
 
     printf("inflate: all tests passed\n");
     return 0;

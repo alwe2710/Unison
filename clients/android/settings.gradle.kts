@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "finlink-android"
+rootProject.name = "unison-android"
 include(":app")

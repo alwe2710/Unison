@@ -67,7 +67,7 @@ jobs:
     # Stage 2 of the CI plan: real functional tests (core/tests' ctest
     # suite -- protocol/deflate/inflate/websocket/video_encode/handshake),
     # not just "does it compile". Previously build-only
-    # (-DFINLINK_BUILD_TESTS=OFF) per the stage-1 plan; flipped on once
+    # (-DUNISON_BUILD_TESTS=OFF) per the stage-1 plan; flipped on once
     # test_handshake.c actually existed to run (it's the one covering
     # hello_ack/session_ready.video_mode, the "Video-mode fallback"
     # negotiation this whole feature is built on).
@@ -76,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S core -B build/core -DFINLINK_BUILD_TESTS=ON
+        run: cmake -S core -B build/core -DUNISON_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build/core -j"$(nproc)"
       - name: Test
@@ -222,7 +222,7 @@ jobs:
           cmake -S clients/switch -B build/switch \
             -DPLATFORM_SWITCH=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build
-        run: cmake --build build/switch --target finlink-switch.nro -j"$(nproc)"
+        run: cmake --build build/switch --target unison-switch.nro -j"$(nproc)"
 
   nds:
     name: nds (.nds, feasibility client)

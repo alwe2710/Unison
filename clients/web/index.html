@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>finlink Web Client</title>
+<title>Unison Web Client</title>
 <link rel="icon" type="image/png" href="favicon.png">
 <style>
   :root{
@@ -234,7 +234,7 @@
 <body>
 <div id="connect">
   <div class="brand">
-    <div class="mark">finlink</div>
+    <div class="mark">unison</div>
     <h1>Mit Server verbinden</h1>
     <p id="connectStatus">IP-Adresse des Emulators eingeben</p>
   </div>
@@ -355,7 +355,7 @@
 <script src="strings_generated.js"></script>
 <script src="settings.js"></script>
 <script src="keybindings.js"></script>
-<script src="finlink_core.js"></script>
+<script src="unison_core.js"></script>
 <script>
 // STRINGS (strings_generated.js, generated from the central i18n/strings.json
 // -- see that file's own top comment) is now { de: {...}, en: {...}, ... },
@@ -371,11 +371,11 @@
 // the settings panel's language picker (persisted in localStorage).
 // SUPPORTED_LANGS/resolvedLang/formatString: settings.js (pure, unit-tested
 // there -- see settings_test.mjs).
-let langPref = localStorage.getItem('finlinkWebLanguage') || 'system';
+let langPref = localStorage.getItem('unisonWebLanguage') || 'system';
 let currentLang = resolvedLang(langPref, (navigator.language || '').toLowerCase().slice(0, 2));
 function setLangPref(pref) {
   langPref = pref;
-  localStorage.setItem('finlinkWebLanguage', pref);
+  localStorage.setItem('unisonWebLanguage', pref);
   currentLang = resolvedLang(langPref, (navigator.language || '').toLowerCase().slice(0, 2));
 }
 function t(key, ...args) {
@@ -391,17 +391,17 @@ const isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 if (isMobile) document.body.classList.add('mobile');
 
 // Kicked off now (in parallel with the connect form, not awaited here) so
-// the WASM module -- finlink_core, built from wasm_bridge.c + core/, see
+// the WASM module -- unison_core, built from wasm_bridge.c + core/, see
 // this directory's README -- is normally already instantiated by the time
 // the user actually hits "Verbinden"; beginSession() awaits this promise
 // itself regardless, so submitting before it resolves still works, just
-// without the head start. FINLINK_PROTOCOL_VERSION mirrors
-// finlink/handshake.h -- this is the one piece of protocol knowledge that
+// without the head start. UNISON_PROTOCOL_VERSION mirrors
+// unison/handshake.h -- this is the one piece of protocol knowledge that
 // has to be duplicated here rather than asked of the WASM module itself,
 // since it's needed before any handshake message (which is what would
 // otherwise report it) has been received.
-const FINLINK_PROTOCOL_VERSION = 2;
-const wasmModulePromise = FinlinkCore();
+const UNISON_PROTOCOL_VERSION = 2;
+const wasmModulePromise = UnisonCore();
 
 // Antialiasing (bilinear vs. nearest-neighbor canvas upscale), configured
 // per stream_type rather than one global toggle -- GBA/DS pixel art and a
@@ -419,10 +419,10 @@ const KNOWN_STREAM_TYPES = [
 ];
 // defaultBilinearFor/bilinearFor: settings.js (pure, unit-tested there --
 // see settings_test.mjs).
-const filterPrefs = JSON.parse(localStorage.getItem('finlinkWebBilinearByStreamType') || '{}');
+const filterPrefs = JSON.parse(localStorage.getItem('unisonWebBilinearByStreamType') || '{}');
 function setBilinearFor(streamType, value) {
   filterPrefs[streamType] = value;
-  localStorage.setItem('finlinkWebBilinearByStreamType', JSON.stringify(filterPrefs));
+  localStorage.setItem('unisonWebBilinearByStreamType', JSON.stringify(filterPrefs));
 }
 // Module scope (not beginSession-local): set from the most recent hello
 // once connected, but also read by the settings/menu panels' filter row
@@ -448,8 +448,8 @@ const gameEl = document.getElementById('game');
 // the last successfully-used values -- neither is required, both are just a
 // convenience for the common case of always connecting to the same server.
 const params = new URLSearchParams(location.search);
-hostInput.value = params.get('host') || localStorage.getItem('finlinkLastHost') || '';
-portInput.value = params.get('port') || localStorage.getItem('finlinkLastPort') || '6800';
+hostInput.value = params.get('host') || localStorage.getItem('unisonLastHost') || '';
+portInput.value = params.get('port') || localStorage.getItem('unisonLastPort') || '6800';
 
 // Configured in advance (before ever connecting), same as the other
 // clients' equivalent settings screens -- there's no "current" stream_type
@@ -555,10 +555,10 @@ const VIDEO_MODE_OPTION_KEYS = {
   tiles: 'video_mode_tiles', h264: 'video_mode_h264', h265: 'video_mode_h265', legacy: 'video_mode_legacy',
 };
 const VIDEO_MODE_DEFAULT = 'tiles';
-let videoModePref = localStorage.getItem('finlinkWebVideoMode') || VIDEO_MODE_DEFAULT;
+let videoModePref = localStorage.getItem('unisonWebVideoMode') || VIDEO_MODE_DEFAULT;
 function setVideoModePref(mode) {
   videoModePref = mode;
-  localStorage.setItem('finlinkWebVideoMode', mode);
+  localStorage.setItem('unisonWebVideoMode', mode);
 }
 
 function updateVideoModeRowValues() {
@@ -601,8 +601,8 @@ connectForm.addEventListener('submit', (e) => {
   const host = hostInput.value.trim();
   const port = parseInt(portInput.value, 10);
   if (!host || !port) return;
-  localStorage.setItem('finlinkLastHost', host);
-  localStorage.setItem('finlinkLastPort', String(port));
+  localStorage.setItem('unisonLastHost', host);
+  localStorage.setItem('unisonLastPort', String(port));
   connectErrorEl.textContent = '';
   connectStatusEl.textContent = t('status_connecting');
   connectSubmitEl.disabled = true;
@@ -674,8 +674,8 @@ function playAudioChunk(sampleRate, channels, view, byteOffset, sampleCount) {
   nextAudioTime += buffer.duration;
 }
 
-// finlink_core (see this file's top comment) -- awaited here rather than at
-// module scope so a submit before FinlinkCore() resolves still works, just
+// unison_core (see this file's top comment) -- awaited here rather than at
+// module scope so a submit before UnisonCore() resolves still works, just
 // without the head start wasmModulePromise being kicked off early normally
 // provides.
 const wasmModule = await wasmModulePromise;
@@ -683,8 +683,8 @@ const wasmModule = await wasmModulePromise;
 // Persistent WASM-heap scratch buffers, reused/grown across messages rather
 // than malloc'd+freed per one -- framebufferPtr in particular *must*
 // persist across calls (not just "may as an optimization"): it's the
-// framebuffer_rgb565 finlink_decode_video_frame patches
-// FINLINK_VIDEO_FORMAT_TILES updates onto, so it needs to still hold real
+// framebuffer_rgb565 unison_decode_video_frame patches
+// UNISON_VIDEO_FORMAT_TILES updates onto, so it needs to still hold real
 // prior content, not a fresh/blank buffer, every call after the first.
 let videoMsgPtr = 0, videoMsgCap = 0;
 let inflatedPtr = 0, inflatedCap = 0;
@@ -757,7 +757,7 @@ function connect(connectHost, connectPort) {
   ws.onerror = () => { if (gameEl.style.display !== 'flex') fail(t('status_connect_failed')); };
   // Text frames (typeof ev.data === 'string', always true for a WS text
   // message regardless of ws.binaryType, which only affects *binary*
-  // messages) are the app-level handshake (finlink/handshake.h); binary
+  // messages) are the app-level handshake (unison/handshake.h); binary
   // ones are the existing Video/Audio/Input/ping wire format, unchanged by
   // any of this.
   ws.onmessage = (ev) => {
@@ -769,14 +769,14 @@ function connect(connectHost, connectPort) {
   };
 }
 
-// --- App-level handshake (finlink/handshake.h, docs/protocol.md
+// --- App-level handshake (unison/handshake.h, docs/protocol.md
 // "Verbindungsaufbau: Handshake") -- every field access below goes through
 // a WASM getter rather than hand-parsing the JSON text directly in JS, even
 // though the browser has JSON.parse built in, so the field *names*/shape
-// stay defined in exactly one place (finlink/handshake.h) instead of a
+// stay defined in exactly one place (unison/handshake.h) instead of a
 // second hand-maintained copy here that could silently drift from it.
 //
-// hello.slots (finlink_wasm_hello_slot_count/_index/_label/_occupied) is
+// hello.slots (unison_wasm_hello_slot_count/_index/_label/_occupied) is
 // what tells apart a multi-slot stream type (GC_GBA_LINK: the lobby offers
 // every configured player port, occupied or not, docs/protocol.md) from a
 // single-slot one (every other stream type today, one client at a time) --
@@ -787,7 +787,7 @@ function connect(connectHost, connectPort) {
 // hard-wired to Dolphin's lobby shape; the standard hello/slots field this
 // client uses instead is exactly what every native client (Android/3DS/
 // Switch/NDS) already reads for the same purpose, so this works against
-// any finlink server, Dolphin's lobby included, with no special-casing. ---
+// any unison server, Dolphin's lobby included, with no special-casing. ---
 
 // Captured from hello at parse time, read again once a slot is actually
 // picked (hello_ack can be deferred behind the picker below, unlike a
@@ -806,7 +806,7 @@ function sendHelloAck(requestedSlot) {
   const ackCap = 512;
   const ackPtr = wasmModule._malloc(ackCap);
   requestedVideoMode = videoModePref;
-  const ackLen = wasmModule.ccall('finlink_wasm_build_hello_ack', 'number',
+  const ackLen = wasmModule.ccall('unison_wasm_build_hello_ack', 'number',
       ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'string', 'number', 'number'],
       [requestedSlot, nativeWidth, nativeHeight, nativeFps, wantsAudio, sampleRate, channels,
        requestedVideoMode, ackPtr, ackCap]);
@@ -821,9 +821,9 @@ function showSlotPicker(slotCount) {
   lobbyButtonsEl.innerHTML = '';
   lobbyStatusEl.textContent = t('lobby_pick_player');
   for (let i = 0; i < slotCount; i++) {
-    const label = wasmModule.ccall('finlink_wasm_hello_slot_label', 'string', ['number'], [i]);
-    const occupied = wasmModule.ccall('finlink_wasm_hello_slot_occupied', 'number', ['number'], [i]);
-    const index = wasmModule.ccall('finlink_wasm_hello_slot_index', 'number', ['number'], [i]);
+    const label = wasmModule.ccall('unison_wasm_hello_slot_label', 'string', ['number'], [i]);
+    const occupied = wasmModule.ccall('unison_wasm_hello_slot_occupied', 'number', ['number'], [i]);
+    const index = wasmModule.ccall('unison_wasm_hello_slot_index', 'number', ['number'], [i]);
     const btn = document.createElement('button');
     btn.className = 'slot';
     btn.disabled = !!occupied;
@@ -846,62 +846,62 @@ function handleHandshakeMessage(text) {
   const bytesPtr = wasmModule._malloc(bytes.length);
   wasmModule.HEAPU8.set(bytes, bytesPtr);
   try {
-    const msgType = wasmModule.ccall('finlink_wasm_peek_handshake_message', 'number',
+    const msgType = wasmModule.ccall('unison_wasm_peek_handshake_message', 'number',
         ['number', 'number'], [bytesPtr, bytes.length]);
 
     if (msgType === 1) {  // hello
-      if (!wasmModule.ccall('finlink_wasm_parse_hello', 'number', ['number', 'number'],
+      if (!wasmModule.ccall('unison_wasm_parse_hello', 'number', ['number', 'number'],
                              [bytesPtr, bytes.length])) {
         fail('hello konnte nicht gelesen werden');
         return;
       }
-      const serverVersion = wasmModule.ccall('finlink_wasm_hello_protocol_version', 'number', [], []);
-      if (serverVersion !== FINLINK_PROTOCOL_VERSION) {
+      const serverVersion = wasmModule.ccall('unison_wasm_hello_protocol_version', 'number', [], []);
+      if (serverVersion !== UNISON_PROTOCOL_VERSION) {
         fail('Server spricht Protokollversion ' + serverVersion + ', dieser Client unterstützt nur ' +
-             'Version ' + FINLINK_PROTOCOL_VERSION + ' -- bitte Client oder Server aktualisieren.');
+             'Version ' + UNISON_PROTOCOL_VERSION + ' -- bitte Client oder Server aktualisieren.');
         return;
       }
       // A redirect hop (session_ready.has_redirect below) reconnects to a
       // different port that sends its own fresh hello -- this always
       // reflects whichever connection is current, same as pendingAck.
-      currentStreamType = wasmModule.ccall('finlink_wasm_hello_stream_type', 'string', [], []);
+      currentStreamType = wasmModule.ccall('unison_wasm_hello_stream_type', 'string', [], []);
       canvas.style.imageRendering = bilinearFor(currentStreamType, filterPrefs) ? 'auto' : 'pixelated';
-      const wantsAudio = wasmModule.ccall('finlink_wasm_hello_has_audio', 'number', [], []);
+      const wantsAudio = wasmModule.ccall('unison_wasm_hello_has_audio', 'number', [], []);
       // Generous/native throughout: nothing about a browser tab justifies
       // asking the server to downscale its stream.
-      const nativeWidth = wasmModule.ccall('finlink_wasm_hello_video_width', 'number', [], []);
-      const nativeHeight = wasmModule.ccall('finlink_wasm_hello_video_height', 'number', [], []);
-      const nativeFps = wasmModule.ccall('finlink_wasm_hello_video_fps', 'number', [], []);
+      const nativeWidth = wasmModule.ccall('unison_wasm_hello_video_width', 'number', [], []);
+      const nativeHeight = wasmModule.ccall('unison_wasm_hello_video_height', 'number', [], []);
+      const nativeFps = wasmModule.ccall('unison_wasm_hello_video_fps', 'number', [], []);
       const sampleRate = wantsAudio ?
-          wasmModule.ccall('finlink_wasm_hello_audio_sample_rate', 'number', [], []) : 48000;
+          wasmModule.ccall('unison_wasm_hello_audio_sample_rate', 'number', [], []) : 48000;
       const channels = wantsAudio ?
-          wasmModule.ccall('finlink_wasm_hello_audio_channels', 'number', [], []) : 2;
+          wasmModule.ccall('unison_wasm_hello_audio_channels', 'number', [], []) : 2;
       pendingAck = { wantsAudio, nativeWidth, nativeHeight, nativeFps, sampleRate, channels };
 
-      const slotCount = wasmModule.ccall('finlink_wasm_hello_slot_count', 'number', [], []);
+      const slotCount = wasmModule.ccall('unison_wasm_hello_slot_count', 'number', [], []);
       if (slotCount > 1) {
         showSlotPicker(slotCount);
         return;  // wait for a picker click -- see sendHelloAck() above.
       }
       const soloSlot = slotCount === 1 ?
-          wasmModule.ccall('finlink_wasm_hello_slot_index', 'number', ['number'], [0]) : 0;
+          wasmModule.ccall('unison_wasm_hello_slot_index', 'number', ['number'], [0]) : 0;
       sendHelloAck(soloSlot);
       return;
     }
 
     if (msgType === 2) {  // session_ready
-      if (!wasmModule.ccall('finlink_wasm_parse_session_ready', 'number', ['number', 'number'],
+      if (!wasmModule.ccall('unison_wasm_parse_session_ready', 'number', ['number', 'number'],
                              [bytesPtr, bytes.length])) {
         fail('session_ready konnte nicht gelesen werden');
         return;
       }
-      if (wasmModule.ccall('finlink_wasm_ready_has_redirect', 'number', [], [])) {
+      if (wasmModule.ccall('unison_wasm_ready_has_redirect', 'number', [], [])) {
         // Multi-slot lobby (GC_GBA_LINK): the slot just picked lives on a
         // different port -- close this connection, reconnect there, and
         // expect a fresh hello (this time single-slot, so hello_ack goes
         // out immediately, no second picker).
-        const redirectHost = wasmModule.ccall('finlink_wasm_ready_redirect_host', 'string', [], []);
-        const redirectPort = wasmModule.ccall('finlink_wasm_ready_redirect_port', 'number', [], []);
+        const redirectHost = wasmModule.ccall('unison_wasm_ready_redirect_host', 'string', [], []);
+        const redirectPort = wasmModule.ccall('unison_wasm_ready_redirect_port', 'number', [], []);
         ws.close();
         connect(redirectHost, redirectPort);
         return;
@@ -913,7 +913,7 @@ function handleHandshakeMessage(text) {
       // video_mode entirely -- skip the comparison rather than assuming
       // "tiles" was granted (docs/protocol.md "Video-mode fallback"), same
       // rule every other client applies.
-      const grantedVideoMode = wasmModule.ccall('finlink_wasm_ready_video_mode', 'string', [], []);
+      const grantedVideoMode = wasmModule.ccall('unison_wasm_ready_video_mode', 'string', [], []);
       if (grantedVideoMode && requestedVideoMode && grantedVideoMode !== requestedVideoMode) {
         showVideoModeFallback(requestedVideoMode, grantedVideoMode);
       }
@@ -921,9 +921,9 @@ function handleHandshakeMessage(text) {
     }
 
     if (msgType === 3) {  // handshake_error
-      wasmModule.ccall('finlink_wasm_parse_handshake_error', 'number', ['number', 'number'],
+      wasmModule.ccall('unison_wasm_parse_handshake_error', 'number', ['number', 'number'],
                         [bytesPtr, bytes.length]);
-      const detail = wasmModule.ccall('finlink_wasm_error_detail', 'string', [], []);
+      const detail = wasmModule.ccall('unison_wasm_error_detail', 'string', [], []);
       fail(detail || 'Handshake vom Server abgelehnt.');
       return;
     }
@@ -949,7 +949,7 @@ let latestVideoSeq = 0;
 // immediately on receipt) isolates network latency, while frame rate (time
 // between rendered video frames) separately reveals a decode/render
 // bottleneck even when the network itself is fine. This ping/pong exchange
-// (type 4/5) is this client's own addition, not part of finlink/protocol.h
+// (type 4/5) is this client's own addition, not part of unison/protocol.h
 // -- a server that doesn't recognize it simply never sends type 5 back, so
 // the stats just stay at "--" rather than anything breaking. ---
 let pingMs = null;
@@ -988,14 +988,14 @@ function handleBinaryMessage(msgBuffer) {
     const ptr = wasmModule._malloc(bytes.length);
     wasmModule.HEAPU8.set(bytes, ptr);
     try {
-      if (!wasmModule.ccall('finlink_wasm_parse_audio_frame', 'number', ['number', 'number'],
+      if (!wasmModule.ccall('unison_wasm_parse_audio_frame', 'number', ['number', 'number'],
                              [ptr, bytes.length])) {
         return;
       }
-      const sampleRate = wasmModule.ccall('finlink_wasm_audio_sample_rate', 'number', [], []);
-      const channels = wasmModule.ccall('finlink_wasm_audio_channels', 'number', [], []);
-      const sampleCount = wasmModule.ccall('finlink_wasm_audio_sample_count', 'number', [], []);
-      const samplesOffset = wasmModule.ccall('finlink_wasm_audio_samples_offset', 'number',
+      const sampleRate = wasmModule.ccall('unison_wasm_audio_sample_rate', 'number', [], []);
+      const channels = wasmModule.ccall('unison_wasm_audio_channels', 'number', [], []);
+      const sampleCount = wasmModule.ccall('unison_wasm_audio_sample_count', 'number', [], []);
+      const samplesOffset = wasmModule.ccall('unison_wasm_audio_samples_offset', 'number',
                                               ['number'], [ptr]);
       playAudioChunk(sampleRate, channels, view, samplesOffset, sampleCount);
     } finally {
@@ -1019,17 +1019,17 @@ async function handleVideoMessage(msgBuffer) {
   const bytes = new Uint8Array(msgBuffer);
   [videoMsgPtr, videoMsgCap] = ensureCapacity(videoMsgPtr, videoMsgCap, bytes.length);
   wasmModule.HEAPU8.set(bytes, videoMsgPtr);
-  if (!wasmModule.ccall('finlink_wasm_parse_video_header', 'number', ['number', 'number'],
+  if (!wasmModule.ccall('unison_wasm_parse_video_header', 'number', ['number', 'number'],
                          [videoMsgPtr, bytes.length])) {
     return;
   }
 
-  const width = wasmModule.ccall('finlink_wasm_video_width', 'number', [], []);
-  const height = wasmModule.ccall('finlink_wasm_video_height', 'number', [], []);
-  const format = wasmModule.ccall('finlink_wasm_video_format', 'number', [], []);
-  const compressedOffset = wasmModule.ccall('finlink_wasm_video_compressed_offset', 'number',
+  const width = wasmModule.ccall('unison_wasm_video_width', 'number', [], []);
+  const height = wasmModule.ccall('unison_wasm_video_height', 'number', [], []);
+  const format = wasmModule.ccall('unison_wasm_video_format', 'number', [], []);
+  const compressedOffset = wasmModule.ccall('unison_wasm_video_compressed_offset', 'number',
                                              ['number'], [videoMsgPtr]);
-  const compressedSize = wasmModule.ccall('finlink_wasm_video_compressed_size', 'number', [], []);
+  const compressedSize = wasmModule.ccall('unison_wasm_video_compressed_size', 'number', [], []);
   const compressed = bytes.slice(compressedOffset, compressedOffset + compressedSize);
 
   // Deflate decompression stays native browser code, not WASM -- see
@@ -1054,14 +1054,14 @@ async function handleVideoMessage(msgBuffer) {
   const neededFbCap = width * height * 2;
   if (neededFbCap > framebufferCap) {
     // Only ever grows alongside a resolution change, which the server always
-    // sends as a full (non-TILES) frame -- see finlink/protocol.h's own note
+    // sends as a full (non-TILES) frame -- see unison/protocol.h's own note
     // that the first frame after connect is always full for exactly this
     // reason -- so losing the old, now-wrong-sized buffer's content here is
     // fine, not a partial-tile-patch-onto-garbage risk.
     [framebufferPtr, framebufferCap] = ensureCapacity(framebufferPtr, framebufferCap, neededFbCap);
   }
 
-  const ok = wasmModule.ccall('finlink_wasm_decode_video_frame', 'number',
+  const ok = wasmModule.ccall('unison_wasm_decode_video_frame', 'number',
       ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
       [format, inflatedPtr, inflatedBytes.length, width, height, framebufferPtr, framebufferCap]);
   if (!ok) return;
@@ -1073,12 +1073,12 @@ async function handleVideoMessage(msgBuffer) {
   }
 
   // Always re-converts the *whole* persistent RGB565 framebuffer to the
-  // canvas's RGBA8 ImageData, even after a FINLINK_VIDEO_FORMAT_TILES frame
+  // canvas's RGBA8 ImageData, even after a UNISON_VIDEO_FORMAT_TILES frame
   // that only patched part of it in WASM memory -- simpler than also
   // tracking which tiles changed just to skip re-converting the rest, and
   // cheap enough at these resolutions that it's not worth that complexity.
   // The *decode* into framebuffer_rgb565 above is still the real, correct
-  // partial-tile-patch semantics (finlink_decode_video_frame, shared with
+  // partial-tile-patch semantics (unison_decode_video_frame, shared with
   // every other client) -- only this last RGB565->RGBA8 color-space
   // conversion is unconditionally whole-frame, the same way each platform's
   // actual on-screen blit is its own platform-specific last step regardless
@@ -1102,7 +1102,7 @@ connect(host, port);
 function sendKeys() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const bufPtr = wasmModule._malloc(3);
-  const n = wasmModule.ccall('finlink_wasm_build_input_frame', 'number', ['number', 'number'],
+  const n = wasmModule.ccall('unison_wasm_build_input_frame', 'number', ['number', 'number'],
                               [keyState, bufPtr]);
   const msg = wasmModule.HEAPU8.slice(bufPtr, bufPtr + n);  // .slice() copies -- ws.send needs its
                                                              // own bytes, not a view into memory
@@ -1116,9 +1116,9 @@ function sendKeys() {
 // there -- see keybindings_test.mjs). bindings/codeToButton stay the same
 // object references throughout (mutated in place via Object.assign, not
 // reassigned) since other closures below capture them by reference.
-const stored = JSON.parse(localStorage.getItem('finlinkWebBindings') || '{}');
+const stored = JSON.parse(localStorage.getItem('unisonWebBindings') || '{}');
 const bindings = loadBindings(BUTTONS, stored);
-function saveBindings() { localStorage.setItem('finlinkWebBindings', JSON.stringify(bindings)); }
+function saveBindings() { localStorage.setItem('unisonWebBindings', JSON.stringify(bindings)); }
 const codeToButton = {};
 function rebuildCodeMap() {
   for (const k in codeToButton) delete codeToButton[k];
@@ -1147,10 +1147,10 @@ if (isMobile) {
   const GAMEPAD_DEFAULTS = {A: 0, B: 1, Select: 8, Start: 9, Up: 12, Down: 13, Left: 14,
                             Right: 15, L: 4, R: 5};
   const gamepadBindings =
-      JSON.parse(localStorage.getItem('finlinkWebGamepadBindings') || 'null') ||
+      JSON.parse(localStorage.getItem('unisonWebGamepadBindings') || 'null') ||
       Object.assign({}, GAMEPAD_DEFAULTS);
   function saveGamepadBindings() {
-    localStorage.setItem('finlinkWebGamepadBindings', JSON.stringify(gamepadBindings));
+    localStorage.setItem('unisonWebGamepadBindings', JSON.stringify(gamepadBindings));
   }
   let activeGamepadIndex = null;
   window.addEventListener('gamepadconnected', (e) => { activeGamepadIndex = e.gamepad.index; });
@@ -1217,7 +1217,7 @@ if (isMobile) {
     btn.addEventListener('touchcancel', release, {passive: false});
   });
 
-  const overlayStored = localStorage.getItem('finlinkWebShowOverlay');
+  const overlayStored = localStorage.getItem('unisonWebShowOverlay');
   const showOverlay = overlayStored === null ? true : overlayStored === 'true';
   touchControlsEl.style.display = showOverlay ? 'block' : 'none';
 
@@ -1232,7 +1232,7 @@ if (isMobile) {
   overlayToggle.checked = showOverlay;
   overlayToggle.onchange = () => {
     touchControlsEl.style.display = overlayToggle.checked ? 'block' : 'none';
-    localStorage.setItem('finlinkWebShowOverlay', overlayToggle.checked);
+    localStorage.setItem('unisonWebShowOverlay', overlayToggle.checked);
   };
 
   function renderGamepadBindingsList() {

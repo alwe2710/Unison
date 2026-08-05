@@ -67,7 +67,7 @@ was found.
    rate (estimate: single-digit fps range, depending on actual
    compression achieved).
 2. **Server-side protocol extension** for quality/frame-rate negotiation
-   (a change to the melonDS finlink fork specifically, `NDS_BOTTOM_SCREEN`'s
+   (a change to the melonDS Unison fork specifically, `NDS_BOTTOM_SCREEN`'s
    reference implementation, outside this repo). Since `protocol_version = 2`,
    this mechanism already exists generically in
    the handshake (see
@@ -87,7 +87,7 @@ real hardware (still unavailable in this development environment). The
 devkitARM/libnds/dswifi toolchain part is no longer an obstacle at this
 point -- [`clients/nds`](../clients/nds) builds and runs (verified as a
 `.nds` ROM) -- but the actual number that matters (real throughput over
-real Wi-Fi to a real finlink server) can only be measured on real
+real Wi-Fi to a real Unison server) can only be measured on real
 hardware. That result should be awaited before a final decision between
 the options above.
 

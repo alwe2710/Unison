@@ -4,9 +4,9 @@
 // message matching protocol.md's byte layout -- run under Node the same
 // way a browser would load this MODULARIZE'd, SINGLE_FILE build.
 
-import FinlinkCore from "./finlink_core.js";
+import UnisonCore from "./unison_core.js";
 
-const mod = await FinlinkCore();
+const mod = await UnisonCore();
 
 function toBytes(str) {
   return new TextEncoder().encode(str);
@@ -40,25 +40,25 @@ const helloJson = toBytes(
     '"audio":{"sample_rate":32768,"channels":2},"input_encoding":"gba_buttons"}'
 );
 withHeapCopy(helloJson, (ptr, len) => {
-  check("peek(hello) == HELLO(1)", mod.ccall("finlink_wasm_peek_handshake_message", "number", ["number", "number"], [ptr, len]) === 1);
-  check("parse_hello ok", mod.ccall("finlink_wasm_parse_hello", "number", ["number", "number"], [ptr, len]) === 1);
+  check("peek(hello) == HELLO(1)", mod.ccall("unison_wasm_peek_handshake_message", "number", ["number", "number"], [ptr, len]) === 1);
+  check("parse_hello ok", mod.ccall("unison_wasm_parse_hello", "number", ["number", "number"], [ptr, len]) === 1);
 });
-check("hello.protocol_version", mod.ccall("finlink_wasm_hello_protocol_version", "number", [], []) === 2);
-check("hello.stream_type", mod.ccall("finlink_wasm_hello_stream_type", "string", [], []) === "GC_GBA_LINK");
-check("hello.video.width", mod.ccall("finlink_wasm_hello_video_width", "number", [], []) === 240);
-check("hello.video.height", mod.ccall("finlink_wasm_hello_video_height", "number", [], []) === 160);
-check("hello.has_audio", mod.ccall("finlink_wasm_hello_has_audio", "number", [], []) === 1);
-check("hello.audio.sample_rate", mod.ccall("finlink_wasm_hello_audio_sample_rate", "number", [], []) === 32768);
-check("hello.slot_count", mod.ccall("finlink_wasm_hello_slot_count", "number", [], []) === 2);
-check("hello.slots[1].label", mod.ccall("finlink_wasm_hello_slot_label", "string", ["number"], [1]) === "P2");
-check("hello.slots[1].occupied", mod.ccall("finlink_wasm_hello_slot_occupied", "number", ["number"], [1]) === 1);
+check("hello.protocol_version", mod.ccall("unison_wasm_hello_protocol_version", "number", [], []) === 2);
+check("hello.stream_type", mod.ccall("unison_wasm_hello_stream_type", "string", [], []) === "GC_GBA_LINK");
+check("hello.video.width", mod.ccall("unison_wasm_hello_video_width", "number", [], []) === 240);
+check("hello.video.height", mod.ccall("unison_wasm_hello_video_height", "number", [], []) === 160);
+check("hello.has_audio", mod.ccall("unison_wasm_hello_has_audio", "number", [], []) === 1);
+check("hello.audio.sample_rate", mod.ccall("unison_wasm_hello_audio_sample_rate", "number", [], []) === 32768);
+check("hello.slot_count", mod.ccall("unison_wasm_hello_slot_count", "number", [], []) === 2);
+check("hello.slots[1].label", mod.ccall("unison_wasm_hello_slot_label", "string", ["number"], [1]) === "P2");
+check("hello.slots[1].occupied", mod.ccall("unison_wasm_hello_slot_occupied", "number", ["number"], [1]) === 1);
 
 // ---------------- hello_ack ----------------
 {
   const cap = 512;
   const outPtr = mod._malloc(cap);
   const written = mod.ccall(
-    "finlink_wasm_build_hello_ack",
+    "unison_wasm_build_hello_ack",
     "number",
     ["number", "number", "number", "number", "number", "number", "number", "string", "number", "number"],
     [0, 240, 160, 59.7275, 1, 32768, 2, "h264", outPtr, cap]
@@ -79,36 +79,36 @@ const readyJson = toBytes(
     '"redirect":{"host":"192.168.1.42","port":6803}}'
 );
 withHeapCopy(readyJson, (ptr, len) => {
-  check("peek(session_ready) == SESSION_READY(2)", mod.ccall("finlink_wasm_peek_handshake_message", "number", ["number", "number"], [ptr, len]) === 2);
-  check("parse_session_ready ok", mod.ccall("finlink_wasm_parse_session_ready", "number", ["number", "number"], [ptr, len]) === 1);
+  check("peek(session_ready) == SESSION_READY(2)", mod.ccall("unison_wasm_peek_handshake_message", "number", ["number", "number"], [ptr, len]) === 2);
+  check("parse_session_ready ok", mod.ccall("unison_wasm_parse_session_ready", "number", ["number", "number"], [ptr, len]) === 1);
 });
-check("ready.slot", mod.ccall("finlink_wasm_ready_slot", "number", [], []) === 2);
-check("ready.has_redirect", mod.ccall("finlink_wasm_ready_has_redirect", "number", [], []) === 1);
-check("ready.redirect_host", mod.ccall("finlink_wasm_ready_redirect_host", "string", [], []) === "192.168.1.42");
-check("ready.redirect_port", mod.ccall("finlink_wasm_ready_redirect_port", "number", [], []) === 6803);
-check("ready.has_audio (should be false, no audio field)", mod.ccall("finlink_wasm_ready_has_audio", "number", [], []) === 0);
+check("ready.slot", mod.ccall("unison_wasm_ready_slot", "number", [], []) === 2);
+check("ready.has_redirect", mod.ccall("unison_wasm_ready_has_redirect", "number", [], []) === 1);
+check("ready.redirect_host", mod.ccall("unison_wasm_ready_redirect_host", "string", [], []) === "192.168.1.42");
+check("ready.redirect_port", mod.ccall("unison_wasm_ready_redirect_port", "number", [], []) === 6803);
+check("ready.has_audio (should be false, no audio field)", mod.ccall("unison_wasm_ready_has_audio", "number", [], []) === 0);
 // This particular session_ready has no "video_mode" member at all -- the
 // "server predates this field" case per docs/protocol.md "Video-mode
 // fallback": must come back as "", not some default like "tiles".
-check("ready.video_mode (absent -> empty, not a default)", mod.ccall("finlink_wasm_ready_video_mode", "string", [], []) === "");
+check("ready.video_mode (absent -> empty, not a default)", mod.ccall("unison_wasm_ready_video_mode", "string", [], []) === "");
 
 // ---------------- session_ready (with video_mode, no redirect) ----------------
 const readyWithModeJson = toBytes(
   '{"message":"session_ready","slot":0,"video":{"width":854,"height":480,"fps":20},"video_mode":"legacy"}'
 );
 withHeapCopy(readyWithModeJson, (ptr, len) => {
-  check("parse_session_ready (with video_mode) ok", mod.ccall("finlink_wasm_parse_session_ready", "number", ["number", "number"], [ptr, len]) === 1);
+  check("parse_session_ready (with video_mode) ok", mod.ccall("unison_wasm_parse_session_ready", "number", ["number", "number"], [ptr, len]) === 1);
 });
-check("ready.video_mode (present)", mod.ccall("finlink_wasm_ready_video_mode", "string", [], []) === "legacy");
+check("ready.video_mode (present)", mod.ccall("unison_wasm_ready_video_mode", "string", [], []) === "legacy");
 
 // ---------------- handshake_error ----------------
 const errJson = toBytes('{"message":"handshake_error","code":"slot_unavailable","detail":"Slot P2 belegt."}');
 withHeapCopy(errJson, (ptr, len) => {
-  check("peek(handshake_error) == HANDSHAKE_ERROR(3)", mod.ccall("finlink_wasm_peek_handshake_message", "number", ["number", "number"], [ptr, len]) === 3);
-  check("parse_handshake_error ok", mod.ccall("finlink_wasm_parse_handshake_error", "number", ["number", "number"], [ptr, len]) === 1);
+  check("peek(handshake_error) == HANDSHAKE_ERROR(3)", mod.ccall("unison_wasm_peek_handshake_message", "number", ["number", "number"], [ptr, len]) === 3);
+  check("parse_handshake_error ok", mod.ccall("unison_wasm_parse_handshake_error", "number", ["number", "number"], [ptr, len]) === 1);
 });
-check("error.code", mod.ccall("finlink_wasm_error_code", "string", [], []) === "slot_unavailable");
-check("error.detail", mod.ccall("finlink_wasm_error_detail", "string", [], []).includes("P2"));
+check("error.code", mod.ccall("unison_wasm_error_code", "string", [], []) === "slot_unavailable");
+check("error.detail", mod.ccall("unison_wasm_error_detail", "string", [], []).includes("P2"));
 
 // ---------------- video header + decode (raw, non-indexed, non-tiled: format=0) ----------------
 {
@@ -126,13 +126,13 @@ check("error.detail", mod.ccall("finlink_wasm_error_detail", "string", [], []).i
   msg.set(fakeCompressed, header.length);
 
   withHeapCopy(msg, (ptr, len) => {
-    check("parse_video_header ok", mod.ccall("finlink_wasm_parse_video_header", "number", ["number", "number"], [ptr, len]) === 1);
-    check("video.width", mod.ccall("finlink_wasm_video_width", "number", [], []) === width);
-    check("video.height", mod.ccall("finlink_wasm_video_height", "number", [], []) === height);
-    check("video.format", mod.ccall("finlink_wasm_video_format", "number", [], []) === 0);
-    const offset = mod.ccall("finlink_wasm_video_compressed_offset", "number", ["number"], [ptr]);
+    check("parse_video_header ok", mod.ccall("unison_wasm_parse_video_header", "number", ["number", "number"], [ptr, len]) === 1);
+    check("video.width", mod.ccall("unison_wasm_video_width", "number", [], []) === width);
+    check("video.height", mod.ccall("unison_wasm_video_height", "number", [], []) === height);
+    check("video.format", mod.ccall("unison_wasm_video_format", "number", [], []) === 0);
+    const offset = mod.ccall("unison_wasm_video_compressed_offset", "number", ["number"], [ptr]);
     check("video.compressed_offset", offset === header.length);
-    check("video.compressed_size", mod.ccall("finlink_wasm_video_compressed_size", "number", [], []) === fakeCompressed.length);
+    check("video.compressed_size", mod.ccall("unison_wasm_video_compressed_size", "number", [], []) === fakeCompressed.length);
   });
 
   // Now feed a hand-built *inflated* (raw, uncompressed) RGB565 frame --
@@ -147,7 +147,7 @@ check("error.detail", mod.ccall("finlink_wasm_error_detail", "string", [], []).i
   const fbPtr = mod._malloc(fbCap);
   withHeapCopy(inflated, (inPtr, inLen) => {
     const ok = mod.ccall(
-      "finlink_wasm_decode_video_frame",
+      "unison_wasm_decode_video_frame",
       "number",
       ["number", "number", "number", "number", "number", "number", "number"],
       [0, inPtr, inLen, width, height, fbPtr, fbCap]
@@ -176,11 +176,11 @@ check("error.detail", mod.ccall("finlink_wasm_error_detail", "string", [], []).i
   samples.forEach((s, i) => dv.setInt16(6 + i * 2, s, true));
 
   withHeapCopy(msg, (ptr, len) => {
-    check("parse_audio_frame ok", mod.ccall("finlink_wasm_parse_audio_frame", "number", ["number", "number"], [ptr, len]) === 1);
-    check("audio.sample_rate", mod.ccall("finlink_wasm_audio_sample_rate", "number", [], []) === 32768);
-    check("audio.channels", mod.ccall("finlink_wasm_audio_channels", "number", [], []) === 2);
-    check("audio.sample_count", mod.ccall("finlink_wasm_audio_sample_count", "number", [], []) === samples.length);
-    const offset = mod.ccall("finlink_wasm_audio_samples_offset", "number", ["number"], [ptr]);
+    check("parse_audio_frame ok", mod.ccall("unison_wasm_parse_audio_frame", "number", ["number", "number"], [ptr, len]) === 1);
+    check("audio.sample_rate", mod.ccall("unison_wasm_audio_sample_rate", "number", [], []) === 32768);
+    check("audio.channels", mod.ccall("unison_wasm_audio_channels", "number", [], []) === 2);
+    check("audio.sample_count", mod.ccall("unison_wasm_audio_sample_count", "number", [], []) === samples.length);
+    const offset = mod.ccall("unison_wasm_audio_samples_offset", "number", ["number"], [ptr]);
     check("audio.samples_offset", offset === 6);
   });
 }
@@ -188,7 +188,7 @@ check("error.detail", mod.ccall("finlink_wasm_error_detail", "string", [], []).i
 // ---------------- input ----------------
 {
   const bufPtr = mod._malloc(3);
-  const n = mod.ccall("finlink_wasm_build_input_frame", "number", ["number", "number"], [0b1010101010, bufPtr]);
+  const n = mod.ccall("unison_wasm_build_input_frame", "number", ["number", "number"], [0b1010101010, bufPtr]);
   check("build_input_frame size", n === 3);
   const bytes = mod.HEAPU8.subarray(bufPtr, bufPtr + 3);
   check("input_frame[0] == type 2", bytes[0] === 2);

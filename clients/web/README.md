@@ -5,14 +5,14 @@ static web server (or opened directly as `file://`, see below). Originally
 part of the `dolphin-gba-stream` fork (embedded there in Dolphin's own HTTP
 server, usable only against Dolphin) -- split out and generalized here:
 connects like the other four clients (Android/Switch/3DS/NDS) to **any**
-finlink server (Cemu, Azahar, melonDS, Dolphin), via host/port entry
+Unison server (Cemu, Azahar, melonDS, Dolphin), via host/port entry
 instead of automatic discovery (browsers can't receive UDP broadcasts, see
 "No discovery beacon" below).
 
 ## Scope
 
 - Connection setup follows the standard handshake exactly
-  (`finlink/handshake.h`, `docs/protocol.md`
+  (`unison/handshake.h`, `docs/protocol.md`
   "Connection Setup: Handshake"), via a WASM bridge (`wasm_bridge.c`,
   compiled from `core/`) instead of a second, hand-maintained JS
   reimplementation -- exactly the same codec/field semantics as every
@@ -26,7 +26,7 @@ instead of automatic discovery (browsers can't receive UDP broadcasts, see
   comments for the details (deflate deliberately stays a native browser
   API, not part of the WASM bridge; see `wasm_bridge.c`'s own comment).
 - Its own ping/pong (message types 4/5) for a latency/frame-rate readout
-  in the settings menu -- not part of `finlink/protocol.h`, a server that
+  in the settings menu -- not part of `unison/protocol.h`, a server that
   doesn't know it simply never sends type 5 back, and the readout just
   stays at "--".
 
@@ -54,8 +54,8 @@ settings.
 
 ## Building
 
-`index.html` loads `finlink_core.js` (the WASM bridge) directly via
-`<script src="finlink_core.js">` -- both files are committed, a normal
+`index.html` loads `unison_core.js` (the WASM bridge) directly via
+`<script src="unison_core.js">` -- both files are committed, a normal
 checkout needs no Emscripten. Only rebuild after changing `wasm_bridge.c`
 or `core/` itself:
 
@@ -69,9 +69,9 @@ clients/web/build_wasm.sh
 
 Installs the Emscripten toolchain on first run (needs network access for
 that, not afterward), builds `core/` for wasm32, links `wasm_bridge.c`
-against it into a single `finlink_core.js` (`-s SINGLE_FILE=1`, the
+against it into a single `unison_core.js` (`-s SINGLE_FILE=1`, the
 `.wasm` binary is embedded inside it), and verifies the result against
-`bridge_test.mjs` (real `finlink_core` behavior, not just "it compiled").
+`bridge_test.mjs` (real `unison_core` behavior, not just "it compiled").
 
 ## Testing/trying it out without a web server
 

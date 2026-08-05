@@ -1,6 +1,6 @@
 #include "language_pref.h"
 
-StrLang finlink_nds_resolve_language(int prefLanguage, int personalDataLanguage) {
+StrLang unison_nds_resolve_language(int prefLanguage, int personalDataLanguage) {
     if (prefLanguage >= 0) {
         return (StrLang)prefLanguage;
     }

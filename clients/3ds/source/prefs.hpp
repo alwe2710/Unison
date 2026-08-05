@@ -47,7 +47,7 @@ class Prefs {
 
     // Sent verbatim as hello_ack.video_mode during the handshake (see
     // session.cpp's performAppHandshake()) -- one of the wire-format
-    // strings finlink's docs/protocol.md defines ("tiles"/"legacy"/"h264"/
+    // strings Unison's docs/protocol.md defines ("tiles"/"legacy"/"h264"/
     // "h265"), not a client-side enum, same as Android's Prefs.videoMode.
     std::string videoMode = "tiles";
 
@@ -59,7 +59,7 @@ class Prefs {
 
 // The screen-choice decision main.cpp's render loop consults every frame --
 // pulled out into its own free function (rather than left as the inline
-// `bottomScreenVideo || finlink_stream_type_prefers_secondary_screen(...)`
+// `bottomScreenVideo || unison_stream_type_prefers_secondary_screen(...)`
 // expression it used to be) so it has one place to unit-test (see
 // tests/test_dual_screen_choice.cpp) instead of only being exercisable by
 // running the real render loop on hardware/citra. Not a Prefs method: it
@@ -69,6 +69,6 @@ class Prefs {
 // bottomScreenVideoPref is the user's own top/bottom choice
 // (Prefs::bottomScreenVideo) -- only actually consulted for a single-screen
 // stream_type; a dual-screen source's own secondary screen always forces
-// bottom regardless, see finlink_stream_type_prefers_secondary_screen()
-// (finlink/handshake.h).
+// bottom regardless, see unison_stream_type_prefers_secondary_screen()
+// (unison/handshake.h).
 bool shouldShowVideoOnBottomScreen(bool bottomScreenVideoPref, const std::string &streamType);

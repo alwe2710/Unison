@@ -3,7 +3,7 @@
 
 namespace strings {
 
-const char *kAppName = "finlink";
+const char *kAppName = "Unison";
 const char *kHostHint = "IP-Adresse oder IP:Port";
 const char *kHostHintExample = "z.B. 192.168.1.5";
 const char *kMenuConnect = "Verbinden";
@@ -109,7 +109,7 @@ const char *kHandshakeFailed = "Handshake fehlgeschlagen:\n%s";
 void setLanguage(Lang lang) {
     switch (lang) {
     case Lang::DE:
-        kAppName = "finlink";
+        kAppName = "Unison";
         kHostHint = "IP-Adresse oder IP:Port";
         kHostHintExample = "z.B. 192.168.1.5";
         kMenuConnect = "Verbinden";
@@ -213,7 +213,7 @@ void setLanguage(Lang lang) {
         kHandshakeFailed = "Handshake fehlgeschlagen:\n%s";
         break;
     case Lang::EN:
-        kAppName = "finlink";
+        kAppName = "Unison";
         kHostHint = "IP address or IP:port";
         kHostHintExample = "e.g. 192.168.1.5";
         kMenuConnect = "Connect";
@@ -317,7 +317,7 @@ void setLanguage(Lang lang) {
         kHandshakeFailed = "Handshake failed:\n%s";
         break;
     case Lang::FR:
-        kAppName = "finlink";
+        kAppName = "Unison";
         kHostHint = "Adresse IP ou IP:port";
         kHostHintExample = "p. ex. 192.168.1.5";
         kMenuConnect = "Connecter";
@@ -421,7 +421,7 @@ void setLanguage(Lang lang) {
         kHandshakeFailed = "Échec du handshake :\n%s";
         break;
     case Lang::IT:
-        kAppName = "finlink";
+        kAppName = "Unison";
         kHostHint = "Indirizzo IP o IP:porta";
         kHostHintExample = "es. 192.168.1.5";
         kMenuConnect = "Connetti";
@@ -525,7 +525,7 @@ void setLanguage(Lang lang) {
         kHandshakeFailed = "Handshake non riuscito:\n%s";
         break;
     case Lang::ES:
-        kAppName = "finlink";
+        kAppName = "Unison";
         kHostHint = "Dirección IP o IP:puerto";
         kHostHintExample = "p. ej. 192.168.1.5";
         kMenuConnect = "Conectar";

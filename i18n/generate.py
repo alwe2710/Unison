@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generates each client's UI string resource file from strings.json, the
-single source of truth for text shared conceptually across every finlink
+single source of truth for text shared conceptually across every Unison
 client (see strings.json's own top comment for why). Run this after editing
 strings.json -- a normal client build never needs to run it, only a change
 to strings.json does (same pattern as clients/web/build_wasm.sh regenerating
-finlink_core.js: the generated output is committed).
+unison_core.js: the generated output is committed).
 
 Every client picks a language at runtime (system language, English if
 undetermined/unsupported, overridable in Settings) -- see each generated
@@ -234,7 +234,7 @@ def main():
     generate_cpp_source(strings, "strings_generated.hpp", REPO_ROOT / "clients/switch/source/strings_generated.cpp")
 
     generate_nds_header(strings, REPO_ROOT / "clients/nds/arm9/source/strings_generated.h",
-                         macro_guard="FINLINK_STRINGS_GENERATED_H")
+                         macro_guard="UNISON_STRINGS_GENERATED_H")
 
     generate_js(strings)
 

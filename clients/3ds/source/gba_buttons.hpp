@@ -6,7 +6,7 @@
 #include <3ds.h>
 
 extern "C" {
-#include "finlink/protocol.h"
+#include "unison/protocol.h"
 }
 
 // One entry per physical GBA button, mirroring
@@ -22,14 +22,14 @@ struct GbaButton {
 };
 
 inline constexpr std::array<GbaButton, 10> GBA_BUTTONS = { {
-    { "Up", FINLINK_KEY_UP, KEY_DUP },
-    { "Down", FINLINK_KEY_DOWN, KEY_DDOWN },
-    { "Left", FINLINK_KEY_LEFT, KEY_DLEFT },
-    { "Right", FINLINK_KEY_RIGHT, KEY_DRIGHT },
-    { "Select", FINLINK_KEY_SELECT, KEY_SELECT },
-    { "Start", FINLINK_KEY_START, KEY_START },
-    { "L", FINLINK_KEY_L, KEY_L },
-    { "R", FINLINK_KEY_R, KEY_R },
-    { "B", FINLINK_KEY_B, KEY_B },
-    { "A", FINLINK_KEY_A, KEY_A },
+    { "Up", UNISON_KEY_UP, KEY_DUP },
+    { "Down", UNISON_KEY_DOWN, KEY_DDOWN },
+    { "Left", UNISON_KEY_LEFT, KEY_DLEFT },
+    { "Right", UNISON_KEY_RIGHT, KEY_DRIGHT },
+    { "Select", UNISON_KEY_SELECT, KEY_SELECT },
+    { "Start", UNISON_KEY_START, KEY_START },
+    { "L", UNISON_KEY_L, KEY_L },
+    { "R", UNISON_KEY_R, KEY_R },
+    { "B", UNISON_KEY_B, KEY_B },
+    { "A", UNISON_KEY_A, KEY_A },
 } };

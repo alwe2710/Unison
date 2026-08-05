@@ -5,19 +5,19 @@ ifeq ($(strip $(DEVKITARM)),)
 $(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
 endif
 
-export TARGET := finlink-nds
+export TARGET := unison-nds
 export TOPDIR := $(CURDIR)
 
-# 32x32, 16-color indexed BMP -- derived from assets/logo/finlink-logo.png,
+# 32x32, 16-color indexed BMP -- derived from assets/logo/unison-logo.png,
 # see assets/logo/README.md. Leave blank to fall back to ds_rules' built-in
 # default (calico/share/nds-icon.bmp) instead.
 GAME_ICON := icon.bmp
 
 NITRO_FILES :=
 
-GAME_TITLE     := finlink
+GAME_TITLE     := Unison
 GAME_SUBTITLE1 := GBA-Stream (Machbarkeitstest)
-GAME_SUBTITLE2 := github.com/alwe2710/finlink
+GAME_SUBTITLE2 := github.com/alwe2710/Unison
 
 include $(DEVKITARM)/ds_rules
 

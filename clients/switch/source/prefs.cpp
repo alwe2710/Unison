@@ -8,8 +8,8 @@
 #include "settings_pref.hpp"
 
 namespace {
-constexpr const char *kDir = "sdmc:/switch/finlink";
-constexpr const char *kFile = "sdmc:/switch/finlink/settings.cfg";
+constexpr const char *kDir = "sdmc:/switch/unison";
+constexpr const char *kFile = "sdmc:/switch/unison/settings.cfg";
 
 // "bilinear_video_filter.GC_GBA_LINK" -- the prefix every per-stream-type
 // key uses within `values` (round-tripped wholesale, see save() below), so

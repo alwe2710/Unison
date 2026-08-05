@@ -1,8 +1,8 @@
 // Host-buildable (plain g++/clang++, no devkitARM) unit test for
 // shouldShowVideoOnBottomScreen() (prefs.hpp/.cpp) -- the dual-screen-client
 // touchscreen-forcing / free-screen-choice decision, see prefs.hpp's own
-// comment on the function. Links prefs.cpp + finlink_core directly, same
-// pattern as Cemu/melonDS's tests/test_finlink_messages.cpp.
+// comment on the function. Links prefs.cpp + unison_core directly, same
+// pattern as Cemu/melonDS's tests/test_unison_messages.cpp.
 
 #include "prefs.hpp"
 

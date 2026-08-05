@@ -1,7 +1,7 @@
-#include "finlink/deflate.h"
-#include "finlink/inflate.h"
-#include "finlink/protocol.h"
-#include "finlink/video_encode.h"
+#include "unison/deflate.h"
+#include "unison/inflate.h"
+#include "unison/protocol.h"
+#include "unison/video_encode.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -21,30 +21,30 @@
  * what a real client's persistent framebuffer would already hold before
  * this call), and checks it now matches current exactly -- the same
  * "round-trip through the real decoder" approach test_deflate.c uses for
- * finlink_deflate_raw(). Returns the finlink_encode_status so callers can
- * also assert on FINLINK_ENCODE_UNCHANGED. */
-static finlink_encode_status encode_decode_and_check(const uint8_t *current, const uint8_t *previous,
+ * unison_deflate_raw(). Returns the unison_encode_status so callers can
+ * also assert on UNISON_ENCODE_UNCHANGED. */
+static unison_encode_status encode_decode_and_check(const uint8_t *current, const uint8_t *previous,
                                                        uint32_t width, uint32_t height) {
     size_t pixel_bytes = (size_t)width * height * 2;
 
-    size_t scratch_cap = finlink_video_max_inflated_size(width, height);
+    size_t scratch_cap = unison_video_max_inflated_size(width, height);
     uint8_t *scratch = malloc(scratch_cap);
     CHECK(scratch != NULL);
 
-    size_t out_cap = finlink_video_encode_max_size(width, height);
+    size_t out_cap = unison_video_encode_max_size(width, height);
     uint8_t *out = malloc(out_cap);
     CHECK(out != NULL);
 
     size_t out_size = 0;
     uint8_t format = 0xFF;
-    finlink_encode_status status = finlink_encode_video_frame(current, previous, width, height, scratch,
+    unison_encode_status status = unison_encode_video_frame(current, previous, width, height, scratch,
                                                                 scratch_cap, out, out_cap, &out_size, &format);
 
-    if (status == FINLINK_ENCODE_OK) {
+    if (status == UNISON_ENCODE_OK) {
         uint8_t *inflated = malloc(scratch_cap);
         CHECK(inflated != NULL);
         size_t inflated_size = 0;
-        CHECK(finlink_inflate_raw(out, out_size, inflated, scratch_cap, &inflated_size) == FINLINK_INFLATE_OK);
+        CHECK(unison_inflate_raw(out, out_size, inflated, scratch_cap, &inflated_size) == UNISON_INFLATE_OK);
 
         uint8_t *framebuffer = malloc(pixel_bytes);
         CHECK(framebuffer != NULL);
@@ -54,8 +54,8 @@ static finlink_encode_status encode_decode_and_check(const uint8_t *current, con
             memset(framebuffer, 0xAA, pixel_bytes); /* full frame must overwrite all of this */
         }
 
-        CHECK(finlink_decode_video_frame(format, inflated, inflated_size, width, height, framebuffer,
-                                          pixel_bytes) == FINLINK_OK);
+        CHECK(unison_decode_video_frame(format, inflated, inflated_size, width, height, framebuffer,
+                                          pixel_bytes) == UNISON_OK);
         CHECK(memcmp(framebuffer, current, pixel_bytes) == 0);
 
         free(framebuffer);
@@ -92,10 +92,10 @@ int main(void) {
 
     /* First frame of a session (previous = NULL): always a full keyframe,
      * format 0. */
-    CHECK(encode_decode_and_check(frame_a, NULL, width, height) == FINLINK_ENCODE_OK);
+    CHECK(encode_decode_and_check(frame_a, NULL, width, height) == UNISON_ENCODE_OK);
 
     /* Pixel-identical to the previous frame: dedup, nothing to send. */
-    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == FINLINK_ENCODE_UNCHANGED);
+    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == UNISON_ENCODE_UNCHANGED);
 
     /* Change exactly one pixel inside one tile (tile (1,1), covering
      * pixels x=8..15/y=8..11 given height=12 makes that tile's rows 8-11
@@ -105,19 +105,19 @@ int main(void) {
     size_t changed_pixel = (size_t)9 * width + 10; /* inside tile (1,1) */
     frame_b[changed_pixel * 2 + 0] ^= 0xFF;
     frame_b[changed_pixel * 2 + 1] ^= 0xFF;
-    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == FINLINK_ENCODE_OK);
+    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == UNISON_ENCODE_OK);
 
     /* Change pixels in two tiles, including the partial edge tile at the
      * right edge (width=20 -> tiles_per_row=3, last tile only 4px wide). */
     memcpy(frame_b, frame_a, pixel_bytes);
     frame_b[(0 * width + 0) * 2] ^= 0xFF;   /* tile (0,0) */
     frame_b[(2 * width + 18) * 2] ^= 0xFF;  /* tile (2,0), x=18 is in the partial last column */
-    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == FINLINK_ENCODE_OK);
+    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == UNISON_ENCODE_OK);
 
     /* A completely different frame (every tile changed) still round-trips
      * correctly, not just the sparse-diff cases above. */
     fill_pattern(frame_b, width, height, 0xBEEF);
-    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == FINLINK_ENCODE_OK);
+    CHECK(encode_decode_and_check(frame_b, frame_a, width, height) == UNISON_ENCODE_OK);
 
     free(frame_a);
     free(frame_b);

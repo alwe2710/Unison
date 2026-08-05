@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.finlink.android"
+    namespace = "com.unison.android"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.finlink.android"
+        applicationId = "com.unison.android"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
@@ -57,7 +57,7 @@ android {
 // Compose + Material 3 (the UI toolkit/design system this app is built with)
 // is the one deliberate dependency beyond Kotlin/Android defaults; everything
 // that actually matters for the stream itself (transport, protocol, codec)
-// still lives entirely in the native finlink_core library.
+// still lives entirely in the native unison_core library.
 dependencies {
     // Pinned to a BOM/activity-compose pairing that still targets compileSdk
     // 34 (this environment's AGP 8.5.0 caps out there); newer Compose/

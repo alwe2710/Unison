@@ -1,10 +1,10 @@
 // Real-browser tests for the "universal-client: On-Screen-Overlay echte
 // UI-Tests" test category, web client: does the on-screen touch overlay
 // actually show/hide, and does tapping a button actually dispatch a
-// protocol-conformant finlink input frame -- real Chromium, real DOM
+// protocol-conformant Unison input frame -- real Chromium, real DOM
 // events (touchstart/touchend, not synthesized clicks -- the overlay's
 // own button handlers only listen for touch events, see index.html), and
-// a real (locally-served, no finlink app-handshake needed -- see
+// a real (locally-served, no Unison app-handshake needed -- see
 // test_server.mjs's own comment) WebSocket connection actually receiving
 // the bytes.
 //
@@ -72,7 +72,7 @@ test.beforeEach(async ({ page }) => {
     window.WebSocket = class extends RealWebSocket {
       constructor(...args) {
         super(...args);
-        window.__finlinkTestWs = this;
+        window.__unisonTestWs = this;
       }
     };
   });
@@ -109,7 +109,7 @@ test('the overlay preference persists across a reload', async ({ page }) => {
   await expect(page.locator('#touchControls')).toBeHidden();
 });
 
-// FINLINK_MSG_INPUT -- filters out the client's own ping frames (type 4,
+// UNISON_MSG_INPUT -- filters out the client's own ping frames (type 4,
 // sent right after showGame(), see index.html's own sendPing() call),
 // which otherwise land in receivedFrames ahead of (or interleaved with)
 // the actual button-press frames these assertions care about (found by
@@ -125,10 +125,10 @@ test('tapping the A button sends a protocol-conformant input frame', async ({ pa
   await page.locator('[data-name="A"]').dispatchEvent('touchstart');
   await expect.poll(() => inputFrames().length, { timeout: 5000 }).toBeGreaterThanOrEqual(1);
 
-  // type=2 (FINLINK_MSG_INPUT), keyState=0x0001 (FINLINK_KEY_A, bit 0) as
-  // u16le -- see finlink/protocol.h's own finlink_key enum and
-  // finlink_build_input_frame()'s 3-byte wire layout, which
-  // finlink_wasm_build_input_frame() (sendKeys(), index.html) wraps.
+  // type=2 (UNISON_MSG_INPUT), keyState=0x0001 (UNISON_KEY_A, bit 0) as
+  // u16le -- see unison/protocol.h's own unison_key enum and
+  // unison_build_input_frame()'s 3-byte wire layout, which
+  // unison_wasm_build_input_frame() (sendKeys(), index.html) wraps.
   const pressFrame = inputFrames()[0];
   expect(pressFrame.length).toBe(3);
   expect(pressFrame.readUInt16LE(1)).toBe(1 << 0);
@@ -156,10 +156,10 @@ test('tapping two buttons sets both bits, releasing one leaves the other held', 
   // position directly.
   await expect.poll(() => inputFrames().length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
   const bothHeld = inputFrames()[inputFrames().length - 1];
-  expect(bothHeld.readUInt16LE(1)).toBe((1 << 0) | (1 << 1)); // FINLINK_KEY_A | FINLINK_KEY_B
+  expect(bothHeld.readUInt16LE(1)).toBe((1 << 0) | (1 << 1)); // UNISON_KEY_A | UNISON_KEY_B
 
   await page.locator('[data-name="A"]').dispatchEvent('touchend');
   await expect.poll(() => inputFrames().length, { timeout: 5000 }).toBeGreaterThanOrEqual(3);
   const onlyBHeld = inputFrames()[inputFrames().length - 1];
-  expect(onlyBHeld.readUInt16LE(1)).toBe(1 << 1); // FINLINK_KEY_B only
+  expect(onlyBHeld.readUInt16LE(1)).toBe(1 << 1); // UNISON_KEY_B only
 });

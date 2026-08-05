@@ -1,6 +1,6 @@
 # Feature/client capability matrix
 
-Ground truth for which finlink features are actually implemented where —
+Ground truth for which Unison features are actually implemented where —
 kept here specifically because feature work has been landing unevenly
 across the four host forks and five clients (see the CI plan this file
 came from), and nothing else in the repo states this in one place.
@@ -10,7 +10,7 @@ There are two kinds of "not supported yet":
   the empty default, or the host never encodes anything other than TILES.
 - **Implemented but not machine-checkable from here** — the four host
   forks (Cemu, azahar, melonDS, dolphin-gba-stream) are separate repos,
-  not checked out during finlink's own CI run, so their column below is
+  not checked out during Unison's own CI run, so their column below is
   maintained by hand; only the five `clients/` rows are asserted against
   actual source by `tools/check_capabilities.py` (wired into
   `.github/workflows/build.yml`).
@@ -22,8 +22,8 @@ There are two kinds of "not supported yet":
 | **Hosts** | | | | |
 | Cemu | ✅ | ✅ | ✅ | ✅ |
 | azahar | ❌ (hardcodes `format = 0`, see `bottom_screen_stream.cpp`) | ✅ | ❌ | ❌ |
-| melonDS | ❌ (`video_encode.c` isn't even vendored into `src/finlink/`) | ✅ | ❌ | ❌ |
-| dolphin-gba-stream | ✅ (own independent tile-diff impl, not `finlink_core`'s — see `GBAStreamHost.cpp`'s `VIDEO_FORMAT_TILES`) | ✅ | ❌ | ❌ |
+| melonDS | ❌ (`video_encode.c` isn't even vendored into `src/unison/`) | ✅ | ❌ | ❌ |
+| dolphin-gba-stream | ✅ (own independent tile-diff impl, not `unison_core`'s — see `GBAStreamHost.cpp`'s `VIDEO_FORMAT_TILES`) | ✅ | ❌ | ❌ |
 | **Clients** | | | | |
 | android | ✅ | ✅ | ✅ | ✅ |
 | 3ds | ✅ (default only, no picker) | ❌ | ❌ | ❌ |
@@ -32,15 +32,15 @@ There are two kinds of "not supported yet":
 | web | ✅ (default only, no picker) | ❌ | ❌ | ❌ |
 
 A client with no picker never sets `hello_ack.video_mode` at all (empty
-string, per `finlink/handshake.h`'s own comment on the field). What that
+string, per `unison/handshake.h`'s own comment on the field). What that
 empty string leads to depends entirely on the host, verified per-host
 rather than assumed uniform: Cemu explicitly parses `video_mode` and falls
 back to its own default ("tiles") for anything it doesn't recognize
-(`FinlinkMessages.cpp`'s `ParseHelloAck`); azahar and melonDS never
+(`UnisonMessages.cpp`'s `ParseHelloAck`); azahar and melonDS never
 reference `video_mode`/`videoMode` anywhere in their streaming code at all
 — they always send full raw frames (`format = 0`) unconditionally,
 regardless of what any client requests. "tiles" is ✅ for every *client*
-row specifically because decoding is generic, shared `finlink_core` logic,
+row specifically because decoding is generic, shared `unison_core` logic,
 unconditional on the client side — not because every host actually sends
 it (see the very different Hosts row above it, where two of four can't
 encode tiles at all).
@@ -49,7 +49,7 @@ encode tiles at all).
 
 Only the `clients` block is asserted against real source (see each
 client's `source_glob`/`grep_for`); the `hosts` block is informational —
-edit it by hand when a host fork's finlink integration changes, there is
+edit it by hand when a host fork's Unison integration changes, there is
 currently no automated cross-repo check for it (see "Explicitly zurückgestellt"
 in the CI plan — a checked-out multi-repo comparison is future work, not
 this pass).
@@ -58,7 +58,7 @@ this pass).
 {
   "clients": {
     "android": {
-      "source_glob": "clients/android/app/src/main/java/com/finlink/android/Prefs.kt",
+      "source_glob": "clients/android/app/src/main/java/com/unison/android/Prefs.kt",
       "extract": "video_mode_option_kotlin",
       "video_modes": ["tiles", "h264", "h265", "legacy"]
     },

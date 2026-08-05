@@ -5,7 +5,7 @@
 
 namespace {
 struct VideoModeOption {
-    const char *value; // wire-format string, see finlink/docs/protocol.md
+    const char *value; // wire-format string, see unison/docs/protocol.md
     const char *label;
 };
 } // namespace

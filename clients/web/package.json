@@ -1,5 +1,5 @@
 {
-  "name": "finlink-web-client",
+  "name": "unison-web-client",
   "private": true,
   "devDependencies": {
     "@playwright/test": "^1.48.0",

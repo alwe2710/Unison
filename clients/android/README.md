@@ -24,9 +24,9 @@ Kotlin — the Activities are a pure UI/orchestration layer on top:
   all the real work happens in `jni_bridge.c`.
 - **`MenuActivity.kt`** — host entry + P1–P4 picker (`GET /status` on
   6801–6804, plain `HttpURLConnection`, deliberately *not* through
-  `finlink_core`/the WebSocket path, since it's not part of the stream
+  `unison_core`/the WebSocket path, since it's not part of the stream
   protocol), plus network discovery (subnet sweep against port 6800 — no
-  finlink server advertises itself this way, no mDNS/UPnP, see
+  Unison server advertises itself this way, no mDNS/UPnP, see
   [`docs/protocol.md`](../../docs/protocol.md)). The lobby (6800) has no
   bundled status for this; each player port has to be queried individually.
 - **`SettingsActivity.kt`** — on-screen-controls toggle, key bindings
@@ -101,9 +101,9 @@ automatically when opening the project.
 
 ## Trying it out
 
-1. Start any finlink server — e.g. Dolphin ([dolphin-gba-stream](https://github.com/)
+1. Start any Unison server — e.g. Dolphin ([dolphin-gba-stream](https://github.com/)
    fork) with a GC port set to "GBA (Client Stream)", or the Cemu/Azahar/
-   melonDS finlink forks (see the root [`README.md`](../../README.md#context)
+   melonDS Unison forks (see the root [`README.md`](../../README.md#context)
    for all four).
 2. In the app, enter the host IP (e.g. `192.168.1.5`) and "Connect" — or
    "Search for servers" for automatic network discovery.

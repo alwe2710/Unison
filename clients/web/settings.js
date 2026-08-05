@@ -2,7 +2,7 @@
 // pulled out of index.html's inline <script> into its own file so it has
 // one place to unit-test under Node (see settings_test.mjs) instead of
 // only being exercisable in a real browser. Loaded the same way as
-// strings_generated.js/finlink_core.js (plain <script src="settings.js">,
+// strings_generated.js/unison_core.js (plain <script src="settings.js">,
 // classic script, not a module -- index.html's own inline script stays
 // classic too, so nothing about its execution timing changes), with a
 // module.exports guard at the bottom so the exact same file also works as
@@ -41,7 +41,7 @@ function defaultBilinearFor(streamType) {
   return streamType === 'WIIU_GAMEPAD' || streamType === 'N3DS_BOTTOM_SCREEN' || streamType === 'NDS_BOTTOM_SCREEN';
 }
 
-// filterPrefs: the parsed finlinkWebBilinearByStreamType localStorage
+// filterPrefs: the parsed unisonWebBilinearByStreamType localStorage
 // object (streamType -> bool), passed in rather than read from
 // localStorage directly so this stays a pure function of its arguments.
 function bilinearFor(streamType, filterPrefs) {

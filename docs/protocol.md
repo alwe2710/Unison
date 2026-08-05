@@ -1,4 +1,4 @@
-# finlink wire protocol
+# Unison wire protocol
 
 Single source of truth for the WebSocket protocol every client and server in this ecosystem
 implements against. Reference implementations live in four emulator forks, none part of this repo
@@ -16,7 +16,7 @@ discovery beacon, connection handshake (including slot negotiation), and downsca
 
 | Server | Port | Purpose |
 |---|---|---|
-| Lobby | `6800` (TCP) | Handshake entry point (see below), one per finlink server instance, independent of which stream slot ends up serving the client. Named `GBAStreamLobby` in dolphin-gba-stream specifically — a reference-counted singleton there, replacing that fork's earlier HTML picker page. |
+| Lobby | `6800` (TCP) | Handshake entry point (see below), one per Unison server instance, independent of which stream slot ends up serving the client. Named `GBAStreamLobby` in dolphin-gba-stream specifically — a reference-counted singleton there, replacing that fork's earlier HTML picker page. |
 | Stream host (× slot) | `6801`–`6804` (TCP) | One slot per active stream (e.g. one GC port set to "GBA (Client Stream)" in dolphin-gba-stream). Exactly one connected client per port. For stream types with only a single slot (see below), this range isn't used — the session stays on `6800`. Named `StreamHost` in dolphin-gba-stream specifically. |
 | Discovery beacon | `6805` (UDP, broadcast) | Periodic server announcement, see [Discovery Beacon](#discovery-beacon-udp). |
 
@@ -60,7 +60,7 @@ Every server sends a UDP broadcast packet on port `6805` every **2000 ms** (subn
 
 ```json
 {
-  "type": "finlink_beacon",
+  "type": "unison_beacon",
   "protocol_version": 2,
   "emulator_identifier": "Dolphin",
   "game_title": "Pokémon Mystery Dungeon: Red Rescue Team",
@@ -70,7 +70,7 @@ Every server sends a UDP broadcast packet on port `6805` every **2000 ms** (subn
 }
 ```
 
-- `type`: fixed string marker `"finlink_beacon"`, allows cheaply discarding UDP noise from other
+- `type`: fixed string marker `"unison_beacon"`, allows cheaply discarding UDP noise from other
   applications on the same port before parsing the rest.
 - `protocol_version`: see above.
 - `emulator_identifier`: free-form string, e.g. `"Dolphin"`, `"Azahar"` — display only, not an
@@ -172,7 +172,7 @@ No `type=3` (audio), for the same reason as `N3DS_BOTTOM_SCREEN`. `type=2` here 
 `"touch_and_buttons"`, not `"n3ds_touch_and_buttons"` — no analog-stick field, since the DS has no
 analog stick.
 
-**`WIIU_GAMEPAD`** (Cemu, `src/Cemu/finlinkStream/`):
+**`WIIU_GAMEPAD`** (Cemu, `src/Cemu/unisonStream/`):
 
 ```mermaid
 flowchart LR
@@ -197,8 +197,8 @@ text input instead of a local overlay, since that would never be captured by the
 screen* of a remote dual-screen source — on a client with two screens of its own (3DS, DS/DSi),
 their image therefore always lands on that client's own bottom/second screen, regardless of an
 otherwise selectable screen setting (which only applies to single-screen types like
-`GC_GBA_LINK`). `core/`'s `finlink_stream_type_prefers_secondary_screen()`
-(`finlink/handshake.h`) encapsulates exactly this mapping, so it doesn't need to be duplicated in
+`GC_GBA_LINK`). `core/`'s `unison_stream_type_prefers_secondary_screen()`
+(`unison/handshake.h`) encapsulates exactly this mapping, so it doesn't need to be duplicated in
 every client.
 
 ## Connection setup: handshake
@@ -293,8 +293,8 @@ The client's reply:
 - `video_mode`: optional, `"tiles"` (TILES delta-encoding + frame dedup, see "Frame semantics
   (video dedup)" below), `"legacy"` (always a full, non-tiled frame, no dedup — the original
   behavior, kept as a fallback a user can pick), or `"h264"`/`"h265"` (a real video codec bitstream
-  instead of raw pixels — see "Keyframe discipline" below and `FINLINK_VIDEO_FORMAT_H264`/`_H265`
-  in [`protocol.h`](../core/include/finlink/protocol.h)). Absent entirely for any client that
+  instead of raw pixels — see "Keyframe discipline" below and `UNISON_VIDEO_FORMAT_H264`/`_H265`
+  in [`protocol.h`](../core/include/unison/protocol.h)). Absent entirely for any client that
   predates this field; a server should treat that the same as `"tiles"`.
 
 ### `session_ready` (server → client)
@@ -477,21 +477,21 @@ the server has no mechanism to merge partial updates.
   analog stick.
 
 Reference implementation:
-[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
-(`finlink_extended_input`, `finlink_button_bit`,
-`finlink_build_extended_input_frame`, `finlink_parse_extended_input_frame`).
+[`../core/include/unison/protocol.h`](../core/include/unison/protocol.h)
+(`unison_extended_input`, `unison_button_bit`,
+`unison_build_extended_input_frame`, `unison_parse_extended_input_frame`).
 
 `"touch_and_buttons"` (currently only `NDS_BOTTOM_SCREEN`) is the same idea as
 `"n3ds_touch_and_buttons"` -- touch + buttons in one combined frame, the same `buttons` bitmask
 (see table above) -- but for a console with no analog input at all (the DS only has a digital
 D-pad): no `leftX`/`leftY`/`rightX`/`rightY` in the frame, instead of four fields that could only
 ever be `0` there anyway. Its own, smaller struct/wire shape rather than reusing
-`finlink_extended_input` with padding.
+`unison_extended_input` with padding.
 
 Reference implementation:
-[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
-(`finlink_touch_and_buttons`, `finlink_build_touch_and_buttons_frame`,
-`finlink_parse_touch_and_buttons_frame`).
+[`../core/include/unison/protocol.h`](../core/include/unison/protocol.h)
+(`unison_touch_and_buttons`, `unison_build_touch_and_buttons_frame`,
+`unison_parse_touch_and_buttons_frame`).
 
 All multi-byte fields are little-endian.
 
@@ -535,9 +535,9 @@ frame.
 Pixel color: for INDEXED, `color = palette[index]`, then as before
 `r=(color>>11)&0x1F, g=(color>>5)&0x3F, b=color&0x1F`.
 
-Reference implementation: [`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
-(`finlink_video_format`, `finlink_decode_video_frame`,
-`finlink_video_max_inflated_size`).
+Reference implementation: [`../core/include/unison/protocol.h`](../core/include/unison/protocol.h)
+(`unison_video_format`, `unison_decode_video_frame`,
+`unison_video_max_inflated_size`).
 
 ### Text input (server → client / client → server)
 
@@ -564,8 +564,8 @@ The client then shows its own native text entry (system keyboard) pre-filled wit
 - `confirmed = 1`: the user confirmed, `text` is the entered value.
 
 Reference implementation:
-[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
-(`finlink_text_input_request`, `finlink_text_input_response`).
+[`../core/include/unison/protocol.h`](../core/include/unison/protocol.h)
+(`unison_text_input_request`, `unison_text_input_response`).
 
 ### Microphone input (server → client / client → server)
 
@@ -595,9 +595,9 @@ server → client (console/speaker audio), `type=7` always client → server (mi
 console with a microphone input here only accepts one channel.
 
 Reference implementation:
-[`../core/include/finlink/protocol.h`](../core/include/finlink/protocol.h)
-(`finlink_mic_enable`, `finlink_build_mic_enable_frame`,
-`finlink_parse_mic_enable_frame`, `finlink_parse_mic_audio_frame`).
+[`../core/include/unison/protocol.h`](../core/include/unison/protocol.h)
+(`unison_mic_enable`, `unison_build_mic_enable_frame`,
+`unison_parse_mic_enable_frame`, `unison_parse_mic_audio_frame`).
 
 ## WebSocket transport (RFC6455) and binary framing
 
@@ -622,7 +622,7 @@ client (3DS/Switch homebrew):
   after a `redirect` in `session_ready`.
 
 Client-side implementation of this part lives in
-[`../core/include/finlink/websocket.h`](../core/include/finlink/websocket.h).
+[`../core/include/unison/websocket.h`](../core/include/unison/websocket.h).
 
 ## Frame semantics (video dedup)
 
@@ -630,21 +630,21 @@ The server skips video frames that are pixel-identical to the last frame sent. A
 message is therefore normal, not a timeout/error state — clients simply keep displaying the last
 received image.
 
-Reference implementation of both this and `FINLINK_VIDEO_FORMAT_TILES` (see
+Reference implementation of both this and `UNISON_VIDEO_FORMAT_TILES` (see
 [Video Frame Payload](#video-frame-payload-format-dependent) above) on the encoding side:
-[`../core/include/finlink/video_encode.h`](../core/include/finlink/video_encode.h)
-(`finlink_encode_video_frame()`) — diffs the outgoing frame against the last one actually sent in
+[`../core/include/unison/video_encode.h`](../core/include/unison/video_encode.h)
+(`unison_encode_video_frame()`) — diffs the outgoing frame against the last one actually sent in
 8×8 tiles, returning "unchanged" for the dedup case above and a TILES-formatted payload otherwise,
 so a server doesn't have to hand-roll either behavior itself. Used by the `WIIU_GAMEPAD`
 (Cemu) server as of this revision; other forks can adopt the same function.
 
 ## Keyframe discipline (H.264/H265)
 
-`FINLINK_VIDEO_FORMAT_H264`/`_H265` (`video_mode` `"h264"`/`"h265"`) carry a continuous
+`UNISON_VIDEO_FORMAT_H264`/`_H265` (`video_mode` `"h264"`/`"h265"`) carry a continuous
 encoder/decoder bitstream, not an independently-decodable frame like TILES/legacy/INDEXED —
 each `compressed_data` is one or more Annex-B NAL units (`00 00 00 01`-prefixed), fed directly to
 a platform video decoder (e.g. Android's `MediaCodec`, `video/avc`/`video/hevc`) instead of
-`finlink_inflate_raw()`/`finlink_decode_video_frame()`. The decoder keeps reference-frame state
+`unison_inflate_raw()`/`unison_decode_video_frame()`. The decoder keeps reference-frame state
 across calls that must never desync from the encoder's, unlike TILES (which re-derives its diff
 fresh every frame against the last frame *actually sent*, self-correcting automatically) or legacy
 (where every frame is already complete on its own).
@@ -659,7 +659,7 @@ A server implementing these modes must therefore:
   failure, a timeout), the very next forced keyframe bounds how long the picture can show
   corruption for, rather than requiring a full reconnect to recover.
 - Still elide a pixel-identical frame entirely (send nothing) the same way TILES dedup does — the
-  client keeps showing its last decoded picture, which needs no protocol support since finlink
+  client keeps showing its last decoded picture, which needs no protocol support since Unison
   never sends frame timestamps.
 
 ## HTTP

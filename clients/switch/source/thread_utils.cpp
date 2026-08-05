@@ -30,7 +30,7 @@ void spawnDetached(std::function<void()> fn) {
     // same client's own BeaconListener thread) uses std::thread's default
     // attributes instead of a custom pthread_attr_t. 1 MiB isn't a random
     // guess: it's this NSP's own main_thread_stack_size (see
-    // finlink-switch_npdm.json), i.e. a size already proven to allocate
+    // unison-switch_npdm.json), i.e. a size already proven to allocate
     // successfully as a thread stack on this exact title/firmware. Root
     // cause is still unconfirmed without a hardware retest -- see this
     // file's git history for the crash report this was investigated from.

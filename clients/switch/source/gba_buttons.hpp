@@ -6,7 +6,7 @@
 #include <borealis/core/input.hpp>
 
 extern "C" {
-#include "finlink/protocol.h"
+#include "unison/protocol.h"
 }
 
 // One entry per physical GBA button, read by PlayerActivity's input
@@ -20,14 +20,14 @@ struct GbaButton {
 };
 
 inline constexpr std::array<GbaButton, 10> GBA_BUTTONS = { {
-    { FINLINK_KEY_UP, brls::BUTTON_UP },
-    { FINLINK_KEY_DOWN, brls::BUTTON_DOWN },
-    { FINLINK_KEY_LEFT, brls::BUTTON_LEFT },
-    { FINLINK_KEY_RIGHT, brls::BUTTON_RIGHT },
-    { FINLINK_KEY_SELECT, brls::BUTTON_BACK },
-    { FINLINK_KEY_START, brls::BUTTON_START },
-    { FINLINK_KEY_L, brls::BUTTON_LB },
-    { FINLINK_KEY_R, brls::BUTTON_RB },
-    { FINLINK_KEY_B, brls::BUTTON_B },
-    { FINLINK_KEY_A, brls::BUTTON_A },
+    { UNISON_KEY_UP, brls::BUTTON_UP },
+    { UNISON_KEY_DOWN, brls::BUTTON_DOWN },
+    { UNISON_KEY_LEFT, brls::BUTTON_LEFT },
+    { UNISON_KEY_RIGHT, brls::BUTTON_RIGHT },
+    { UNISON_KEY_SELECT, brls::BUTTON_BACK },
+    { UNISON_KEY_START, brls::BUTTON_START },
+    { UNISON_KEY_L, brls::BUTTON_LB },
+    { UNISON_KEY_R, brls::BUTTON_RB },
+    { UNISON_KEY_B, brls::BUTTON_B },
+    { UNISON_KEY_A, brls::BUTTON_A },
 } };

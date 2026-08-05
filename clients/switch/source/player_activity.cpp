@@ -241,11 +241,11 @@ void PlayerActivity::playAudio(uint32_t sampleRate, uint8_t channels, std::vecto
     reclaimAudioBuffers();
 
     // The device is fixed at 48000Hz/stereo/s16 (audoutGetSampleRate() /
-    // audoutGetChannelCount()) -- finlink_switch_remix_and_resample_to_stereo()
+    // audoutGetChannelCount()) -- unison_switch_remix_and_resample_to_stereo()
     // (audio_remix.hpp/.cpp) does the actual remix/resample math, kept free
     // of borealis/libnx types so it has one place to unit-test, see that
     // file's own comment.
-    std::vector<int16_t> resampled = finlink_switch_remix_and_resample_to_stereo(pcm, sampleRate, channels);
+    std::vector<int16_t> resampled = unison_switch_remix_and_resample_to_stereo(pcm, sampleRate, channels);
     if (resampled.empty()) {
         return;
     }

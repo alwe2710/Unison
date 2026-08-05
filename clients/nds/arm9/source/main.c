@@ -1,10 +1,10 @@
-/* finlink NDS client -- feasibility/bandwidth test, not a full player.
+/* Unison NDS client -- feasibility/bandwidth test, not a full player.
  *
  * Scope is deliberately minimal (see ../README.md and
  * ../../docs/nds-feasibility.md): the NDS's 802.11b WiFi hardware is
  * capped at 1-2 Mbit/s, so before building a real UI (menu, settings, GBA
  * button overlay like the other three clients) this just connects to a
- * real finlink server, decodes whatever it receives with the same core/
+ * real Unison server, decodes whatever it receives with the same core/
  * used everywhere else, and reports the actually observed throughput/
  * frame rate on real hardware -- the theoretical numbers in
  * nds-feasibility.md were never verified against a real console. Audio
@@ -45,11 +45,11 @@
 #include "language_pref.h"
 #include "screen_choice.h"
 #include "strings_generated.h"
-#include "finlink/endian.h"
-#include "finlink/handshake.h"
-#include "finlink/inflate.h"
-#include "finlink/protocol.h"
-#include "finlink/websocket.h"
+#include "unison/endian.h"
+#include "unison/handshake.h"
+#include "unison/inflate.h"
+#include "unison/protocol.h"
+#include "unison/websocket.h"
 
 static const int kSlotPorts[4] = { 6801, 6802, 6803, 6804 };
 
@@ -63,7 +63,7 @@ static const int kSlotPorts[4] = { 6801, 6802, 6803, 6804 };
 #define GBA_W 240
 #define GBA_H 160
 #define FRAMEBUF_CAP (GBA_W * GBA_H * 2)
-/* finlink_video_max_inflated_size(240, 160): width*height*2 + 4 +
+/* unison_video_max_inflated_size(240, 160): width*height*2 + 4 +
  * tiles_per_row(30)*tiles_per_col(20)*2 + 512. Recomputed here as a
  * compile-time constant (with margin) rather than calling the function
  * at startup, so it can size a static array; see core/src/protocol.c. */
@@ -125,14 +125,14 @@ static bool g_prefBilinear = false;
 static int g_prefLanguage = -1;
 
 /* Sent verbatim as hello_ack.video_mode during the handshake (see
- * performAppHandshake()) -- one of the wire-format strings finlink's
+ * performAppHandshake()) -- one of the wire-format strings Unison's
  * docs/protocol.md defines ("tiles"/"legacy"/"h264"/"h265"), picked from
  * videoModeMenu(). Same "not persisted" caveat as g_prefLanguage above:
  * resets to "tiles" on every launch. */
 static char g_prefVideoMode[16] = "tiles";
 
 static void applyLanguage(void) {
-    strSetLanguage(finlink_nds_resolve_language(g_prefLanguage, PersonalData->language));
+    strSetLanguage(unison_nds_resolve_language(g_prefLanguage, PersonalData->language));
 }
 
 /* Endonym for the current g_prefLanguage value, for slotSelectMenu()'s
@@ -168,34 +168,34 @@ static const char *videoModePrefLabel(void) {
 /* ~0.5s of mono 16-bit audio at AUDIO_SAMPLE_RATE -- a jitter buffer
  * against this link's bursty delivery (see RECV_BUF_CAP's own comment),
  * not a lot of RAM on a 4MB console. Written by the network receive loop
- * in runSession() as FINLINK_MSG_AUDIO frames arrive, read by
+ * in runSession() as UNISON_MSG_AUDIO frames arrive, read by
  * audioStreamRequest() (maxmod's pull callback, invoked from
  * mmStreamUpdate() -- called once per tick from the *same* thread as the
  * network loop, so unlike g_recvBuf there's no real concurrency here
  * despite two "sides" touching this buffer, and no locking is needed. */
 #define AUDIO_RING_SAMPLES (AUDIO_SAMPLE_RATE / 2)
 static int16_t g_audioRingBacking[AUDIO_RING_SAMPLES];
-static finlink_nds_audio_ring g_audioRing;
+static unison_nds_audio_ring g_audioRing;
 
 /* Drops leftover buffered audio from a previous session -- called at the
  * start of each new runSession() so stale samples from before a
  * reconnect can't play at the start of a new one. */
 static void audioRingReset(void) {
-    finlink_nds_audio_ring_reset(&g_audioRing);
+    unison_nds_audio_ring_reset(&g_audioRing);
 }
 
 static void audioRingPush(const uint8_t *samplesS16le, size_t sampleCount) {
-    finlink_nds_audio_ring_push(&g_audioRing, samplesS16le, sampleCount);
+    unison_nds_audio_ring_push(&g_audioRing, samplesS16le, sampleCount);
 }
 
 /* maxmod's pull callback (mm_stream.callback, maxmod9.h) -- must always
  * fill exactly `length` samples. Thin wrapper around
- * finlink_nds_audio_ring_pull() (audio_ring.h/.c), which does the actual
+ * unison_nds_audio_ring_pull() (audio_ring.h/.c), which does the actual
  * FIFO/underrun-padding logic -- see its own comment and
  * tests/test_audio_ring.c. */
 static mm_word audioStreamRequest(mm_word length, mm_addr dest, mm_stream_formats format) {
     (void)format; /* always MM_STREAM_16BIT_MONO here, see main()'s mmStreamOpen() call */
-    finlink_nds_audio_ring_pull(&g_audioRing, (int16_t *)dest, length);
+    unison_nds_audio_ring_pull(&g_audioRing, (int16_t *)dest, length);
     return length;
 }
 
@@ -277,10 +277,10 @@ static void blitFrameScaled(const uint8_t *rgb565) {
             const uint8_t *row1 = rgb565 + (size_t)srcY1 * GBA_W * 2;
             uint16_t *dstRow = VRAM_A + (size_t)(y + offY) * 256;
             for (int x = 0; x < scaledW; x++) {
-                uint16_t p00 = finlink_read_u16le(row0 + (size_t)colSrc0[x] * 2);
-                uint16_t p10 = finlink_read_u16le(row0 + (size_t)colSrc1[x] * 2);
-                uint16_t p01 = finlink_read_u16le(row1 + (size_t)colSrc0[x] * 2);
-                uint16_t p11 = finlink_read_u16le(row1 + (size_t)colSrc1[x] * 2);
+                uint16_t p00 = unison_read_u16le(row0 + (size_t)colSrc0[x] * 2);
+                uint16_t p10 = unison_read_u16le(row0 + (size_t)colSrc1[x] * 2);
+                uint16_t p01 = unison_read_u16le(row1 + (size_t)colSrc0[x] * 2);
+                uint16_t p11 = unison_read_u16le(row1 + (size_t)colSrc1[x] * 2);
                 dstRow[x] = rgb565ToNds(bilinearBlend(p00, p10, p01, p11, colWeight[x], wY));
             }
         }
@@ -297,7 +297,7 @@ static void blitFrameScaled(const uint8_t *rgb565) {
         const uint8_t *srcRow = rgb565 + (size_t)srcY * GBA_W * 2;
         uint16_t *dstRow = VRAM_A + (size_t)(y + offY) * 256;
         for (int x = 0; x < scaledW; x++) {
-            dstRow[x] = rgb565ToNds(finlink_read_u16le(srcRow + (size_t)colSrc[x] * 2));
+            dstRow[x] = rgb565ToNds(unison_read_u16le(srcRow + (size_t)colSrc[x] * 2));
         }
     }
 }
@@ -320,7 +320,7 @@ static void blitFrame(const uint8_t *rgb565) {
         const uint8_t *srcRow = rgb565 + (size_t)y * GBA_W * 2;
         uint16_t *dstRow = VRAM_A + (size_t)(y + offY) * 256 + offX;
         for (int x = 0; x < GBA_W; x++) {
-            dstRow[x] = rgb565ToNds(finlink_read_u16le(srcRow + (size_t)x * 2));
+            dstRow[x] = rgb565ToNds(unison_read_u16le(srcRow + (size_t)x * 2));
         }
     }
 }
@@ -344,16 +344,16 @@ static bool sendAll(int fd, const uint8_t *data, size_t size) {
  * exit gesture below, which relies on exactly that gap. */
 static uint16_t buildGbaKeyMask(int keys) {
     uint16_t mask = 0;
-    if (keys & KEY_A) mask |= FINLINK_KEY_A;
-    if (keys & KEY_B) mask |= FINLINK_KEY_B;
-    if (keys & KEY_SELECT) mask |= FINLINK_KEY_SELECT;
-    if (keys & KEY_START) mask |= FINLINK_KEY_START;
-    if (keys & KEY_RIGHT) mask |= FINLINK_KEY_RIGHT;
-    if (keys & KEY_LEFT) mask |= FINLINK_KEY_LEFT;
-    if (keys & KEY_UP) mask |= FINLINK_KEY_UP;
-    if (keys & KEY_DOWN) mask |= FINLINK_KEY_DOWN;
-    if (keys & KEY_R) mask |= FINLINK_KEY_R;
-    if (keys & KEY_L) mask |= FINLINK_KEY_L;
+    if (keys & KEY_A) mask |= UNISON_KEY_A;
+    if (keys & KEY_B) mask |= UNISON_KEY_B;
+    if (keys & KEY_SELECT) mask |= UNISON_KEY_SELECT;
+    if (keys & KEY_START) mask |= UNISON_KEY_START;
+    if (keys & KEY_RIGHT) mask |= UNISON_KEY_RIGHT;
+    if (keys & KEY_LEFT) mask |= UNISON_KEY_LEFT;
+    if (keys & KEY_UP) mask |= UNISON_KEY_UP;
+    if (keys & KEY_DOWN) mask |= UNISON_KEY_DOWN;
+    if (keys & KEY_R) mask |= UNISON_KEY_R;
+    if (keys & KEY_L) mask |= UNISON_KEY_L;
     return mask;
 }
 
@@ -363,16 +363,16 @@ static uint16_t buildGbaKeyMask(int keys) {
  * ignored rather than treated as a disconnect -- a real socket problem
  * will show up via recv() in the same tick's main loop anyway. */
 static void sendGbaInput(int fd, uint16_t keyMask) {
-    uint8_t payload[FINLINK_INPUT_FRAME_SIZE];
-    finlink_build_input_frame(keyMask, payload);
+    uint8_t payload[UNISON_INPUT_FRAME_SIZE];
+    unison_build_input_frame(keyMask, payload);
 
     uint8_t maskKey[4];
     weakRandomBytes(maskKey, sizeof(maskKey));
 
-    /* +14 = finlink_ws_build_frame_max_size()'s fixed overhead (10-byte
+    /* +14 = unison_ws_build_frame_max_size()'s fixed overhead (10-byte
      * max header incl. length field + 4-byte mask key). */
-    uint8_t frameBuf[FINLINK_INPUT_FRAME_SIZE + 14];
-    size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, sizeof(payload), maskKey, frameBuf,
+    uint8_t frameBuf[UNISON_INPUT_FRAME_SIZE + 14];
+    size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, sizeof(payload), maskKey, frameBuf,
                                                sizeof(frameBuf));
     if (frame_len > 0) {
         sendAll(fd, frameBuf, frame_len);
@@ -402,14 +402,14 @@ static bool connectAndHandshake(const char *host, int port, int *out_fd) {
 
     uint8_t random_bytes[16];
     weakRandomBytes(random_bytes, sizeof(random_bytes));
-    char key[FINLINK_WS_KEY_BUF_LEN];
-    finlink_ws_generate_key(random_bytes, key);
+    char key[UNISON_WS_KEY_BUF_LEN];
+    unison_ws_generate_key(random_bytes, key);
 
     char host_header[64];
     snprintf(host_header, sizeof(host_header), "%s:%d", host, port);
 
     char request[512];
-    size_t request_len = finlink_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
+    size_t request_len = unison_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
     if (request_len == 0 || !sendAll(fd, (const uint8_t *)request, request_len)) {
         closesocket(fd);
         return false;
@@ -417,10 +417,10 @@ static bool connectAndHandshake(const char *host, int port, int *out_fd) {
 
     uint8_t header_buf[2048];
     size_t header_len_total = 0;
-    finlink_ws_handshake_status status = FINLINK_WS_HANDSHAKE_INCOMPLETE;
+    unison_ws_handshake_status status = UNISON_WS_HANDSHAKE_INCOMPLETE;
     size_t header_len = 0;
 
-    while (status == FINLINK_WS_HANDSHAKE_INCOMPLETE) {
+    while (status == UNISON_WS_HANDSHAKE_INCOMPLETE) {
         if (header_len_total >= sizeof(header_buf)) {
             closesocket(fd);
             return false;
@@ -431,8 +431,8 @@ static bool connectAndHandshake(const char *host, int port, int *out_fd) {
             return false;
         }
         header_len_total += (size_t)n;
-        status = finlink_ws_parse_handshake_response(header_buf, header_len_total, key, &header_len);
-        if (status == FINLINK_WS_HANDSHAKE_ERR) {
+        status = unison_ws_parse_handshake_response(header_buf, header_len_total, key, &header_len);
+        if (status == UNISON_WS_HANDSHAKE_ERR) {
             closesocket(fd);
             return false;
         }
@@ -465,13 +465,13 @@ static bool connectAndHandshake(const char *host, int port, int *out_fd) {
  * discard -- same bug (found from a live report on the Android client,
  * clients/android/.../jni_bridge.c's history has the postmortem) this
  * avoids by construction rather than fixing after the fact. */
-static bool receiveOneWsFrame(int fd, finlink_ws_frame *outFrame) {
+static bool receiveOneWsFrame(int fd, unison_ws_frame *outFrame) {
     for (;;) {
-        finlink_ws_frame_status fs = finlink_ws_parse_frame(g_recvBuf, g_recvLen, outFrame);
-        if (fs == FINLINK_WS_FRAME_OK) {
+        unison_ws_frame_status fs = unison_ws_parse_frame(g_recvBuf, g_recvLen, outFrame);
+        if (fs == UNISON_WS_FRAME_OK) {
             return true;
         }
-        if (fs == FINLINK_WS_FRAME_ERR) {
+        if (fs == UNISON_WS_FRAME_ERR) {
             return false;
         }
         if (g_recvLen >= RECV_BUF_CAP) {
@@ -490,7 +490,7 @@ static bool receiveOneWsFrame(int fd, finlink_ws_frame *outFrame) {
  * GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork). */
 #define PLAYER_BASE_PORT 6801
 
-/* App-level handshake (finlink/handshake.h, docs/protocol.md
+/* App-level handshake (unison/handshake.h, docs/protocol.md
  * "Verbindungsaufbau: Handshake"), run once *fd is already WS-upgraded
  * (g_recvBuf may already hold the server's first message -- see
  * connectAndHandshake()). On a session_ready with a redirect (only
@@ -501,47 +501,47 @@ static bool receiveOneWsFrame(int fd, finlink_ws_frame *outFrame) {
  * protocol's own one-hop design). outReason must be at least 96 bytes --
  * always NUL-terminated on return, empty string on success. */
 static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, char *outReason,
-                                 size_t outReasonCap, char outStreamType[FINLINK_STREAM_TYPE_LEN],
-                                 const char *videoMode, char outGrantedVideoMode[FINLINK_VIDEO_MODE_LEN]) {
+                                 size_t outReasonCap, char outStreamType[UNISON_STREAM_TYPE_LEN],
+                                 const char *videoMode, char outGrantedVideoMode[UNISON_VIDEO_MODE_LEN]) {
     outReason[0] = '\0';
     outStreamType[0] = '\0';
     outGrantedVideoMode[0] = '\0';
 
     for (int hop = 0; hop < 2; hop++) {
-        finlink_ws_frame frame;
+        unison_ws_frame frame;
         if (!receiveOneWsFrame(*fd, &frame)) {
             snprintf(outReason, outReasonCap, "Server hat keinen Handshake gestartet");
             return false;
         }
-        if (frame.opcode != FINLINK_WS_OPCODE_TEXT ||
-            finlink_peek_handshake_message(frame.payload, frame.payload_size) != FINLINK_HS_MSG_HELLO) {
+        if (frame.opcode != UNISON_WS_OPCODE_TEXT ||
+            unison_peek_handshake_message(frame.payload, frame.payload_size) != UNISON_HS_MSG_HELLO) {
             snprintf(outReason, outReasonCap, "Unerwartete erste Nachricht vom Server");
             return false;
         }
 
-        finlink_hello hello;
-        finlink_handshake_result helloParsed = finlink_parse_hello(frame.payload, frame.payload_size, &hello);
+        unison_hello hello;
+        unison_handshake_result helloParsed = unison_parse_hello(frame.payload, frame.payload_size, &hello);
         recvBufConsume(frame.frame_size); /* done reading frame.payload either way */
-        if (helloParsed != FINLINK_HANDSHAKE_OK) {
+        if (helloParsed != UNISON_HANDSHAKE_OK) {
             snprintf(outReason, outReasonCap, "hello konnte nicht gelesen werden");
             return false;
         }
-        if (hello.protocol_version != FINLINK_PROTOCOL_VERSION) {
+        if (hello.protocol_version != UNISON_PROTOCOL_VERSION) {
             snprintf(outReason, outReasonCap, "Server: Protokollversion %d, Client: %d",
-                     hello.protocol_version, FINLINK_PROTOCOL_VERSION);
+                     hello.protocol_version, UNISON_PROTOCOL_VERSION);
             return false;
         }
         /* Last hop wins on a redirect -- the redirect target's own hello is
          * the authoritative one for the connection that actually carries
          * stream data (see below). */
-        strncpy(outStreamType, hello.stream_type, FINLINK_STREAM_TYPE_LEN - 1);
-        outStreamType[FINLINK_STREAM_TYPE_LEN - 1] = '\0';
+        strncpy(outStreamType, hello.stream_type, UNISON_STREAM_TYPE_LEN - 1);
+        outStreamType[UNISON_STREAM_TYPE_LEN - 1] = '\0';
 
         /* This client always dials a specific already-chosen player port
          * (see kSlotPorts[]/slotSelectMenu()), never the lobby port -- so
          * the slot being asked about is simply "the one this connection
          * is on". */
-        finlink_hello_ack_request ackReq;
+        unison_hello_ack_request ackReq;
         memset(&ackReq, 0, sizeof(ackReq));
         ackReq.requested_slot = *port - PLAYER_BASE_PORT;
         ackReq.max_width = hello.video.width > 0 ? hello.video.width : GBA_W;
@@ -560,7 +560,7 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
         strncpy(ackReq.video_mode, videoMode, sizeof(ackReq.video_mode) - 1);
 
         char ackJson[256];
-        size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
+        size_t ackLen = unison_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
         if (ackLen == 0) {
             snprintf(outReason, outReasonCap, "hello_ack zu gross fuer den Puffer");
             return false;
@@ -569,27 +569,27 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
         uint8_t maskKey[4];
         weakRandomBytes(maskKey, sizeof(maskKey));
         uint8_t frameBuf[256 + 14];
-        size_t frameLen = finlink_ws_build_frame(FINLINK_WS_OPCODE_TEXT, (const uint8_t *)ackJson, ackLen, maskKey,
+        size_t frameLen = unison_ws_build_frame(UNISON_WS_OPCODE_TEXT, (const uint8_t *)ackJson, ackLen, maskKey,
                                                   frameBuf, sizeof(frameBuf));
         if (frameLen == 0 || !sendAll(*fd, frameBuf, frameLen)) {
             snprintf(outReason, outReasonCap, "hello_ack konnte nicht gesendet werden");
             return false;
         }
 
-        finlink_ws_frame reply;
+        unison_ws_frame reply;
         if (!receiveOneWsFrame(*fd, &reply)) {
             snprintf(outReason, outReasonCap, "keine Antwort auf hello_ack");
             return false;
         }
-        if (reply.opcode != FINLINK_WS_OPCODE_TEXT) {
+        if (reply.opcode != UNISON_WS_OPCODE_TEXT) {
             snprintf(outReason, outReasonCap, "unerwartete Antwort auf hello_ack");
             return false;
         }
 
-        finlink_handshake_message_type replyType = finlink_peek_handshake_message(reply.payload, reply.payload_size);
-        if (replyType == FINLINK_HS_MSG_HANDSHAKE_ERROR) {
-            finlink_handshake_error err;
-            if (finlink_parse_handshake_error(reply.payload, reply.payload_size, &err) == FINLINK_HANDSHAKE_OK) {
+        unison_handshake_message_type replyType = unison_peek_handshake_message(reply.payload, reply.payload_size);
+        if (replyType == UNISON_HS_MSG_HANDSHAKE_ERROR) {
+            unison_handshake_error err;
+            if (unison_parse_handshake_error(reply.payload, reply.payload_size, &err) == UNISON_HANDSHAKE_OK) {
                 snprintf(outReason, outReasonCap, "%s", err.detail);
             } else {
                 snprintf(outReason, outReasonCap, "Handshake vom Server abgelehnt");
@@ -597,23 +597,23 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
             recvBufConsume(reply.frame_size);
             return false;
         }
-        if (replyType != FINLINK_HS_MSG_SESSION_READY) {
+        if (replyType != UNISON_HS_MSG_SESSION_READY) {
             snprintf(outReason, outReasonCap, "unerwartete Antwort auf hello_ack");
             recvBufConsume(reply.frame_size);
             return false;
         }
 
-        finlink_session_ready ready;
-        finlink_handshake_result readyParsed = finlink_parse_session_ready(reply.payload, reply.payload_size, &ready);
+        unison_session_ready ready;
+        unison_handshake_result readyParsed = unison_parse_session_ready(reply.payload, reply.payload_size, &ready);
         recvBufConsume(reply.frame_size); /* done reading reply.payload either way */
-        if (readyParsed != FINLINK_HANDSHAKE_OK) {
+        if (readyParsed != UNISON_HANDSHAKE_OK) {
             snprintf(outReason, outReasonCap, "session_ready konnte nicht gelesen werden");
             return false;
         }
 
         if (!ready.has_redirect) {
-            strncpy(outGrantedVideoMode, ready.video_mode, FINLINK_VIDEO_MODE_LEN - 1);
-            outGrantedVideoMode[FINLINK_VIDEO_MODE_LEN - 1] = '\0';
+            strncpy(outGrantedVideoMode, ready.video_mode, UNISON_VIDEO_MODE_LEN - 1);
+            outGrantedVideoMode[UNISON_VIDEO_MODE_LEN - 1] = '\0';
             return true;
         }
 
@@ -682,13 +682,13 @@ static void runSession(const char *hostIn, int portIn) {
         }
     }
 
-    /* App-level handshake (finlink/handshake.h): must succeed -- version
+    /* App-level handshake (unison/handshake.h): must succeed -- version
      * match, this slot requested and free -- before any Video/Audio/Input
      * binary frame is allowed on this connection. May reconnect fd/host/
      * port once, on a redirect. */
     char handshakeFailReason[96];
-    char streamType[FINLINK_STREAM_TYPE_LEN];
-    char grantedVideoMode[FINLINK_VIDEO_MODE_LEN];
+    char streamType[UNISON_STREAM_TYPE_LEN];
+    char grantedVideoMode[UNISON_VIDEO_MODE_LEN];
     if (!performAppHandshake(&fd, host, sizeof(host), &port, handshakeFailReason, sizeof(handshakeFailReason),
                               streamType, g_prefVideoMode, grantedVideoMode)) {
         if (fd >= 0) {
@@ -749,8 +749,8 @@ static void runSession(const char *hostIn, int portIn) {
      * A stream_type that's itself a dual-screen source's secondary screen
      * (docs/protocol.md) always goes to this client's own bottom screen,
      * overriding g_prefBottomScreen -- see
-     * finlink_stream_type_prefers_secondary_screen(). */
-    if (finlink_nds_should_show_video_on_bottom(g_prefBottomScreen, streamType)) {
+     * unison_stream_type_prefers_secondary_screen(). */
+    if (unison_nds_should_show_video_on_bottom(g_prefBottomScreen, streamType)) {
         lcdMainOnBottom();
     } else {
         lcdMainOnTop();
@@ -842,37 +842,37 @@ static void runSession(const char *hostIn, int portIn) {
             g_recvLen += (size_t)n;
 
             for (;;) {
-                finlink_ws_frame frame;
-                finlink_ws_frame_status fs = finlink_ws_parse_frame(g_recvBuf, g_recvLen, &frame);
-                if (fs == FINLINK_WS_FRAME_INCOMPLETE) {
+                unison_ws_frame frame;
+                unison_ws_frame_status fs = unison_ws_parse_frame(g_recvBuf, g_recvLen, &frame);
+                if (fs == UNISON_WS_FRAME_INCOMPLETE) {
                     break;
                 }
-                if (fs == FINLINK_WS_FRAME_ERR) {
+                if (fs == UNISON_WS_FRAME_ERR) {
                     static char errBuf[48];
                     snprintf(errBuf, sizeof(errBuf), "WS-Frame-Fehler (%u B im Puffer)", (unsigned)g_recvLen);
                     disconnectReason = errBuf;
                     recvBufConsume(frame.frame_size <= g_recvLen ? frame.frame_size : g_recvLen);
                     goto disconnected;
                 }
-                if (frame.opcode == FINLINK_WS_OPCODE_CLOSE) {
+                if (frame.opcode == UNISON_WS_OPCODE_CLOSE) {
                     disconnectReason = "Server-Close-Frame empfangen";
                     recvBufConsume(frame.frame_size <= g_recvLen ? frame.frame_size : g_recvLen);
                     goto disconnected;
                 }
 
-                finlink_msg_type type;
-                if (finlink_peek_type(frame.payload, frame.payload_size, &type) == FINLINK_OK) {
-                    if (type == FINLINK_MSG_VIDEO) {
-                        finlink_video_header hdr;
-                        if (finlink_parse_video_header(frame.payload, frame.payload_size, &hdr) == FINLINK_OK) {
+                unison_msg_type type;
+                if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
+                    if (type == UNISON_MSG_VIDEO) {
+                        unison_video_header hdr;
+                        if (unison_parse_video_header(frame.payload, frame.payload_size, &hdr) == UNISON_OK) {
                             if (hdr.width != GBA_W || hdr.height != GBA_H) {
                                 window.decodeErrors++;
                             } else {
                                 size_t inflated_size = 0;
-                                if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, g_inflateBuf,
-                                                         sizeof(g_inflateBuf), &inflated_size) == FINLINK_INFLATE_OK &&
-                                    finlink_decode_video_frame(hdr.format, g_inflateBuf, inflated_size, hdr.width,
-                                                                hdr.height, g_framebuf, sizeof(g_framebuf)) == FINLINK_OK) {
+                                if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, g_inflateBuf,
+                                                         sizeof(g_inflateBuf), &inflated_size) == UNISON_INFLATE_OK &&
+                                    unison_decode_video_frame(hdr.format, g_inflateBuf, inflated_size, hdr.width,
+                                                                hdr.height, g_framebuf, sizeof(g_framebuf)) == UNISON_OK) {
                                     window.videoFrames++;
                                     window.videoBytes += (unsigned)frame.payload_size;
                                     totalVideoFrames++;
@@ -905,10 +905,10 @@ static void runSession(const char *hostIn, int portIn) {
                                 }
                             }
                         }
-                    } else if (type == FINLINK_MSG_AUDIO) {
-                        finlink_audio_frame audioFrame;
-                        if (finlink_parse_audio_frame(frame.payload, frame.payload_size, &audioFrame) ==
-                            FINLINK_OK) {
+                    } else if (type == UNISON_MSG_AUDIO) {
+                        unison_audio_frame audioFrame;
+                        if (unison_parse_audio_frame(frame.payload, frame.payload_size, &audioFrame) ==
+                            UNISON_OK) {
                             window.audioFrames++;
                             window.audioBytes += (unsigned)frame.payload_size;
                             /* Mono was requested (performAppHandshake()), so
@@ -960,7 +960,7 @@ disconnected:
  * invalid address here just fails to connect the same way an unreachable
  * one does, so this doesn't add format checking either. */
 /* outIp must be at least 16 bytes (serverIp at both call sites in main()
- * is FINLINK_BEACON_HOST_LEN, comfortably larger) -- 15 chars is enough
+ * is UNISON_BEACON_HOST_LEN, comfortably larger) -- 15 chars is enough
  * for the longest dotted-decimal IPv4 address plus a NUL, and the width
  * limit below matches that exactly so there's no separate truncating copy
  * to get wrong. */
@@ -1079,7 +1079,7 @@ static void languageMenu(void) {
  * explicit-opt-out fallback), same as Android's Prefs.VIDEO_MODES. */
 static void videoModeMenu(void) {
     struct VideoModeOption {
-        const char *value; /* wire-format string, see finlink/docs/protocol.md */
+        const char *value; /* wire-format string, see unison/docs/protocol.md */
         const char *label;
     };
     const int kOptionCount = 4;
@@ -1223,7 +1223,7 @@ static void drawServerList(const BeaconScan *scan) {
     for (int i = 0; i < BEACON_MAX_SERVERS; i++) {
         iprintf("\x1b[%d;0H", 5 + i);
         if (scan->servers[i].inUse) {
-            const finlink_beacon *b = &scan->servers[i].beacon;
+            const unison_beacon *b = &scan->servers[i].beacon;
             iprintf(" %s = %s%s                              \n", labels[i],
                      b->game_title[0] ? b->game_title : b->host,
                      scan->servers[i].compatible ? "" : STR_DISCOVERY_INCOMPATIBLE_SUFFIX);
@@ -1249,8 +1249,8 @@ static void drawServerList(const BeaconScan *scan) {
  * SELECT doesn't lose anything already heard). Returns 0-3 for the chosen
  * (compatible) server, -1 to quit the app, -3 to enter the IP manually --
  * same convention as slotSelectMenu() below, whose R/START already mean
- * exactly that. outHost must be at least FINLINK_BEACON_HOST_LEN bytes;
- * outStreamType at least FINLINK_BEACON_STREAM_TYPE_LEN bytes -- fed
+ * exactly that. outHost must be at least UNISON_BEACON_HOST_LEN bytes;
+ * outStreamType at least UNISON_BEACON_STREAM_TYPE_LEN bytes -- fed
  * straight into slotSelectMenu()/main()'s port choice so a discovered
  * non-GC_GBA_LINK server never goes through the GC_GBA_LINK-only slot
  * picker (see streamTypeIsMultiSlot()). */
@@ -1276,8 +1276,8 @@ static int serverSelectMenu(BeaconScan *scan, const char *ownIp, char *outHost, 
             if ((keys & keyBits[i]) && scan->servers[i].inUse && scan->servers[i].compatible) {
                 strncpy(outHost, scan->servers[i].beacon.host, outHostCap - 1);
                 outHost[outHostCap - 1] = '\0';
-                strncpy(outStreamType, scan->servers[i].beacon.stream_type, FINLINK_BEACON_STREAM_TYPE_LEN - 1);
-                outStreamType[FINLINK_BEACON_STREAM_TYPE_LEN - 1] = '\0';
+                strncpy(outStreamType, scan->servers[i].beacon.stream_type, UNISON_BEACON_STREAM_TYPE_LEN - 1);
+                outStreamType[UNISON_BEACON_STREAM_TYPE_LEN - 1] = '\0';
                 *outHandshakePort = scan->servers[i].beacon.handshake_port;
                 return i;
             }
@@ -1311,7 +1311,7 @@ int main(void) {
     memset(&mmSys, 0, sizeof(mmSys));
     mmInit(&mmSys);
 
-    finlink_nds_audio_ring_init(&g_audioRing, g_audioRingBacking, AUDIO_RING_SAMPLES);
+    unison_nds_audio_ring_init(&g_audioRing, g_audioRingBacking, AUDIO_RING_SAMPLES);
 
     mm_stream mmAudioStream;
     memset(&mmAudioStream, 0, sizeof(mmAudioStream));
@@ -1347,8 +1347,8 @@ int main(void) {
     BeaconScan beaconScan;
     beaconScan_start(&beaconScan);
 
-    char serverIp[FINLINK_BEACON_HOST_LEN];
-    char serverStreamType[FINLINK_BEACON_STREAM_TYPE_LEN];
+    char serverIp[UNISON_BEACON_HOST_LEN];
+    char serverStreamType[UNISON_BEACON_STREAM_TYPE_LEN];
     int serverHandshakePort = 0;
     serverIp[0] = '\0';
     serverStreamType[0] = '\0';

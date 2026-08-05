@@ -1,5 +1,5 @@
-#ifndef FINLINK_NDS_LANGUAGE_PREF_H
-#define FINLINK_NDS_LANGUAGE_PREF_H
+#ifndef UNISON_NDS_LANGUAGE_PREF_H
+#define UNISON_NDS_LANGUAGE_PREF_H
 
 #include "strings_generated.h"
 
@@ -19,6 +19,6 @@
  * 6=Chinese, 7=Unknown/Reserved -- anything this app has no translation
  * for (including Japanese/Chinese/Unknown) falls back to English, same
  * policy as every other client. */
-StrLang finlink_nds_resolve_language(int prefLanguage, int personalDataLanguage);
+StrLang unison_nds_resolve_language(int prefLanguage, int personalDataLanguage);
 
-#endif /* FINLINK_NDS_LANGUAGE_PREF_H */
+#endif /* UNISON_NDS_LANGUAGE_PREF_H */

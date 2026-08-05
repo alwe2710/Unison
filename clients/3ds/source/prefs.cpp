@@ -6,15 +6,15 @@
 #include <string>
 #include <sys/stat.h>
 
-#include <finlink/handshake.h>
+#include <unison/handshake.h>
 
 bool shouldShowVideoOnBottomScreen(bool bottomScreenVideoPref, const std::string &streamType) {
-    return bottomScreenVideoPref || finlink_stream_type_prefers_secondary_screen(streamType.c_str());
+    return bottomScreenVideoPref || unison_stream_type_prefers_secondary_screen(streamType.c_str());
 }
 
 namespace {
-constexpr const char *kDir = "sdmc:/3ds/finlink";
-constexpr const char *kFile = "sdmc:/3ds/finlink/settings.cfg";
+constexpr const char *kDir = "sdmc:/3ds/unison";
+constexpr const char *kFile = "sdmc:/3ds/unison/settings.cfg";
 } // namespace
 
 namespace {

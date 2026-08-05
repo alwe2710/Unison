@@ -10,11 +10,11 @@
 #include <unistd.h>
 
 extern "C" {
-#include "finlink/endian.h"
-#include "finlink/handshake.h"
-#include "finlink/inflate.h"
-#include "finlink/protocol.h"
-#include "finlink/websocket.h"
+#include "unison/endian.h"
+#include "unison/handshake.h"
+#include "unison/inflate.h"
+#include "unison/protocol.h"
+#include "unison/websocket.h"
 }
 
 namespace {
@@ -23,7 +23,7 @@ namespace {
 // through getentropy(), which has no 3DS syscall backend and fails to
 // link (same issue as devkitA64, see clients/switch/source/session.cpp).
 // The WS handshake key only needs to be unpredictable enough to defeat
-// naive proxy caching (see finlink/websocket.h), not cryptographically
+// naive proxy caching (see unison/websocket.h), not cryptographically
 // strong, so libc rand() is fine here.
 void weakRandomBytes(uint8_t *out, size_t n) {
     for (size_t i = 0; i < n; i++) {
@@ -34,7 +34,7 @@ void weakRandomBytes(uint8_t *out, size_t n) {
 // Same growth/consume strategy as jni_bridge.c's byte_buf, minus the
 // malloc/realloc bookkeeping (std::vector does that for us); still uses
 // manual front-consume via erase() rather than a deque so
-// finlink_ws_parse_frame() can view the whole pending buffer as one
+// unison_ws_parse_frame() can view the whole pending buffer as one
 // contiguous pointer.
 struct RecvBuffer {
     std::vector<uint8_t> data;
@@ -112,24 +112,24 @@ bool connect_and_ws_upgrade(const std::string &host, int port, int *out_fd, std:
 
     uint8_t random_bytes[16];
     weakRandomBytes(random_bytes, sizeof(random_bytes));
-    char key[FINLINK_WS_KEY_BUF_LEN];
-    finlink_ws_generate_key(random_bytes, key);
+    char key[UNISON_WS_KEY_BUF_LEN];
+    unison_ws_generate_key(random_bytes, key);
 
     char host_header[160];
     snprintf(host_header, sizeof(host_header), "%s:%d", host.c_str(), port);
 
     char request[512];
-    size_t request_len = finlink_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
+    size_t request_len = unison_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
     if (request_len == 0 || !send_all(fd, reinterpret_cast<const uint8_t *>(request), request_len, stop_flag)) {
         return false;
     }
 
     RecvBuffer recv_buf;
     uint8_t chunk[1024];
-    finlink_ws_handshake_status status = FINLINK_WS_HANDSHAKE_INCOMPLETE;
+    unison_ws_handshake_status status = UNISON_WS_HANDSHAKE_INCOMPLETE;
     size_t header_len = 0;
 
-    while (status == FINLINK_WS_HANDSHAKE_INCOMPLETE) {
+    while (status == UNISON_WS_HANDSHAKE_INCOMPLETE) {
         if (stop_flag->load()) {
             return false;
         }
@@ -141,8 +141,8 @@ bool connect_and_ws_upgrade(const std::string &host, int port, int *out_fd, std:
         if (recv_buf.data.size() > 16384) { // guard against a runaway/malformed response
             return false;
         }
-        status = finlink_ws_parse_handshake_response(recv_buf.data.data(), recv_buf.data.size(), key, &header_len);
-        if (status == FINLINK_WS_HANDSHAKE_ERR) {
+        status = unison_ws_parse_handshake_response(recv_buf.data.data(), recv_buf.data.size(), key, &header_len);
+        if (status == UNISON_WS_HANDSHAKE_ERR) {
             return false;
         }
     }
@@ -175,14 +175,14 @@ constexpr int kPlayerBasePort = 6801;
 // clients/android/.../jni_bridge.c's equivalent helper, found from a live
 // report -- see that file's history for the postmortem).
 bool receive_one_ws_frame(int fd, RecvBuffer *buf, std::atomic<bool> *stop_flag, int timeoutMs,
-                           finlink_ws_frame *out_frame) {
+                           unison_ws_frame *out_frame) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
     for (;;) {
-        finlink_ws_frame_status fs = finlink_ws_parse_frame(buf->data.data(), buf->data.size(), out_frame);
-        if (fs == FINLINK_WS_FRAME_OK) {
+        unison_ws_frame_status fs = unison_ws_parse_frame(buf->data.data(), buf->data.size(), out_frame);
+        if (fs == UNISON_WS_FRAME_OK) {
             return true;
         }
-        if (fs == FINLINK_WS_FRAME_ERR) {
+        if (fs == UNISON_WS_FRAME_ERR) {
             return false;
         }
 
@@ -220,7 +220,7 @@ struct AppHandshakeResult {
     std::string grantedVideoMode;
 };
 
-// App-level handshake (finlink/handshake.h, docs/protocol.md
+// App-level handshake (unison/handshake.h, docs/protocol.md
 // "Verbindungsaufbau: Handshake"), run once `*fd`/`*buf` are already
 // WebSocket-upgraded (`buf` may already hold the server's first message).
 // On a `session_ready` with `redirect` (only possible for multi-slot
@@ -234,25 +234,25 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
     // authoritative one for the connection that actually carries stream data.
     std::string streamType;
     for (int hop = 0; hop < 2; hop++) {
-        finlink_ws_frame frame;
+        unison_ws_frame frame;
         if (!receive_one_ws_frame(*fd, buf, stop_flag, kAppHandshakeTimeoutMs, &frame)) {
             return { false, "Server hat keinen Handshake gestartet (evtl. veraltete Protokollversion)" };
         }
-        if (frame.opcode != FINLINK_WS_OPCODE_TEXT ||
-            finlink_peek_handshake_message(frame.payload, frame.payload_size) != FINLINK_HS_MSG_HELLO) {
+        if (frame.opcode != UNISON_WS_OPCODE_TEXT ||
+            unison_peek_handshake_message(frame.payload, frame.payload_size) != UNISON_HS_MSG_HELLO) {
             return { false, "Unerwartete erste Nachricht vom Server" };
         }
 
-        finlink_hello hello;
-        const finlink_handshake_result helloParsed = finlink_parse_hello(frame.payload, frame.payload_size, &hello);
+        unison_hello hello;
+        const unison_handshake_result helloParsed = unison_parse_hello(frame.payload, frame.payload_size, &hello);
         buf->consume(frame.frame_size); // done reading frame.payload either way
-        if (helloParsed != FINLINK_HANDSHAKE_OK) {
+        if (helloParsed != UNISON_HANDSHAKE_OK) {
             return { false, "hello konnte nicht gelesen werden" };
         }
-        if (hello.protocol_version != FINLINK_PROTOCOL_VERSION) {
+        if (hello.protocol_version != UNISON_PROTOCOL_VERSION) {
             return { false, "Server spricht Protokollversion " + std::to_string(hello.protocol_version) +
                                 ", dieser Client unterstuetzt nur Version " +
-                                std::to_string(FINLINK_PROTOCOL_VERSION) +
+                                std::to_string(UNISON_PROTOCOL_VERSION) +
                                 " -- bitte Client oder Server aktualisieren" };
         }
         streamType = hello.stream_type;
@@ -267,7 +267,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         // today; kept correct anyway so it isn't a landmine for whoever adds
         // that (see the switch/android fix for what happens without it: a
         // garbage out-of-range slot, rejected outright by the server).
-        finlink_hello_ack_request ackReq {};
+        unison_hello_ack_request ackReq {};
         ackReq.requested_slot = streamType == "GC_GBA_LINK" ? *port - kPlayerBasePort : 0;
         ackReq.max_width = hello.video.width > 0 ? hello.video.width : 240;
         ackReq.max_height = hello.video.height > 0 ? hello.video.height : 160;
@@ -278,7 +278,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         std::strncpy(ackReq.video_mode, videoMode.c_str(), sizeof(ackReq.video_mode) - 1);
 
         char ackJson[512];
-        size_t ackLen = finlink_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
+        size_t ackLen = unison_build_hello_ack(&ackReq, ackJson, sizeof(ackJson));
         if (ackLen == 0) {
             return { false, "hello_ack zu gross fuer den Puffer" };
         }
@@ -286,38 +286,38 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         uint8_t maskKey[4];
         weakRandomBytes(maskKey, sizeof(maskKey));
         uint8_t frameBuf[512 + 14];
-        size_t frameLen = finlink_ws_build_frame(FINLINK_WS_OPCODE_TEXT, reinterpret_cast<const uint8_t *>(ackJson),
+        size_t frameLen = unison_ws_build_frame(UNISON_WS_OPCODE_TEXT, reinterpret_cast<const uint8_t *>(ackJson),
                                                   ackLen, maskKey, frameBuf, sizeof(frameBuf));
         if (frameLen == 0 || !send_all(*fd, frameBuf, frameLen, stop_flag)) {
             return { false, "hello_ack konnte nicht gesendet werden" };
         }
 
-        finlink_ws_frame reply;
+        unison_ws_frame reply;
         if (!receive_one_ws_frame(*fd, buf, stop_flag, kAppHandshakeTimeoutMs, &reply)) {
             return { false, "keine Antwort auf hello_ack" };
         }
-        if (reply.opcode != FINLINK_WS_OPCODE_TEXT) {
+        if (reply.opcode != UNISON_WS_OPCODE_TEXT) {
             return { false, "unerwartete Antwort auf hello_ack" };
         }
 
-        const finlink_handshake_message_type replyType = finlink_peek_handshake_message(reply.payload, reply.payload_size);
-        if (replyType == FINLINK_HS_MSG_HANDSHAKE_ERROR) {
-            finlink_handshake_error err;
-            std::string reason = finlink_parse_handshake_error(reply.payload, reply.payload_size, &err) == FINLINK_HANDSHAKE_OK
+        const unison_handshake_message_type replyType = unison_peek_handshake_message(reply.payload, reply.payload_size);
+        if (replyType == UNISON_HS_MSG_HANDSHAKE_ERROR) {
+            unison_handshake_error err;
+            std::string reason = unison_parse_handshake_error(reply.payload, reply.payload_size, &err) == UNISON_HANDSHAKE_OK
                                       ? std::string(err.detail)
                                       : std::string("Handshake vom Server abgelehnt");
             buf->consume(reply.frame_size);
             return { false, reason };
         }
-        if (replyType != FINLINK_HS_MSG_SESSION_READY) {
+        if (replyType != UNISON_HS_MSG_SESSION_READY) {
             buf->consume(reply.frame_size);
             return { false, "unerwartete Antwort auf hello_ack" };
         }
 
-        finlink_session_ready ready;
-        const finlink_handshake_result readyParsed = finlink_parse_session_ready(reply.payload, reply.payload_size, &ready);
+        unison_session_ready ready;
+        const unison_handshake_result readyParsed = unison_parse_session_ready(reply.payload, reply.payload_size, &ready);
         buf->consume(reply.frame_size); // done reading reply.payload either way
-        if (readyParsed != FINLINK_HANDSHAKE_OK) {
+        if (readyParsed != UNISON_HANDSHAKE_OK) {
             return { false, "session_ready konnte nicht gelesen werden" };
         }
 
@@ -399,7 +399,7 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
         return;
     }
 
-    // App-level handshake (finlink/handshake.h): must succeed -- version
+    // App-level handshake (unison/handshake.h): must succeed -- version
     // match, this slot requested and free -- before any Video/Audio/Input
     // binary frame is allowed on this connection. May reconnect `sockfd`/
     // `host`/`port` once, on a redirect (see performAppHandshake).
@@ -419,11 +419,11 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
         listener.onConnected(hs.streamType, hs.grantedVideoMode);
     }
 
-    // inflate_buf is scratch space for finlink_inflate_raw()'s output,
+    // inflate_buf is scratch space for unison_inflate_raw()'s output,
     // whose content depends on hdr.format (raw RGB565, or a palette +
-    // per-pixel indices, see finlink/protocol.h) -- rgb565_out is always
+    // per-pixel indices, see unison/protocol.h) -- rgb565_out is always
     // final width*height RGB565 pixels, decoded from that via
-    // finlink_decode_video_frame().
+    // unison_decode_video_frame().
     std::vector<uint8_t> inflate_buf;
     std::vector<uint8_t> rgb565_out;
     uint8_t chunk[4096];
@@ -443,52 +443,52 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
 
         bool should_stop = false;
         for (;;) {
-            finlink_ws_frame frame;
-            finlink_ws_frame_status fs = finlink_ws_parse_frame(buf.data.data(), buf.data.size(), &frame);
-            if (fs == FINLINK_WS_FRAME_INCOMPLETE) {
+            unison_ws_frame frame;
+            unison_ws_frame_status fs = unison_ws_parse_frame(buf.data.data(), buf.data.size(), &frame);
+            if (fs == UNISON_WS_FRAME_INCOMPLETE) {
                 break;
             }
-            if (fs == FINLINK_WS_FRAME_ERR) {
+            if (fs == UNISON_WS_FRAME_ERR) {
                 should_stop = true;
                 break;
             }
-            if (frame.opcode == FINLINK_WS_OPCODE_CLOSE) {
+            if (frame.opcode == UNISON_WS_OPCODE_CLOSE) {
                 buf.consume(frame.frame_size);
                 should_stop = true;
                 break;
             }
 
-            finlink_msg_type type;
-            if (finlink_peek_type(frame.payload, frame.payload_size, &type) == FINLINK_OK) {
-                if (type == FINLINK_MSG_VIDEO && listener.onVideoFrame) {
-                    finlink_video_header hdr;
-                    if (finlink_parse_video_header(frame.payload, frame.payload_size, &hdr) == FINLINK_OK) {
+            unison_msg_type type;
+            if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
+                if (type == UNISON_MSG_VIDEO && listener.onVideoFrame) {
+                    unison_video_header hdr;
+                    if (unison_parse_video_header(frame.payload, frame.payload_size, &hdr) == UNISON_OK) {
                         // rgb565_out is the PERSISTENT framebuffer: resizing
                         // it to the same size every frame (width/height
                         // don't change mid-stream) is a no-op that leaves
                         // its content alone, which is exactly what a
-                        // FINLINK_VIDEO_FORMAT_TILES frame needs -- it only
+                        // UNISON_VIDEO_FORMAT_TILES frame needs -- it only
                         // patches the tiles it lists, every other pixel must
                         // keep whatever the previous frame decoded there.
                         size_t framebuffer_size = static_cast<size_t>(hdr.width) * hdr.height * 2;
-                        inflate_buf.resize(finlink_video_max_inflated_size(hdr.width, hdr.height));
+                        inflate_buf.resize(unison_video_max_inflated_size(hdr.width, hdr.height));
                         rgb565_out.resize(framebuffer_size);
                         size_t inflated_size = 0;
-                        if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, inflate_buf.data(),
-                                                 inflate_buf.size(), &inflated_size) == FINLINK_INFLATE_OK &&
-                            finlink_decode_video_frame(hdr.format, inflate_buf.data(), inflated_size, hdr.width,
+                        if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, inflate_buf.data(),
+                                                 inflate_buf.size(), &inflated_size) == UNISON_INFLATE_OK &&
+                            unison_decode_video_frame(hdr.format, inflate_buf.data(), inflated_size, hdr.width,
                                                         hdr.height, rgb565_out.data(),
-                                                        rgb565_out.size()) == FINLINK_OK) {
+                                                        rgb565_out.size()) == UNISON_OK) {
                             listener.onVideoFrame(hdr.width, hdr.height, rgb565_out);
                         }
                     }
-                } else if (type == FINLINK_MSG_AUDIO && listener.onAudioFrame) {
-                    finlink_audio_frame audio;
-                    if (finlink_parse_audio_frame(frame.payload, frame.payload_size, &audio) == FINLINK_OK &&
+                } else if (type == UNISON_MSG_AUDIO && listener.onAudioFrame) {
+                    unison_audio_frame audio;
+                    if (unison_parse_audio_frame(frame.payload, frame.payload_size, &audio) == UNISON_OK &&
                         audio.sample_count > 0) {
                         std::vector<int16_t> pcm(audio.sample_count);
                         for (size_t i = 0; i < audio.sample_count; i++) {
-                            pcm[i] = finlink_read_s16le(audio.samples + i * 2);
+                            pcm[i] = unison_read_s16le(audio.samples + i * 2);
                         }
                         listener.onAudioFrame(audio.sample_rate, audio.channels, std::move(pcm));
                     }
@@ -503,14 +503,14 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
 
         if (inputDirty.exchange(false)) {
             uint16_t mask = pendingKeymask.load();
-            uint8_t payload[FINLINK_INPUT_FRAME_SIZE];
-            finlink_build_input_frame(mask, payload);
+            uint8_t payload[UNISON_INPUT_FRAME_SIZE];
+            unison_build_input_frame(mask, payload);
 
             uint8_t mask_key[4];
             weakRandomBytes(mask_key, sizeof(mask_key));
 
-            uint8_t frame_buf[FINLINK_INPUT_FRAME_SIZE + 10];
-            size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, sizeof(payload), mask_key,
+            uint8_t frame_buf[UNISON_INPUT_FRAME_SIZE + 10];
+            size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, sizeof(payload), mask_key,
                                                         frame_buf, sizeof(frame_buf));
             if (frame_len > 0) {
                 send_all(sockfd, frame_buf, frame_len, &stop);

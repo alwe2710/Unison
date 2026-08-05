@@ -2,8 +2,8 @@
     <!-- Minimal platform theme, only used for the window background before
          the first Compose frame draws (avoids a white flash on a dark-first
          app); actual theming (colors, typography, shapes) is entirely
-         Compose's FinlinkTheme (Theme.kt), not this. -->
-    <style name="Theme.Finlink" parent="android:Theme.Material.NoActionBar">
+         Compose's UnisonTheme (Theme.kt), not this. -->
+    <style name="Theme.Unison" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
     </style>
 </resources>

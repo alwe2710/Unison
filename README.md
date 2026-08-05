@@ -1,18 +1,18 @@
-# finlink
+# Unison
 
-[![build](https://github.com/alwe2710/finlink/actions/workflows/build.yml/badge.svg?branch=transcoding)](https://github.com/alwe2710/finlink/actions/workflows/build.yml?query=branch%3Atranscoding)
+[![build](https://github.com/alwe2710/Unison/actions/workflows/build.yml/badge.svg?branch=transcoding)](https://github.com/alwe2710/Unison/actions/workflows/build.yml?query=branch%3Atranscoding)
 
-Generic client framework for the finlink streaming protocol: a small WebSocket-based protocol for
+Generic client framework for the Unison streaming protocol: a small WebSocket-based protocol for
 streaming a console's screen, audio, and input between an emulator and a remote client.
 
 ## Context
 
-finlink is implemented by forks of four emulators, each streaming a different console/screen:
+Unison is implemented by forks of four emulators, each streaming a different console/screen:
 
 | Emulator fork | `stream_type` | What it streams |
 |---|---|---|
 | dolphin-gba-stream (Dolphin) | `GC_GBA_LINK` | GameCube's built-in GBA emulation (GC↔GBA Link Cable) |
-| Cemu fork (`src/Cemu/finlinkStream/`) | `WIIU_GAMEPAD` | Wii U GamePad screen |
+| Cemu fork (`src/Cemu/unisonStream/`) | `WIIU_GAMEPAD` | Wii U GamePad screen |
 | Azahar fork (`src/core/streaming/`) | `N3DS_BOTTOM_SCREEN` | 3DS bottom screen |
 | melonDS fork (`src/streaming/`) | `NDS_BOTTOM_SCREEN` | DS bottom screen |
 
@@ -66,7 +66,7 @@ Every client's UI text comes from a single source of truth,
 [`i18n/strings.json`](i18n/strings.json), generated per client by
 [`i18n/generate.py`](i18n/generate.py) — run that script after editing
 `strings.json` and commit the regenerated output (same pattern as the web
-client's `finlink_core.js`, see [`clients/web/README.md`](clients/web/README.md)).
+client's `unison_core.js`, see [`clients/web/README.md`](clients/web/README.md)).
 Supported languages: German, English, French, Italian, Spanish. Each client
 auto-selects one from the platform's own system language, falling back to
 English when that can't be determined or isn't one of the five, with a

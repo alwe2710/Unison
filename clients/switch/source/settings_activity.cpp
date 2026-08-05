@@ -64,7 +64,7 @@ const char *labelForLanguagePref(Prefs::LanguagePref pref) {
     }
 }
 
-// Wire-format string (finlink/docs/protocol.md) -> label -- mirrors
+// Wire-format string (unison/docs/protocol.md) -> label -- mirrors
 // labelForLanguagePref() above, just keyed on a raw std::string instead of
 // an enum since video_mode never had one (see Prefs::videoMode's own
 // comment). Falls back to "tiles" for anything unrecognized, same as a

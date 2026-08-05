@@ -3,7 +3,7 @@
 Nintendo 3DS homebrew client (`.3dsx`, devkitARM/libctru + citro2d/citro3d).
 Uses the console's two screens directly instead of the
 Menu/Settings/Player screen stack the other clients use: **top screen**
-always shows the GBA stream (or an idle "finlink" screen before
+always shows the GBA stream (or an idle "Unison" screen before
 connecting), **bottom screen** shows Menu/Settings before connecting and
 the on-screen touch controls (+ a "Trennen" button) while playing.
 
@@ -72,8 +72,8 @@ cmake -S clients/3ds -B clients/3ds/build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmak
 cmake --build clients/3ds/build
 ```
 
-Output: `clients/3ds/build/finlink-3ds.3dsx`. Copy it to the SD card at
-`/3ds/finlink-3ds.3dsx` and launch it through the Homebrew Launcher.
+Output: `clients/3ds/build/unison-3ds.3dsx`. Copy it to the SD card at
+`/3ds/unison-3ds.3dsx` and launch it through the Homebrew Launcher.
 
 ## Status
 

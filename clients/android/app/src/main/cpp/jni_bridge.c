@@ -1,4 +1,4 @@
-// JNI shell around finlink_core: owns the raw POSIX socket, runs the
+// JNI shell around unison_core: owns the raw POSIX socket, runs the
 // connect/handshake/receive loop on a background pthread, and calls back
 // into Kotlin (GbaStreamClient.Listener) for video/audio/connection events.
 // All protocol/codec logic (WS handshake+framing, message parsing, deflate)
@@ -25,13 +25,13 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "finlink/endian.h"
-#include "finlink/handshake.h"
-#include "finlink/inflate.h"
-#include "finlink/protocol.h"
-#include "finlink/websocket.h"
+#include "unison/endian.h"
+#include "unison/handshake.h"
+#include "unison/inflate.h"
+#include "unison/protocol.h"
+#include "unison/websocket.h"
 
-#define LOG_TAG "finlink"
+#define LOG_TAG "Unison"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 typedef struct {
@@ -79,7 +79,7 @@ typedef struct {
     // verbatim as hello_ack.video_mode during the handshake, see
     // perform_app_handshake(). Read once here rather than from Prefs
     // directly since this file has no Context to build one from.
-    char video_mode[FINLINK_VIDEO_MODE_LEN];
+    char video_mode[UNISON_VIDEO_MODE_LEN];
     int sockfd;
     pthread_t thread;
     atomic_bool stop;
@@ -101,7 +101,7 @@ typedef struct {
     // comment. extended_input (sticks + buttons, "n3ds_touch_and_buttons")
     // implies has_buttons; has_buttons alone (buttons, no sticks,
     // "touch_and_buttons" -- melonDS's DS encoding, no analog input at all
-    // on real hardware) picks the narrower finlink_touch_and_buttons frame
+    // on real hardware) picks the narrower unison_touch_and_buttons frame
     // instead. Buttons and stick state below are meaningless (left at
     // their init-time zero, only ever written by nativeSendExtendedInput)
     // on a plain touch_input session that isn't also has_buttons.
@@ -112,7 +112,7 @@ typedef struct {
     atomic_int pending_left_y;
     atomic_int pending_right_x;
     atomic_int pending_right_y;
-    // Text input response (finlink/protocol.h's finlink_text_input_response)
+    // Text input response (unison/protocol.h's unison_text_input_response)
     // -- unlike the continuously-resent state above, this is a one-shot
     // send: nativeSendTextInputResponse stashes the confirmed flag + a heap
     // copy of the UTF-8 text under pending_text_response_mutex (a plain
@@ -126,7 +126,7 @@ typedef struct {
     size_t pending_text_response_len;
     bool pending_text_response_confirmed;
     atomic_bool text_response_dirty;
-    // Mic audio (finlink/protocol.h's FINLINK_MSG_MIC_AUDIO) -- unlike
+    // Mic audio (unison/protocol.h's UNISON_MSG_MIC_AUDIO) -- unlike
     // pending_text_response above (a one-shot value), this is a continuous
     // FIFO byte queue: nativeSendMicAudio() (called repeatedly off the
     // Kotlin-managed AudioRecord capture thread) appends s16le sample bytes
@@ -134,7 +134,7 @@ typedef struct {
     // thread, once per loop iteration) drains and sends whatever's
     // accumulated -- "latest wins" would drop audio, so this can't reuse
     // the atomic-scalar pattern maybe_send_input/maybe_send_touch use.
-    // mic_enabled mirrors the most recent FINLINK_MSG_MIC_ENABLE from the
+    // mic_enabled mirrors the most recent UNISON_MSG_MIC_ENABLE from the
     // server (see handle_mic_enable_message) -- nativeSendMicAudio is a
     // harmless no-op while it's false, since Kotlin's own capture loop is
     // also gated on Listener.onMicEnable and shouldn't normally call it
@@ -146,7 +146,7 @@ typedef struct {
     size_t pending_mic_audio_cap;
     uint32_t pending_mic_sample_rate;
     atomic_bool mic_enabled;
-    // H.264/H265 decode (FINLINK_VIDEO_FORMAT_H264/_H265, see
+    // H.264/H265 decode (UNISON_VIDEO_FORMAT_H264/_H265, see
     // handle_video_message()'s format branch) -- video_window is set from
     // Kotlin's main thread via nativeSetVideoSurface() as soon as
     // PlayerScreen's TextureView surface becomes available, while
@@ -184,7 +184,7 @@ typedef struct {
     // the same displayed image. Only ever touched by the session thread,
     // same as video_codec.
     int64_t last_video_render_time_ms;
-} finlink_session;
+} unison_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
     size_t sent = 0;
@@ -252,15 +252,15 @@ static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop
 
     uint8_t random_bytes[16];
     arc4random_buf(random_bytes, sizeof(random_bytes));
-    char key[FINLINK_WS_KEY_BUF_LEN];
-    finlink_ws_generate_key(random_bytes, key);
+    char key[UNISON_WS_KEY_BUF_LEN];
+    unison_ws_generate_key(random_bytes, key);
 
     char host_header[160];
     snprintf(host_header, sizeof(host_header), "%s:%d", host, port);
 
     char request[512];
     size_t request_len =
-        finlink_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
+        unison_ws_build_handshake_request(host_header, "/", key, request, sizeof(request));
     if (request_len == 0 || !send_all(fd, (const uint8_t *)request, request_len, stop_flag)) {
         LOGE("failed to send handshake request");
         close(fd);
@@ -269,10 +269,10 @@ static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop
 
     byte_buf recv_buf = {0};
     uint8_t chunk[1024];
-    finlink_ws_handshake_status status = FINLINK_WS_HANDSHAKE_INCOMPLETE;
+    unison_ws_handshake_status status = UNISON_WS_HANDSHAKE_INCOMPLETE;
     size_t header_len = 0;
 
-    while (status == FINLINK_WS_HANDSHAKE_INCOMPLETE) {
+    while (status == UNISON_WS_HANDSHAKE_INCOMPLETE) {
         if (atomic_load(stop_flag)) {
             byte_buf_free(&recv_buf);
             close(fd);
@@ -292,8 +292,8 @@ static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop
             close(fd);
             return false;
         }
-        status = finlink_ws_parse_handshake_response(recv_buf.data, recv_buf.len, key, &header_len);
-        if (status == FINLINK_WS_HANDSHAKE_ERR) {
+        status = unison_ws_parse_handshake_response(recv_buf.data, recv_buf.len, key, &header_len);
+        if (status == UNISON_WS_HANDSHAKE_ERR) {
             LOGE("handshake rejected (bad status or Sec-WebSocket-Accept mismatch)");
             byte_buf_free(&recv_buf);
             close(fd);
@@ -320,7 +320,7 @@ static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop
 // byte_buf_consume(buf, out_frame->frame_size) itself once it's safe to
 // discard -- same order run_session_loop's own frame handling already uses
 // for Video/Audio/Input frames.
-static bool receive_one_ws_frame(finlink_session *s, byte_buf *buf, finlink_ws_frame *out_frame,
+static bool receive_one_ws_frame(unison_session *s, byte_buf *buf, unison_ws_frame *out_frame,
                                   int timeout_ms) {
     struct timespec deadline;
     clock_gettime(CLOCK_MONOTONIC, &deadline);
@@ -332,11 +332,11 @@ static bool receive_one_ws_frame(finlink_session *s, byte_buf *buf, finlink_ws_f
     }
 
     for (;;) {
-        finlink_ws_frame_status fs = finlink_ws_parse_frame(buf->data, buf->len, out_frame);
-        if (fs == FINLINK_WS_FRAME_OK) {
+        unison_ws_frame_status fs = unison_ws_parse_frame(buf->data, buf->len, out_frame);
+        if (fs == UNISON_WS_FRAME_OK) {
             return true;
         }
-        if (fs == FINLINK_WS_FRAME_ERR) {
+        if (fs == UNISON_WS_FRAME_ERR) {
             LOGE("malformed frame while waiting for handshake message");
             return false;
         }
@@ -373,7 +373,7 @@ static bool receive_one_ws_frame(finlink_session *s, byte_buf *buf, finlink_ws_f
 // GC_GBA_LINK player ports are always this + the GC device number
 // (docs/protocol.md; matches GbaStreamClient.PLAYER_BASE_PORT on the Kotlin
 // side and GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork).
-#define FINLINK_GBA_LINK_PLAYER_BASE_PORT 6801
+#define UNISON_GBA_LINK_PLAYER_BASE_PORT 6801
 
 #define APP_HANDSHAKE_TIMEOUT_MS 3000
 
@@ -414,10 +414,10 @@ typedef struct {
     // comparison, NOT assume "tiles" was granted (see that doc section for
     // why -- an old/unpatched server must never produce a false-positive
     // fallback prompt).
-    char granted_video_mode[FINLINK_VIDEO_MODE_LEN];
+    char granted_video_mode[UNISON_VIDEO_MODE_LEN];
 } app_handshake_result;
 
-// App-level handshake (finlink/handshake.h, docs/protocol.md
+// App-level handshake (unison/handshake.h, docs/protocol.md
 // "Verbindungsaufbau: Handshake"), run once `s->sockfd` is already
 // WebSocket-upgraded and `buf` may already hold the server's first message.
 // On a `session_ready` with `redirect` (only possible for multi-slot stream
@@ -426,38 +426,38 @@ typedef struct {
 // docs/protocol.md rather than assumed away), closes the current socket,
 // reconnects to the redirect target, and repeats -- bounded to one hop,
 // matching the protocol's own design (never more than a single redirect).
-static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *buf) {
+static app_handshake_result perform_app_handshake(unison_session *s, byte_buf *buf) {
     app_handshake_result result = {false, ""};
 
     for (int hop = 0; hop < 2; hop++) {
-        finlink_ws_frame frame;
+        unison_ws_frame frame;
         if (!receive_one_ws_frame(s, buf, &frame, APP_HANDSHAKE_TIMEOUT_MS)) {
             snprintf(result.reason, sizeof(result.reason),
                      "Server hat keinen Handshake gestartet (evtl. veraltete Protokollversion)");
             return result;
         }
-        if (frame.opcode != FINLINK_WS_OPCODE_TEXT ||
-            finlink_peek_handshake_message(frame.payload, frame.payload_size) != FINLINK_HS_MSG_HELLO) {
+        if (frame.opcode != UNISON_WS_OPCODE_TEXT ||
+            unison_peek_handshake_message(frame.payload, frame.payload_size) != UNISON_HS_MSG_HELLO) {
             snprintf(result.reason, sizeof(result.reason), "Unerwartete erste Nachricht vom Server");
             return result;
         }
 
-        finlink_hello hello;
-        const finlink_handshake_result hello_parsed =
-            finlink_parse_hello(frame.payload, frame.payload_size, &hello);
+        unison_hello hello;
+        const unison_handshake_result hello_parsed =
+            unison_parse_hello(frame.payload, frame.payload_size, &hello);
         // Done reading frame.payload either way -- safe to drop it from buf
         // now, before it's invalidated by any later receive_one_ws_frame()
         // call shifting buf's contents (see that function's own comment).
         byte_buf_consume(buf, frame.frame_size);
-        if (hello_parsed != FINLINK_HANDSHAKE_OK) {
+        if (hello_parsed != UNISON_HANDSHAKE_OK) {
             snprintf(result.reason, sizeof(result.reason), "hello konnte nicht gelesen werden");
             return result;
         }
-        if (hello.protocol_version != FINLINK_PROTOCOL_VERSION) {
+        if (hello.protocol_version != UNISON_PROTOCOL_VERSION) {
             snprintf(result.reason, sizeof(result.reason),
                      "Server spricht Protokollversion %d, dieser Client unterstuetzt nur Version %d "
                      "-- bitte Client oder Server aktualisieren",
-                     hello.protocol_version, FINLINK_PROTOCOL_VERSION);
+                     hello.protocol_version, UNISON_PROTOCOL_VERSION);
             return result;
         }
         result.extended_input = strcmp(hello.input_encoding, "n3ds_touch_and_buttons") == 0;
@@ -466,7 +466,7 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         result.touch_input =
             result.has_buttons || strcmp(hello.input_encoding, "n3ds_touch") == 0;
 
-        finlink_hello_ack_request ack_req;
+        unison_hello_ack_request ack_req;
         memset(&ack_req, 0, sizeof(ack_req));
         // GC_GBA_LINK is the one stream type this app ever dials a specific
         // already-chosen player port for (see GbaStreamClient.PLAYER_BASE_PORT
@@ -481,7 +481,7 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         // Azahar's default port 6810), which the server rejected outright,
         // dropping the connection before any video frame could ever arrive.
         ack_req.requested_slot = strcmp(hello.stream_type, "GC_GBA_LINK") == 0
-                                      ? s->port - FINLINK_GBA_LINK_PLAYER_BASE_PORT
+                                      ? s->port - UNISON_GBA_LINK_PLAYER_BASE_PORT
                                       : 0;
         // Generous/native limits throughout: a phone has no trouble with a
         // 240x160 GBA stream at native rate, so there's never a reason for
@@ -495,7 +495,7 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         strncpy(ack_req.video_mode, s->video_mode, sizeof(ack_req.video_mode) - 1);
 
         char ack_json[512];
-        size_t ack_len = finlink_build_hello_ack(&ack_req, ack_json, sizeof(ack_json));
+        size_t ack_len = unison_build_hello_ack(&ack_req, ack_json, sizeof(ack_json));
         if (ack_len == 0) {
             snprintf(result.reason, sizeof(result.reason), "hello_ack zu gross fuer den Puffer");
             return result;
@@ -504,40 +504,40 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
         uint8_t mask_key[4];
         arc4random_buf(mask_key, sizeof(mask_key));
         uint8_t frame_buf[512 + 14];
-        size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_TEXT, (const uint8_t *)ack_json,
+        size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_TEXT, (const uint8_t *)ack_json,
                                                    ack_len, mask_key, frame_buf, sizeof(frame_buf));
         if (frame_len == 0 || !send_all(s->sockfd, frame_buf, frame_len, &s->stop)) {
             snprintf(result.reason, sizeof(result.reason), "hello_ack konnte nicht gesendet werden");
             return result;
         }
 
-        finlink_ws_frame reply;
+        unison_ws_frame reply;
         if (!receive_one_ws_frame(s, buf, &reply, APP_HANDSHAKE_TIMEOUT_MS)) {
             snprintf(result.reason, sizeof(result.reason), "keine Antwort auf hello_ack");
             return result;
         }
-        if (reply.opcode != FINLINK_WS_OPCODE_TEXT) {
+        if (reply.opcode != UNISON_WS_OPCODE_TEXT) {
             LOGE("unexpected opcode after hello_ack: 0x%x (payload_size=%zu)", reply.opcode,
                  reply.payload_size);
             snprintf(result.reason, sizeof(result.reason), "unerwartete Antwort auf hello_ack");
             return result;
         }
 
-        const finlink_handshake_message_type reply_type =
-            finlink_peek_handshake_message(reply.payload, reply.payload_size);
-        if (reply_type == FINLINK_HS_MSG_HANDSHAKE_ERROR) {
-            finlink_handshake_error err;
-            const finlink_handshake_result err_parsed =
-                finlink_parse_handshake_error(reply.payload, reply.payload_size, &err);
+        const unison_handshake_message_type reply_type =
+            unison_peek_handshake_message(reply.payload, reply.payload_size);
+        if (reply_type == UNISON_HS_MSG_HANDSHAKE_ERROR) {
+            unison_handshake_error err;
+            const unison_handshake_result err_parsed =
+                unison_parse_handshake_error(reply.payload, reply.payload_size, &err);
             byte_buf_consume(buf, reply.frame_size); // done reading reply.payload either way
-            if (err_parsed == FINLINK_HANDSHAKE_OK) {
+            if (err_parsed == UNISON_HANDSHAKE_OK) {
                 snprintf(result.reason, sizeof(result.reason), "%s", err.detail);
             } else {
                 snprintf(result.reason, sizeof(result.reason), "Handshake vom Server abgelehnt");
             }
             return result;
         }
-        if (reply_type != FINLINK_HS_MSG_SESSION_READY) {
+        if (reply_type != UNISON_HS_MSG_SESSION_READY) {
             // Logs the raw payload (bounded, and JSON text is never NUL-safe
             // to assume, so an explicit length-bounded %.*s) -- this is the
             // one report we have of this path actually firing ("ab und zu"),
@@ -550,15 +550,15 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
             return result;
         }
 
-        finlink_session_ready ready;
-        const finlink_handshake_result ready_parsed =
-            finlink_parse_session_ready(reply.payload, reply.payload_size, &ready);
+        unison_session_ready ready;
+        const unison_handshake_result ready_parsed =
+            unison_parse_session_ready(reply.payload, reply.payload_size, &ready);
         // Done reading reply.payload either way -- must happen before any
         // later use of `buf` (the redirect reconnect below reuses it, and a
         // successful non-redirect return hands it to run_session_loop),
         // same reasoning as the `hello` frame's consume above.
         byte_buf_consume(buf, reply.frame_size);
-        if (ready_parsed != FINLINK_HANDSHAKE_OK) {
+        if (ready_parsed != UNISON_HANDSHAKE_OK) {
             snprintf(result.reason, sizeof(result.reason), "session_ready konnte nicht gelesen werden");
             return result;
         }
@@ -609,7 +609,7 @@ static app_handshake_result perform_app_handshake(finlink_session *s, byte_buf *
 // session, self-resolving once the surface arrives and a later frame
 // (or the periodic forced keyframe, see docs/protocol.md's "Keyframe
 // discipline") gets the decoder started.
-static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width, int32_t height) {
+static void ensure_video_codec(unison_session *s, uint8_t format, int32_t width, int32_t height) {
     // atomic_exchange (not just a read) so this is the one place that
     // consumes the flag -- video_codec itself is only ever touched here, on
     // the session thread, never from nativeSetVideoSurface() directly.
@@ -633,7 +633,7 @@ static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width
         return;
     }
 
-    const bool isH264 = (format & FINLINK_VIDEO_FORMAT_H264) != 0;
+    const bool isH264 = (format & UNISON_VIDEO_FORMAT_H264) != 0;
     const char *mime = isH264 ? "video/avc" : "video/hevc";
 
     // Temporary diagnostic (see the "schief und interlaced" investigation):
@@ -649,9 +649,9 @@ static void ensure_video_codec(finlink_session *s, uint8_t format, int32_t width
     const char *softwareName = isH264 ? "c2.android.avc.decoder" : "c2.android.hevc.decoder";
     AMediaCodec *codec = AMediaCodec_createCodecByName(softwareName);
     if (codec) {
-        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "finlink using named software decoder: %s", softwareName);
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Unison using named software decoder: %s", softwareName);
     } else {
-        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "finlink named software decoder unavailable (%s), falling back to by-type lookup", softwareName);
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Unison named software decoder unavailable (%s), falling back to by-type lookup", softwareName);
         codec = AMediaCodec_createDecoderByType(mime);
     }
     if (!codec) {
@@ -686,15 +686,15 @@ static int64_t monotonic_now_ms(void) {
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-// FINLINK_VIDEO_FORMAT_H264/_H265: hdr->compressed_data is a raw Annex-B NAL
+// UNISON_VIDEO_FORMAT_H264/_H265: hdr->compressed_data is a raw Annex-B NAL
 // stream straight from the server's encoder (see docs/protocol.md's
 // "Keyframe discipline"), not raw-deflate -- fed directly to MediaCodec
-// instead of finlink_inflate_raw()/finlink_decode_video_frame(). Queuing one
+// instead of unison_inflate_raw()/unison_decode_video_frame(). Queuing one
 // input buffer and draining whatever output is already ready are both
 // non-blocking (0 timeout): this runs on the network/session thread
 // alongside socket polling and input sending, so it must never stall
 // waiting on the decoder.
-static void handle_h264_h265_video_message(finlink_session *s, const finlink_video_header *hdr) {
+static void handle_h264_h265_video_message(unison_session *s, const unison_video_header *hdr) {
     ensure_video_codec(s, hdr->format, (int32_t)hdr->width, (int32_t)hdr->height);
     if (!s->video_codec) {
         return;
@@ -764,34 +764,34 @@ static void handle_h264_h265_video_message(finlink_session *s, const finlink_vid
     // multiple frames backed up and ready at once -- i.e. it fell behind
     // and is catching up, exactly the kind of backlog that reads as lag.
     if (droppedCount > 0) {
-        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "finlink video decode backlog: dropped %d stale ready frame(s)", droppedCount);
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Unison video decode backlog: dropped %d stale ready frame(s)", droppedCount);
     }
 }
 
-// `inflate_out`/`inflate_out_cap` is scratch space for finlink_inflate_raw()'s
+// `inflate_out`/`inflate_out_cap` is scratch space for unison_inflate_raw()'s
 // output, whose content depends on hdr.format (raw/indexed pixels, whole
-// frame or only changed tiles -- see finlink/protocol.h) --
+// frame or only changed tiles -- see unison/protocol.h) --
 // `rgb565_out`/`rgb565_out_cap` is the PERSISTENT framebuffer, decoded from
-// that via finlink_decode_video_frame(): width*height RGB565 pixels,
+// that via unison_decode_video_frame(): width*height RGB565 pixels,
 // row-major. It's only reallocated when growing (never shrunk, never
 // cleared), so its content survives across calls at a fixed size -- which
-// is exactly what a FINLINK_VIDEO_FORMAT_TILES message needs, since it only
+// is exactly what a UNISON_VIDEO_FORMAT_TILES message needs, since it only
 // patches the tiles it lists and leaves every other pixel as the previous
 // frame decoded it.
-static void handle_video_message(JNIEnv *env, finlink_session *s, jmethodID on_video,
+static void handle_video_message(JNIEnv *env, unison_session *s, jmethodID on_video,
                                   const uint8_t *payload, size_t payload_size, uint8_t **inflate_out,
                                   size_t *inflate_out_cap, uint8_t **rgb565_out, size_t *rgb565_out_cap) {
-    finlink_video_header hdr;
-    if (finlink_parse_video_header(payload, payload_size, &hdr) != FINLINK_OK) {
+    unison_video_header hdr;
+    if (unison_parse_video_header(payload, payload_size, &hdr) != UNISON_OK) {
         return;
     }
 
-    if (hdr.format & (FINLINK_VIDEO_FORMAT_H264 | FINLINK_VIDEO_FORMAT_H265)) {
+    if (hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)) {
         handle_h264_h265_video_message(s, &hdr);
         return;
     }
 
-    size_t inflate_needed = finlink_video_max_inflated_size(hdr.width, hdr.height);
+    size_t inflate_needed = unison_video_max_inflated_size(hdr.width, hdr.height);
     if (inflate_needed > *inflate_out_cap) {
         uint8_t *grown = realloc(*inflate_out, inflate_needed);
         if (!grown) {
@@ -812,12 +812,12 @@ static void handle_video_message(JNIEnv *env, finlink_session *s, jmethodID on_v
     }
 
     size_t inflated_size = 0;
-    if (finlink_inflate_raw(hdr.compressed_data, hdr.compressed_size, *inflate_out, *inflate_out_cap,
-                             &inflated_size) != FINLINK_INFLATE_OK) {
+    if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, *inflate_out, *inflate_out_cap,
+                             &inflated_size) != UNISON_INFLATE_OK) {
         return;
     }
-    if (finlink_decode_video_frame(hdr.format, *inflate_out, inflated_size, hdr.width, hdr.height, *rgb565_out,
-                                    *rgb565_out_cap) != FINLINK_OK) {
+    if (unison_decode_video_frame(hdr.format, *inflate_out, inflated_size, hdr.width, hdr.height, *rgb565_out,
+                                    *rgb565_out_cap) != UNISON_OK) {
         return;
     }
 
@@ -827,10 +827,10 @@ static void handle_video_message(JNIEnv *env, finlink_session *s, jmethodID on_v
     (*env)->DeleteLocalRef(env, arr);
 }
 
-static void handle_audio_message(JNIEnv *env, finlink_session *s, jmethodID on_audio,
+static void handle_audio_message(JNIEnv *env, unison_session *s, jmethodID on_audio,
                                   const uint8_t *payload, size_t payload_size) {
-    finlink_audio_frame audio;
-    if (finlink_parse_audio_frame(payload, payload_size, &audio) != FINLINK_OK ||
+    unison_audio_frame audio;
+    if (unison_parse_audio_frame(payload, payload_size, &audio) != UNISON_OK ||
         audio.sample_count == 0) {
         return;
     }
@@ -840,7 +840,7 @@ static void handle_audio_message(JNIEnv *env, finlink_session *s, jmethodID on_a
         return;
     }
     for (size_t i = 0; i < audio.sample_count; i++) {
-        tmp[i] = (jshort)finlink_read_s16le(audio.samples + i * 2);
+        tmp[i] = (jshort)unison_read_s16le(audio.samples + i * 2);
     }
 
     jshortArray arr = (*env)->NewShortArray(env, (jsize)audio.sample_count);
@@ -858,11 +858,11 @@ static void handle_audio_message(JNIEnv *env, finlink_session *s, jmethodID on_a
 // text input UI instead. req.text isn't NUL-terminated (it points straight
 // into the WS payload buffer), so it needs a temporary NUL-terminated copy
 // before NewStringUTF() can use it.
-static void handle_text_input_request_message(JNIEnv *env, finlink_session *s,
+static void handle_text_input_request_message(JNIEnv *env, unison_session *s,
                                                 jmethodID on_text_input_request, const uint8_t *payload,
                                                 size_t payload_size) {
-    finlink_text_input_request req;
-    if (finlink_parse_text_input_request(payload, payload_size, &req) != FINLINK_OK) {
+    unison_text_input_request req;
+    if (unison_parse_text_input_request(payload, payload_size, &req) != UNISON_OK) {
         return;
     }
     char *text_nul = malloc(req.text_len + 1);
@@ -882,10 +882,10 @@ static void handle_text_input_request_message(JNIEnv *env, finlink_session *s,
 // service), not continuously just because a stream is connected -- this
 // tells Kotlin's Listener to start or stop its own AudioRecord capture
 // loop accordingly, at the sample rate the console actually asked for.
-static void handle_mic_enable_message(JNIEnv *env, finlink_session *s, jmethodID on_mic_enable,
+static void handle_mic_enable_message(JNIEnv *env, unison_session *s, jmethodID on_mic_enable,
                                         const uint8_t *payload, size_t payload_size) {
-    finlink_mic_enable enable;
-    if (finlink_parse_mic_enable_frame(payload, payload_size, &enable) != FINLINK_OK) {
+    unison_mic_enable enable;
+    if (unison_parse_mic_enable_frame(payload, payload_size, &enable) != UNISON_OK) {
         return;
     }
     atomic_store(&s->mic_enabled, enable.enabled != 0);
@@ -899,7 +899,7 @@ static void handle_mic_enable_message(JNIEnv *env, finlink_session *s, jmethodID
 // whatever request handle_text_input_request_message() last delivered.
 // Dynamically allocated (unlike those two's fixed-size stack buffers)
 // since the text length is caller-controlled, not a small fixed shape.
-static void maybe_send_text_input_response(finlink_session *s) {
+static void maybe_send_text_input_response(unison_session *s) {
     if (!atomic_exchange(&s->text_response_dirty, false)) {
         return;
     }
@@ -912,23 +912,23 @@ static void maybe_send_text_input_response(finlink_session *s) {
     s->pending_text_response_len = 0;
     pthread_mutex_unlock(&s->pending_text_response_mutex);
 
-    finlink_text_input_response resp;
+    unison_text_input_response resp;
     resp.confirmed = confirmed ? 1 : 0;
     resp.text = text ? text : "";
     resp.text_len = text_len;
 
-    const size_t payload_cap = finlink_text_input_response_max_size(text_len);
+    const size_t payload_cap = unison_text_input_response_max_size(text_len);
     uint8_t *payload = malloc(payload_cap);
     if (payload) {
-        size_t payload_len = finlink_build_text_input_response(&resp, payload, payload_cap);
+        size_t payload_len = unison_build_text_input_response(&resp, payload, payload_cap);
         if (payload_len > 0) {
             uint8_t mask_key[4];
             arc4random_buf(mask_key, sizeof(mask_key));
 
-            const size_t frame_cap = finlink_ws_build_frame_max_size(payload_len);
+            const size_t frame_cap = unison_ws_build_frame_max_size(payload_len);
             uint8_t *frame_buf = malloc(frame_cap);
             if (frame_buf) {
-                size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, payload_len,
+                size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, payload_len,
                                                            mask_key, frame_buf, frame_cap);
                 if (frame_len > 0) {
                     send_all(s->sockfd, frame_buf, frame_len, &s->stop);
@@ -943,13 +943,13 @@ static void maybe_send_text_input_response(finlink_session *s) {
 
 // Mic-audio counterpart to maybe_send_text_input_response, but draining a
 // FIFO byte queue rather than taking a single one-shot value -- see
-// pending_mic_audio's own comment (finlink_session) for why this can't
+// pending_mic_audio's own comment (unison_session) for why this can't
 // reuse the "latest wins" pattern maybe_send_input/maybe_send_touch use.
 // Hand-built the same way Cemu's WiiuGamepadStream::SendAudioFrame() and
-// this app's own FINLINK_MSG_AUDIO receive side are -- no shared
-// finlink_build_mic_audio_frame() in core since, like FINLINK_MSG_AUDIO,
+// this app's own UNISON_MSG_AUDIO receive side are -- no shared
+// unison_build_mic_audio_frame() in core since, like UNISON_MSG_AUDIO,
 // there's exactly one implementation producing this message right now.
-static void maybe_send_mic_audio(finlink_session *s) {
+static void maybe_send_mic_audio(unison_session *s) {
     pthread_mutex_lock(&s->pending_mic_audio_mutex);
     if (s->pending_mic_audio_len == 0) {
         pthread_mutex_unlock(&s->pending_mic_audio_mutex);
@@ -966,17 +966,17 @@ static void maybe_send_mic_audio(finlink_session *s) {
     const size_t payload_len = 6 + samples_len; // type(1) + sample_rate(4) + channels(1)
     uint8_t *payload = malloc(payload_len);
     if (payload) {
-        payload[0] = FINLINK_MSG_MIC_AUDIO;
-        finlink_write_u32le(payload + 1, sample_rate);
+        payload[0] = UNISON_MSG_MIC_AUDIO;
+        unison_write_u32le(payload + 1, sample_rate);
         payload[5] = 1; // mono -- the only channel count a mic input ever has here
         memcpy(payload + 6, samples, samples_len);
 
         uint8_t mask_key[4];
         arc4random_buf(mask_key, sizeof(mask_key));
-        const size_t frame_cap = finlink_ws_build_frame_max_size(payload_len);
+        const size_t frame_cap = unison_ws_build_frame_max_size(payload_len);
         uint8_t *frame_buf = malloc(frame_cap);
         if (frame_buf) {
-            size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, payload_len,
+            size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, payload_len,
                                                        mask_key, frame_buf, frame_cap);
             if (frame_len > 0) {
                 send_all(s->sockfd, frame_buf, frame_len, &s->stop);
@@ -992,20 +992,20 @@ static void maybe_send_mic_audio(finlink_session *s) {
 // masked WS input frame. Called once per loop iteration rather than
 // eagerly from nativeSendInput, so this thread stays the sole owner of the
 // socket fd -- no send-side locking needed.
-static void maybe_send_input(finlink_session *s) {
+static void maybe_send_input(unison_session *s) {
     if (!atomic_exchange(&s->input_dirty, false)) {
         return;
     }
 
     uint16_t mask = (uint16_t)atomic_load(&s->pending_keymask);
-    uint8_t payload[FINLINK_INPUT_FRAME_SIZE];
-    finlink_build_input_frame(mask, payload);
+    uint8_t payload[UNISON_INPUT_FRAME_SIZE];
+    unison_build_input_frame(mask, payload);
 
     uint8_t mask_key[4];
     arc4random_buf(mask_key, sizeof(mask_key));
 
-    uint8_t frame_buf[FINLINK_INPUT_FRAME_SIZE + 10];
-    size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, sizeof(payload),
+    uint8_t frame_buf[UNISON_INPUT_FRAME_SIZE + 10];
+    size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, sizeof(payload),
                                                mask_key, frame_buf, sizeof(frame_buf));
     if (frame_len > 0) {
         send_all(s->sockfd, frame_buf, frame_len, &s->stop);
@@ -1016,14 +1016,14 @@ static void maybe_send_input(finlink_session *s) {
 // polled once per loop iteration" reasoning applies. Never called for a
 // gba_buttons session since PlayerActivity only ever calls sendTouch() in
 // touch mode, so touch_dirty simply never gets set there.
-static void maybe_send_touch(finlink_session *s) {
+static void maybe_send_touch(unison_session *s) {
     if (!atomic_exchange(&s->touch_dirty, false)) {
         return;
     }
 
     const bool pressed = atomic_load(&s->pending_touch_pressed);
     // x/y (and, for an extended session, buttons/sticks) are meaningless on
-    // release for touch specifically (finlink_touch_state's own comment,
+    // release for touch specifically (unison_touch_state's own comment,
     // protocol.h) -- pending_touch_x/y are left at whatever they last held
     // rather than reset on release, so reading them unconditionally would
     // be fine, but zeroing them out here actually honors the wire
@@ -1032,10 +1032,10 @@ static void maybe_send_touch(finlink_session *s) {
     // state the same way -- e.g. holding a button with no finger on the
     // touch area at all is a real, valid, independent input -- so those are
     // always read from whatever nativeSendExtendedInput last set.
-    uint8_t payload[FINLINK_EXTENDED_INPUT_FRAME_SIZE];
+    uint8_t payload[UNISON_EXTENDED_INPUT_FRAME_SIZE];
     size_t payload_len;
     if (atomic_load(&s->extended_input)) {
-        finlink_extended_input input;
+        unison_extended_input input;
         input.pressed = pressed ? 1 : 0;
         input.touch_x = pressed ? (uint16_t)atomic_load(&s->pending_touch_x) : 0;
         input.touch_y = pressed ? (uint16_t)atomic_load(&s->pending_touch_y) : 0;
@@ -1044,34 +1044,34 @@ static void maybe_send_touch(finlink_session *s) {
         input.left_y = (int16_t)atomic_load(&s->pending_left_y);
         input.right_x = (int16_t)atomic_load(&s->pending_right_x);
         input.right_y = (int16_t)atomic_load(&s->pending_right_y);
-        payload_len = finlink_build_extended_input_frame(&input, payload);
+        payload_len = unison_build_extended_input_frame(&input, payload);
     } else if (atomic_load(&s->has_buttons)) {
-        finlink_touch_and_buttons input;
+        unison_touch_and_buttons input;
         input.pressed = pressed ? 1 : 0;
         input.touch_x = pressed ? (uint16_t)atomic_load(&s->pending_touch_x) : 0;
         input.touch_y = pressed ? (uint16_t)atomic_load(&s->pending_touch_y) : 0;
         input.buttons = (uint32_t)atomic_load(&s->pending_buttons);
-        payload_len = finlink_build_touch_and_buttons_frame(&input, payload);
+        payload_len = unison_build_touch_and_buttons_frame(&input, payload);
     } else {
-        finlink_touch_state touch;
+        unison_touch_state touch;
         touch.pressed = pressed ? 1 : 0;
         touch.x = pressed ? (uint16_t)atomic_load(&s->pending_touch_x) : 0;
         touch.y = pressed ? (uint16_t)atomic_load(&s->pending_touch_y) : 0;
-        payload_len = finlink_build_touch_frame(&touch, payload);
+        payload_len = unison_build_touch_frame(&touch, payload);
     }
 
     uint8_t mask_key[4];
     arc4random_buf(mask_key, sizeof(mask_key));
 
-    uint8_t frame_buf[FINLINK_EXTENDED_INPUT_FRAME_SIZE + 10];
-    size_t frame_len = finlink_ws_build_frame(FINLINK_WS_OPCODE_BINARY, payload, payload_len,
+    uint8_t frame_buf[UNISON_EXTENDED_INPUT_FRAME_SIZE + 10];
+    size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, payload_len,
                                                mask_key, frame_buf, sizeof(frame_buf));
     if (frame_len > 0) {
         send_all(s->sockfd, frame_buf, frame_len, &s->stop);
     }
 }
 
-static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video, jmethodID on_audio,
+static void run_session_loop(JNIEnv *env, unison_session *s, jmethodID on_video, jmethodID on_audio,
                               jmethodID on_text_input_request, jmethodID on_mic_enable, byte_buf *buf) {
     uint8_t chunk[4096];
     uint8_t *inflate_out = NULL;
@@ -1094,33 +1094,33 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
 
         bool should_stop = false;
         for (;;) {
-            finlink_ws_frame frame;
-            finlink_ws_frame_status fs = finlink_ws_parse_frame(buf->data, buf->len, &frame);
-            if (fs == FINLINK_WS_FRAME_INCOMPLETE) {
+            unison_ws_frame frame;
+            unison_ws_frame_status fs = unison_ws_parse_frame(buf->data, buf->len, &frame);
+            if (fs == UNISON_WS_FRAME_INCOMPLETE) {
                 break;
             }
-            if (fs == FINLINK_WS_FRAME_ERR) {
+            if (fs == UNISON_WS_FRAME_ERR) {
                 should_stop = true;
                 break;
             }
 
-            if (frame.opcode == FINLINK_WS_OPCODE_CLOSE) {
+            if (frame.opcode == UNISON_WS_OPCODE_CLOSE) {
                 byte_buf_consume(buf, frame.frame_size);
                 should_stop = true; // not an error, but reuse the same "stop outer loop" path
                 break;
             }
 
-            finlink_msg_type type;
-            if (finlink_peek_type(frame.payload, frame.payload_size, &type) == FINLINK_OK) {
-                if (type == FINLINK_MSG_VIDEO) {
+            unison_msg_type type;
+            if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
+                if (type == UNISON_MSG_VIDEO) {
                     handle_video_message(env, s, on_video, frame.payload, frame.payload_size,
                                          &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
-                } else if (type == FINLINK_MSG_AUDIO) {
+                } else if (type == UNISON_MSG_AUDIO) {
                     handle_audio_message(env, s, on_audio, frame.payload, frame.payload_size);
-                } else if (type == FINLINK_MSG_TEXT_INPUT_REQUEST) {
+                } else if (type == UNISON_MSG_TEXT_INPUT_REQUEST) {
                     handle_text_input_request_message(env, s, on_text_input_request, frame.payload,
                                                        frame.payload_size);
-                } else if (type == FINLINK_MSG_MIC_ENABLE) {
+                } else if (type == UNISON_MSG_MIC_ENABLE) {
                     handle_mic_enable_message(env, s, on_mic_enable, frame.payload, frame.payload_size);
                 }
             }
@@ -1141,7 +1141,7 @@ static void run_session_loop(JNIEnv *env, finlink_session *s, jmethodID on_video
     free(rgb565_out);
 }
 
-static void call_on_disconnected(JNIEnv *env, finlink_session *s, jmethodID on_disconnected,
+static void call_on_disconnected(JNIEnv *env, unison_session *s, jmethodID on_disconnected,
                                   const char *reason) {
     jstring jreason = (*env)->NewStringUTF(env, reason);
     (*env)->CallVoidMethod(env, s->listener, on_disconnected, jreason);
@@ -1149,7 +1149,7 @@ static void call_on_disconnected(JNIEnv *env, finlink_session *s, jmethodID on_d
 }
 
 static void *client_thread_main(void *arg) {
-    finlink_session *s = (finlink_session *)arg;
+    unison_session *s = (unison_session *)arg;
     JNIEnv *env = NULL;
     (*s->jvm)->AttachCurrentThread(s->jvm, &env, NULL);
 
@@ -1207,7 +1207,7 @@ static void *client_thread_main(void *arg) {
     return NULL;
 }
 
-JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(JNIEnv *env,
+JNIEXPORT jlong JNICALL Java_com_unison_android_GbaStreamClient_nativeConnect(JNIEnv *env,
                                                                                 jobject thiz,
                                                                                 jstring jhost,
                                                                                 jint jport,
@@ -1215,7 +1215,7 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
                                                                                 jobject listener) {
     (void)thiz;
 
-    finlink_session *s = calloc(1, sizeof(finlink_session));
+    unison_session *s = calloc(1, sizeof(unison_session));
     if (!s) {
         return 0;
     }
@@ -1272,12 +1272,12 @@ JNIEXPORT jlong JNICALL Java_com_finlink_android_GbaStreamClient_nativeConnect(J
 // h264/h265 frame, rather than continuing to render into a surface that's
 // since been destroyed -- see that flag's own comment for why this can't
 // just touch video_codec directly from here.
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSetVideoSurface(JNIEnv *env,
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSetVideoSurface(JNIEnv *env,
                                                                                         jobject thiz,
                                                                                         jlong handle,
                                                                                         jobject surface) {
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }
@@ -1296,13 +1296,13 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSetVideoSu
     }
 }
 
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendInput(JNIEnv *env,
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSendInput(JNIEnv *env,
                                                                                  jobject thiz,
                                                                                  jlong handle,
                                                                                  jint keymask) {
     (void)env;
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }
@@ -1310,14 +1310,14 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendInput(
     atomic_store(&s->input_dirty, true);
 }
 
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTouch(JNIEnv *env,
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSendTouch(JNIEnv *env,
                                                                                   jobject thiz,
                                                                                   jlong handle,
                                                                                   jboolean pressed,
                                                                                   jint x, jint y) {
     (void)env;
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }
@@ -1334,13 +1334,13 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTouch(
 // pending_right_* when s->extended_input is set in the first place.
 // left_x/y is the circle pad or, on a two-stick console, the left stick;
 // right_x/y is always 0 from a caller with only one stick to report (see
-// finlink_extended_input's own comment, protocol.h).
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendExtendedInput(
+// unison_extended_input's own comment, protocol.h).
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSendExtendedInput(
     JNIEnv *env, jobject thiz, jlong handle, jboolean touch_pressed, jint touch_x, jint touch_y,
     jint buttons, jint left_x, jint left_y, jint right_x, jint right_y) {
     (void)env;
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }
@@ -1357,12 +1357,12 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendExtend
 
 // Only meaningful right after Listener.onTextInputRequest() fires --
 // confirmed=false (the user cancelled) sends an empty text regardless of
-// jtext's content, matching finlink_text_input_response's own convention
+// jtext's content, matching unison_text_input_response's own convention
 // that text is meaningless when not confirmed.
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTextInputResponse(
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSendTextInputResponse(
     JNIEnv *env, jobject thiz, jlong handle, jboolean confirmed, jstring jtext) {
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }
@@ -1402,10 +1402,10 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendTextIn
 // can't make this grow unbounded; drops the oldest data by resetting
 // rather than blocking the capture thread, since a brief gap matters far
 // less to the receiving game than an ever-growing queue would.
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendMicAudio(
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSendMicAudio(
     JNIEnv *env, jobject thiz, jlong handle, jint sample_rate, jshortArray samples) {
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }
@@ -1453,7 +1453,7 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendMicAud
     }
     if (s->pending_mic_audio_len + new_bytes <= s->pending_mic_audio_cap) {
         for (jsize i = 0; i < sample_count; i++) {
-            finlink_write_u16le(s->pending_mic_audio + s->pending_mic_audio_len + (size_t)i * 2,
+            unison_write_u16le(s->pending_mic_audio + s->pending_mic_audio_len + (size_t)i * 2,
                                  (uint16_t)elems[i]);
         }
         s->pending_mic_audio_len += new_bytes;
@@ -1464,11 +1464,11 @@ JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeSendMicAud
     (*env)->ReleaseShortArrayElements(env, samples, elems, JNI_ABORT);
 }
 
-JNIEXPORT void JNICALL Java_com_finlink_android_GbaStreamClient_nativeDisconnect(JNIEnv *env,
+JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeDisconnect(JNIEnv *env,
                                                                                   jobject thiz,
                                                                                   jlong handle) {
     (void)thiz;
-    finlink_session *s = (finlink_session *)(intptr_t)handle;
+    unison_session *s = (unison_session *)(intptr_t)handle;
     if (!s) {
         return;
     }

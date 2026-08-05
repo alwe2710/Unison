@@ -23,13 +23,13 @@ clients/3ds/cia/tools/
 clients/switch/nsp/tools/
 
 # Web -- emsdk toolchain (fetched by build_wasm.sh, see clients/web/README.md)
-# and its intermediate finlink_core wasm build dir; only finlink_core.js
+# and its intermediate unison_core wasm build dir; only unison_core.js
 # itself is committed (a build artifact deliberately treated as source, see
 # build_wasm.sh's own comment). Previously undocumented here despite
 # build_wasm.sh already claiming ".gitignore excludes it" -- fixed while
 # touching this file for the video-mode negotiation feature.
 clients/web/emsdk/
-clients/web/finlink_core_wasm/
+clients/web/unison_core_wasm/
 
 # Web -- Playwright (overlay.spec.mjs): npm packages fetched from
 # package.json/package-lock.json (both committed), Chromium binary fetched

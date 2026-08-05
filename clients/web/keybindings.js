@@ -12,7 +12,7 @@
 // saveBindings/rebuildCodeMap/renderSettings's button handler) -- these
 // functions only take/return plain values, same reasoning as settings.js.
 
-// stored: the parsed finlinkWebBindings localStorage object (name -> KeyboardEvent.code),
+// stored: the parsed unisonWebBindings localStorage object (name -> KeyboardEvent.code),
 // possibly missing entries (a BUTTONS entry added after the value was
 // saved) or, in principle, holding stale entries for a since-removed
 // button (harmless, simply never looked up again). buttons: BUTTONS itself,

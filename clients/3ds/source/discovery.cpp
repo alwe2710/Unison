@@ -12,8 +12,8 @@
 
 #include <3ds.h>
 
-#include "finlink/discovery.h"
-#include "finlink/handshake.h"
+#include "unison/discovery.h"
+#include "unison/handshake.h"
 
 namespace {
 
@@ -181,7 +181,7 @@ void BeaconListener::threadMain() {
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(FINLINK_BEACON_PORT);
+    addr.sin_port = htons(UNISON_BEACON_PORT);
     addr.sin_addr.s_addr = INADDR_ANY;
     if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
         close(fd);
@@ -191,7 +191,7 @@ void BeaconListener::threadMain() {
     uint8_t buf[1024];
     // 500ms poll bound so stopFlag and stale-entry pruning are both checked
     // regularly even with no beacons arriving at all -- not tied to
-    // FINLINK_BEACON_STALE_MS, just needs to be comfortably shorter than it.
+    // UNISON_BEACON_STALE_MS, just needs to be comfortably shorter than it.
     while (!stopFlag.load()) {
         struct pollfd pfd = { fd, POLLIN, 0 };
         if (poll(&pfd, 1, 500) > 0 && (pfd.revents & POLLIN)) {
@@ -199,8 +199,8 @@ void BeaconListener::threadMain() {
             socklen_t fromLen = sizeof(from);
             ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&from), &fromLen);
             if (n > 0) {
-                finlink_beacon beacon;
-                if (finlink_parse_beacon(buf, static_cast<size_t>(n), &beacon)) {
+                unison_beacon beacon;
+                if (unison_parse_beacon(buf, static_cast<size_t>(n), &beacon)) {
                     DiscoveredServer server;
                     server.host = beacon.host;
                     server.emulatorIdentifier = beacon.emulator_identifier;
@@ -208,7 +208,7 @@ void BeaconListener::threadMain() {
                     server.streamType = beacon.stream_type;
                     server.protocolVersion = beacon.protocol_version;
                     server.handshakePort = beacon.handshake_port;
-                    server.compatible = (beacon.protocol_version == FINLINK_PROTOCOL_VERSION);
+                    server.compatible = (beacon.protocol_version == UNISON_PROTOCOL_VERSION);
 
                     std::lock_guard<std::mutex> lock(mutex);
                     auto now = std::chrono::steady_clock::now();
@@ -234,7 +234,7 @@ void BeaconListener::threadMain() {
                                       [now](const Entry &e) {
                                           return std::chrono::duration_cast<std::chrono::milliseconds>(
                                                      now - e.lastSeen)
-                                                     .count() > FINLINK_BEACON_STALE_MS;
+                                                     .count() > UNISON_BEACON_STALE_MS;
                                       }),
                       entries.end());
     }

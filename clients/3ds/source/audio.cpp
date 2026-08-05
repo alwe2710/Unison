@@ -63,7 +63,7 @@ void AudioPlayer::play(uint32_t sampleRate, uint8_t channels, std::vector<int16_
         return;
     }
 
-    finlink_3ds_remix_to_stereo(pcm.data(), frames, channels, buf->linearData);
+    unison_3ds_remix_to_stereo(pcm.data(), frames, channels, buf->linearData);
     DSP_FlushDataCache(buf->linearData, frames * 2 * sizeof(int16_t));
 
     buf->wavebuf.data_pcm16 = buf->linearData;

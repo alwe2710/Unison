@@ -83,21 +83,21 @@ cd clients/nds
 make
 ```
 
-Produces `finlink-nds.nds`. Two separately built ELFs (ARM9 + ARM7),
+Produces `unison-nds.nds`. Two separately built ELFs (ARM9 + ARM7),
 combined via `ndstool` -- devkitPro's `NDS.cmake` has **no** helper for
 this (unlike Switch/3DS/Android), and even devkitPro's own reference
 example for this case (`templates/combined`) uses classic Makefiles
 instead of CMake. That's why this client deliberately deviates from the
 other three clients' CMake pattern:
 
-- `arm9/` -- the actual finlink client (`arm9/source/main.c`), links
-  `finlink_core` in directly as source files (no `add_subdirectory()`
+- `arm9/` -- the actual Unison client (`arm9/source/main.c`), links
+  `unison_core` in directly as source files (no `add_subdirectory()`
   equivalent in a classic Makefile).
 - `arm7/` -- unmodified "default ARM7 core" from devkitPro's
   `templates/combined` example: NVRAM, extended keypad, RTC, power
   management, touch, sound/mic, and -- the part relevant to this ARM9
   side's `dswifi9` -- the wireless manager server
-  (`wlmgrStartServer()`). No finlink-specific code needed.
+  (`wlmgrStartServer()`). No unison-specific code needed.
 
 (`calico`'s `ds_rules` does have a built-in default-ARM7 mechanism for
 exactly this case -- linking a prebuilt `calico/bin/ds7_maine.elf` instead

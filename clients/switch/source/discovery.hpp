@@ -17,7 +17,7 @@ namespace discovery {
 // nullopt = unreachable; otherwise the "occupied" field from the JSON body.
 std::optional<bool> fetchOccupied(const std::string &host, int port, int timeoutMs = 1500);
 
-// One server currently announcing itself via UDP beacon (finlink/discovery.h,
+// One server currently announcing itself via UDP beacon (unison/discovery.h,
 // docs/protocol.md "Discovery-Beacon (UDP)").
 struct DiscoveredServer {
     std::string host;
@@ -26,14 +26,14 @@ struct DiscoveredServer {
     std::string streamType;
     int protocolVersion = 0;
     int handshakePort = 0;
-    // protocolVersion == FINLINK_PROTOCOL_VERSION (exact match, per
+    // protocolVersion == UNISON_PROTOCOL_VERSION (exact match, per
     // docs/protocol.md) -- callers should grey out/refuse to connect to an
     // incompatible entry rather than hide it, so an old/new server is at
     // least visible instead of silently absent.
     bool compatible = false;
 };
 
-// Listens for finlink UDP discovery beacons on a background thread for as
+// Listens for Unison UDP discovery beacons on a background thread for as
 // long as start()/stop() bracket it, mirroring GbaSession's thread-owning
 // style. onUpdate (optional) is invoked from that background thread on a
 // ~1s heartbeat -- borealis's own UI mutation model needs every update

@@ -31,7 +31,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:theme="@style/Theme.Finlink"
+        android:theme="@style/Theme.Unison"
         android:usesCleartextTraffic="true">
         <!-- Menu and Settings deliberately have no screenOrientation: they
              should follow whichever way the device is actually held.

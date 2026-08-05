@@ -19,5 +19,5 @@ only the code to use whatever keyset you provide.
 
 For everyday testing, the plain `.nro` (built unconditionally, run via the
 Homebrew Menu) is the normal path and doesn't need any of this — NSP is
-only relevant if you specifically want to install finlink as a system
+only relevant if you specifically want to install Unison as a system
 title through custom firmware.

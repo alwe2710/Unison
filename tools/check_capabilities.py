@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Lints docs/capabilities.md's machine-readable ``clients`` block against
-the actual client source it describes -- part of the finlink CI pipeline's
+the actual client source it describes -- part of the Unison CI pipeline's
 build-smoke stage (see .github/workflows/build.yml), added specifically
 because feature work (video modes so far) has landed unevenly across
 clients and nothing previously caught the doc/code pair drifting apart.

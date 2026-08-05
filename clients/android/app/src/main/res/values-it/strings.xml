@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">finlink</string>
+    <string name="app_name">Unison</string>
     <string name="host_hint">Indirizzo IP o IP:porta</string>
     <string name="host_hint_example">es. 192.168.1.5</string>
     <string name="menu_connect">Connetti</string>

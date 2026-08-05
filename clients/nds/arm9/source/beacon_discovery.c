@@ -7,11 +7,11 @@
 #include <sys/ioctl.h>
 #include <netinet/in.h>
 
-#include "finlink/handshake.h" /* FINLINK_PROTOCOL_VERSION */
+#include "unison/handshake.h" /* UNISON_PROTOCOL_VERSION */
 
-/* FINLINK_BEACON_STALE_MS (6000) converted to ticks at the 60Hz
+/* UNISON_BEACON_STALE_MS (6000) converted to ticks at the 60Hz
  * swiWaitForVBlank() rate this scan is driven at. */
-#define BEACON_STALE_TICKS (FINLINK_BEACON_STALE_MS * 60 / 1000)
+#define BEACON_STALE_TICKS (UNISON_BEACON_STALE_MS * 60 / 1000)
 
 bool beaconScan_start(BeaconScan *scan) {
     memset(scan, 0, sizeof(*scan));
@@ -27,7 +27,7 @@ bool beaconScan_start(BeaconScan *scan) {
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(FINLINK_BEACON_PORT);
+    addr.sin_port = htons(UNISON_BEACON_PORT);
     addr.sin_addr.s_addr = INADDR_ANY;
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         closesocket(fd);
@@ -73,16 +73,16 @@ void beaconScan_tick(BeaconScan *scan) {
             if (n <= 0) {
                 break; /* EAGAIN/EWOULDBLOCK (nothing waiting) or a real error -- either way, stop draining */
             }
-            finlink_beacon beacon;
-            if (!finlink_parse_beacon(buf, (size_t)n, &beacon)) {
-                continue; /* not a well-formed finlink beacon -- ignore, per finlink/discovery.h */
+            unison_beacon beacon;
+            if (!unison_parse_beacon(buf, (size_t)n, &beacon)) {
+                continue; /* not a well-formed Unison beacon -- ignore, per unison/discovery.h */
             }
             BeaconServer *slot = findByHost(scan, beacon.host);
             if (!slot) {
                 slot = findFreeOrOldest(scan);
             }
             slot->beacon = beacon;
-            slot->compatible = (beacon.protocol_version == FINLINK_PROTOCOL_VERSION);
+            slot->compatible = (beacon.protocol_version == UNISON_PROTOCOL_VERSION);
             slot->lastSeenTick = scan->tickCounter;
             slot->inUse = true;
         }

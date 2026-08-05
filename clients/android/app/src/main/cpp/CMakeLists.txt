@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(finlink_android C)
+project(unison_android C)
 
 # Pull in the shared protocol/codec/transport library directly from the repo
 # root instead of copying/symlinking it into the Android project -- this is
 # the whole point of core/ being a plain add_subdirectory()-able CMake
-# target. FINLINK_BUILD_TESTS is skipped automatically here since
+# target. UNISON_BUILD_TESTS is skipped automatically here since
 # CMAKE_SOURCE_DIR (this project) != core's own CMAKE_CURRENT_SOURCE_DIR.
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../core ${CMAKE_CURRENT_BINARY_DIR}/finlink_core)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../core ${CMAKE_CURRENT_BINARY_DIR}/unison_core)
 
-add_library(finlink_android SHARED
+add_library(unison_android SHARED
     jni_bridge.c
 )
 
@@ -19,8 +19,8 @@ find_library(log-lib log)
 find_library(mediandk-lib mediandk)
 find_library(android-lib android)
 
-target_link_libraries(finlink_android
-    finlink_core
+target_link_libraries(unison_android
+    unison_core
     ${log-lib}
     ${mediandk-lib}
     ${android-lib}
