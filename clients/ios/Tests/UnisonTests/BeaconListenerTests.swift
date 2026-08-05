@@ -1,3 +1,4 @@
+import Combine
 import Darwin
 import XCTest
 @testable import Unison
@@ -20,18 +21,37 @@ final class BeaconListenerTests: XCTestCase {
         "handshake_port":6810}
         """
 
-        // Retries the send rather than a single fixed sleep-then-send:
-        // there's no synchronous confirmation that the listener's
-        // background thread has finished bind()-ing before this test
-        // sends its first packet (a UDP send to a not-yet-bound local
-        // port doesn't itself fail), so resending periodically until the
-        // listener actually reports something is the robust way to avoid
-        // a race against that startup, not a magic-number sleep duration.
-        let deadline = Date().addingTimeInterval(5)
-        while listener.servers.isEmpty && Date() < deadline {
+        // Real first CI run (2026-08-05): NSLog diagnostics showed recv()
+        // and unison_parse_beacon() succeeding repeatedly, but the plain
+        // `while listener.servers.isEmpty { RunLoop.current.run(until:) }`
+        // polling loop this replaced never observed it -- @Published's
+        // main-queue dispatch from the background recv thread apparently
+        // isn't reliably drained by a bare nested RunLoop.run(until:) call
+        // inside a running XCTest method. XCTestExpectation/XCTWaiter (via
+        // a Combine subscription to $servers) is XCTest's own blessed
+        // mechanism for waiting on exactly this kind of cross-thread async
+        // update and is what should actually be trusted here instead.
+        let expectation = expectation(description: "beacon received")
+        var cancellable: AnyCancellable?
+        cancellable = listener.$servers
+            .filter { !$0.isEmpty }
+            .first()
+            .sink { _ in expectation.fulfill() }
+
+        // Still resends periodically rather than once -- the listener's
+        // background thread may not have finished bind()-ing by the time
+        // this first send goes out, and a UDP send to a not-yet-bound
+        // local port doesn't itself fail or block.
+        let resendTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
             Self.sendUDP(json, toPort: UInt16(UNISON_BEACON_PORT))
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+        resendTimer.fire()
+        defer {
+            resendTimer.invalidate()
+            cancellable?.cancel()
+        }
+
+        wait(for: [expectation], timeout: 5)
 
         guard let server = listener.servers.first else {
             XCTFail("BeaconListener never reported the test packet")
