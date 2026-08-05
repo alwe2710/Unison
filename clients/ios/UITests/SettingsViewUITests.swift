@@ -24,7 +24,15 @@ final class SettingsViewUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        let settingsButton = app.buttons["settingsButton"]
+        // Not app.buttons["settingsButton"] -- that was true when this row
+        // was RootView's own explicit Button, but RootView now uses
+        // List(selection:) + .tag() for the sidebar (see that file's own
+        // comment on why: it's what actually drives NavigationSplitView's
+        // collapse-to-detail push on iPhone), and a List(selection:) row's
+        // real underlying accessibility element type turned out not to be
+        // .button (confirmed by CI: app.buttons[...] stopped finding it).
+        // .any sidesteps needing to know/guess what it actually is.
+        let settingsButton = app.descendants(matching: .any)["settingsButton"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
         settingsButton.tap()
 
