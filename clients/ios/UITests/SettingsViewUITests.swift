@@ -47,16 +47,17 @@ final class SettingsViewUITests: XCTestCase {
         XCTAssertTrue(backToSidebar.waitForExistence(timeout: 5))
         backToSidebar.tap()
 
-        // .any rather than .buttons[...]: a List(selection:) row's real
-        // underlying accessibility element type isn't .button (confirmed
-        // by the same dump -- it renders as a Cell), and .any sidesteps
-        // needing to hardcode which one it actually is. .firstMatch: SwiftUI
-        // propagates the identifier onto more than one node of the row's
-        // own merged accessibility subtree (confirmed by CI: the plain
-        // subscript lookup found the row fine but then failed to tap it as
-        // ambiguous, "Multiple matching elements found") -- picking the
-        // first is fine, they're all the same row.
-        let settingsButton = app.descendants(matching: .any)["settingsButton"].firstMatch
+        // app.cells[...], not .buttons[...]/.any: a List(selection:) row's
+        // real underlying accessibility element is a Cell (confirmed by
+        // the earlier dump). .any + .firstMatch was tried next and got
+        // further (found *something*), but failed to tap it as "not
+        // hittable" -- the identifier turned out to propagate onto more
+        // than one node of the row's merged accessibility subtree, and
+        // .firstMatch's traversal-order pick landed on the row's own
+        // gearshape icon Image specifically, a leaf that isn't itself a
+        // real hit target (the enclosing Cell is). Targeting the Cell
+        // directly sidesteps the sub-element ambiguity entirely.
+        let settingsButton = app.cells["settingsButton"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
         settingsButton.tap()
 
