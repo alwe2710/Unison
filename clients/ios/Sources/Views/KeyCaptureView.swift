@@ -15,7 +15,12 @@ import UIKit
 /// GCController/GCExtendedGamepad, not UIPress/UIKey at all) -- Android's
 /// KeyBindingsActivity.kt binds both uniformly because Android's KeyEvent
 /// system happens to cover Bluetooth/USB gamepads too, but iOS has no such
-/// unification. Controller binding support isn't implemented here.
+/// unification. A controller's input does work during an actual session
+/// (see ControllerInputHandler.swift, wired into PlayerViewModel) -- just
+/// through a fixed default mapping, not this per-button *capture* UI. This
+/// view specifically (Settings' "press a key to bind it" flow) stays
+/// keyboard-only; extending it to also capture a controller press would be
+/// a separate, larger UI addition, not implemented here.
 struct KeyCaptureView: UIViewRepresentable {
     let onKey: (Int) -> Void
 

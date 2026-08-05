@@ -4,9 +4,11 @@ import SwiftUI
 /// split into GBA_BUTTONS (every stream type with any buttons at all
 /// understands these) and EXT_BUTTONS/EXT_BUTTONS_LIMITED (only a
 /// hasButtonsMode session -- Azahar's N3DS_BOTTOM_SCREEN today -- reads
-/// these). See KeyCaptureView's own comment for the one real platform gap
-/// versus Android: hardware-keyboard bindings only, no game-controller
-/// (GCController) support.
+/// these). This screen itself (and KeyCaptureView, its capture-the-next-
+/// key mechanism) is hardware-keyboard-only -- see KeyCaptureView's own
+/// comment for why a game controller's *rebinding* isn't part of this UI,
+/// even though a controller's input does work during an actual session via
+/// a separate, fixed default mapping (ControllerInputHandler.swift).
 private enum BindTarget: Identifiable {
     case gba(GbaButton)
     case ext(ExtButton)

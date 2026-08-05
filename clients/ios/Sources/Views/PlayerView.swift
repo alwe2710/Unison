@@ -35,15 +35,44 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     private var keymask: UInt16 = 0
     private let prefs = Prefs()
 
+    // MARK: - Physical key/controller input
+    //
+    // Two independent input sources feed the exact same state below: a
+    // connected hardware keyboard (PlayerKeyInputView, keyed by
+    // UIKeyboardHIDUsage raw values, matching the bindings set in
+    // KeyBindingsView -- see this class's handlePhysicalKey()) and a
+    // connected game controller (ControllerInputHandler.swift,
+    // GameController framework -- a completely separate API with no
+    // HID-code overlap with the keyboard at all, unlike Android's unified
+    // KeyEvent story covering both). No per-button rebinding UI for a
+    // controller (unlike the keyboard's KeyBindingsView) -- a fixed,
+    // sensible default mapping instead (ControllerInputHandler's own
+    // comment), matching how every other client's own physical D-pad/
+    // buttons already have one fixed mapping with no rebind screen either.
+    private lazy var keyCodeToBit = prefs.keyBindingsByKeyCode()
+    private lazy var extKeyCodeToButton = prefs.extKeyBindingsByKeyCode()
+    private lazy var keyCodeToExtBitFromGba = prefs.sharedExtButtonBitsByKeyCode()
+    private var controllerHandler: ControllerInputHandler?
+
+    // Keyboard stick-direction bindings are digital (held/not), unlike a
+    // real analog stick or a game controller's own thumbstick -- these
+    // track each of the (up to) 8 bound keys' held state so opposite
+    // directions held together cancel out instead of the later key
+    // "winning", same convention as PlayerActivity.kt's own
+    // extKeyStickLUp/... fields.
+    private var extKeyStickLUp = false, extKeyStickLDown = false
+    private var extKeyStickLLeft = false, extKeyStickLRight = false
+    private var extKeyStickRUp = false, extKeyStickRDown = false
+    private var extKeyStickRLeft = false, extKeyStickRRight = false
+
     // Extended-input (touchInput && hasButtons) state: touch, buttons, and
     // both analog sticks all merge into ONE unison_extended_input/
     // unison_touch_and_buttons frame per change (see GbaStreamClient.
-    // sendExtendedInput's own comment) -- every source that changes any
-    // one of these calls sendCombined() below, which resends all of them
-    // together, not just its own piece. Direct port of PlayerActivity.kt's
-    // own extTouchPressed/extButtons/... state, minus the physical-key
-    // contribution (KeyBindingsView isn't wired into PlayerView yet -- a
-    // later addition, not this pass).
+    // sendExtendedInput's own comment) -- every source (on-screen taps,
+    // the physical-key/controller handling above, touch drags below) that
+    // changes any one of these calls sendCombined(), which resends all of
+    // them together, not just its own piece. Direct port of
+    // PlayerActivity.kt's own extTouchPressed/extButtons/... state.
     private var extTouchPressed = false
     private var extTouchX: UInt16 = 0
     private var extTouchY: UInt16 = 0
@@ -67,6 +96,7 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         let client = GbaStreamClient(listener: self)
         self.client = client
         client.connect(host: host, port: port, videoMode: prefs.videoMode)
+        controllerHandler = ControllerInputHandler(viewModel: self)
     }
 
     func disconnect() {
@@ -76,10 +106,18 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         audioEngine = nil
         playerNode = nil
         audioFormat = nil
+        controllerHandler = nil
     }
 
-    /// Called from PlayerView's button views on press/release, plain
-    /// gba_buttons sessions only (!touchInput).
+    /// Called from PlayerView's button views (on-screen taps, a bound
+    /// physical key, or a game controller's own fixed mapping -- see this
+    /// class's own MARK above) on press/release, plain gba_buttons sessions
+    /// only (!touchInput). Not tracking *which* source holds a given bit --
+    /// simultaneously holding the on-screen button and its bound physical
+    /// key for the same GBA button, then releasing just one, clears the bit
+    /// early. A real if narrow edge case, accepted for now (matches this
+    /// pass's scope: get physical input working at all, not exhaustively
+    /// arbitrate multiple simultaneous sources per bit).
     func setButton(bit: Int, pressed: Bool) {
         if pressed {
             keymask |= UInt16(bit)
@@ -87,6 +125,75 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
             keymask &= ~UInt16(bit)
         }
         client?.sendInput(keymask: keymask)
+    }
+
+    /// Called by PlayerKeyInputView for every physical-keyboard press/
+    /// release. Returns whether this code matched a binding, so the caller
+    /// knows whether to let the press fall through to the normal iOS
+    /// responder chain (e.g. Escape-to-dismiss) instead of swallowing it.
+    /// Direct port of PlayerActivity.kt's own onKeyDown/onKeyUp +
+    /// handleExtKey.
+    @discardableResult
+    func handlePhysicalKey(code: Int, pressed: Bool) -> Bool {
+        if hasButtons, applyExtKeyCode(code, pressed: pressed) {
+            return true
+        }
+        guard let bit = keyCodeToBit[code] else { return false }
+        setButton(bit: bit, pressed: pressed)
+        return true
+    }
+
+    /// hasButtons sessions only -- checks both binding sources
+    /// (extKeyCodeToButton: X/Y/ZL/ZR/stick-directions, bound in
+    /// KeyBindingsView's own "Erweiterte Tasten" section; and
+    /// keyCodeToExtBitFromGba: A/B/L/R/Select/Start/Up/Down/Left/Right,
+    /// reusing the Standard-Tasten binding instead of asking for it twice
+    /// -- see ExtButtons.kt's GBA_PREFKEY_TO_EXT_BUTTON_BIT). Returns
+    /// whether code matched either.
+    private func applyExtKeyCode(_ code: Int, pressed: Bool) -> Bool {
+        var handled = false
+        if let button = extKeyCodeToButton[code] {
+            applyExtKey(button, pressed: pressed)
+            handled = true
+        }
+        if let bit = keyCodeToExtBitFromGba[code] {
+            setExtButton(bit: UInt32(bit), pressed: pressed)
+            handled = true
+        }
+        return handled
+    }
+
+    /// A .button entry ORs/ANDs its bit into extButtons exactly like
+    /// ExtHoldButton's on-screen counterpart; a stick-direction entry just
+    /// flips the corresponding held-direction flag and re-derives that
+    /// stick's combined x/y from all four of its own directions.
+    private func applyExtKey(_ button: ExtButton, pressed: Bool) {
+        switch button.kind {
+        case .button:
+            setExtButton(bit: UInt32(button.bit), pressed: pressed)
+        case .stickLUp: extKeyStickLUp = pressed; sendLeftStickFromKeys()
+        case .stickLDown: extKeyStickLDown = pressed; sendLeftStickFromKeys()
+        case .stickLLeft: extKeyStickLLeft = pressed; sendLeftStickFromKeys()
+        case .stickLRight: extKeyStickLRight = pressed; sendLeftStickFromKeys()
+        case .stickRUp: extKeyStickRUp = pressed; sendRightStickFromKeys()
+        case .stickRDown: extKeyStickRDown = pressed; sendRightStickFromKeys()
+        case .stickRLeft: extKeyStickRLeft = pressed; sendRightStickFromKeys()
+        case .stickRRight: extKeyStickRRight = pressed; sendRightStickFromKeys()
+        }
+    }
+
+    /// Opposite directions held together cancel out (both false, or both
+    /// true, both read as 0) rather than one arbitrarily winning.
+    private func sendLeftStickFromKeys() {
+        let x: Int16 = extKeyStickLLeft == extKeyStickLRight ? 0 : (extKeyStickLRight ? 32767 : -32767)
+        let y: Int16 = extKeyStickLUp == extKeyStickLDown ? 0 : (extKeyStickLUp ? 32767 : -32767)
+        setLeftStick(x: x, y: y)
+    }
+
+    private func sendRightStickFromKeys() {
+        let x: Int16 = extKeyStickRLeft == extKeyStickRRight ? 0 : (extKeyStickRRight ? 32767 : -32767)
+        let y: Int16 = extKeyStickRUp == extKeyStickRDown ? 0 : (extKeyStickRUp ? 32767 : -32767)
+        setRightStick(x: x, y: y)
     }
 
     // MARK: - Touch-capable session input (touchInput sessions only)
@@ -329,6 +436,16 @@ struct PlayerView: View {
                     viewModel.setButton(bit: bit, pressed: pressed)
                 }
             }
+
+            // Invisible -- just needs to be in the view tree to become
+            // first responder and see physical-keyboard presses for the
+            // whole session (game-controller input goes through
+            // ControllerInputHandler instead, owned by PlayerViewModel
+            // directly since it needs no view of its own).
+            PlayerKeyInputView { code, pressed in
+                viewModel.handlePhysicalKey(code: code, pressed: pressed)
+            }
+            .frame(width: 1, height: 1)
         }
         .statusBarHidden()
         .onAppear {
@@ -380,6 +497,71 @@ struct PlayerView: View {
             .padding(8)
             .background(.black.opacity(0.6))
             .cornerRadius(8)
+        }
+    }
+}
+
+/// Real-time physical-keyboard input for the whole session -- pressesBegan/
+/// pressesEnded forwarded for every press, not just the next one (unlike
+/// KeyCaptureView, the Settings binding-*capture* UI's one-shot counterpart
+/// -- see that file's own comment on the platform's hardware-keyboard-only
+/// limitation, which applies here too: a game controller's buttons go
+/// through GameController's own API, not UIPress at all, see
+/// ControllerInputHandler.swift). `onKey` returns whether the code matched
+/// a binding, so an unmatched press (e.g. Escape) still falls through to
+/// the normal responder chain instead of being swallowed unconditionally.
+private struct PlayerKeyInputView: UIViewRepresentable {
+    let onKey: (Int, Bool) -> Bool
+
+    func makeUIView(context: Context) -> KeyInputUIView {
+        let view = KeyInputUIView()
+        view.onKey = onKey
+        return view
+    }
+
+    func updateUIView(_ uiView: KeyInputUIView, context: Context) {
+        uiView.onKey = onKey
+        if uiView.window != nil {
+            uiView.becomeFirstResponder()
+        }
+    }
+
+    final class KeyInputUIView: UIView {
+        var onKey: ((Int, Bool) -> Bool)?
+
+        override var canBecomeFirstResponder: Bool { true }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil {
+                becomeFirstResponder()
+            }
+        }
+
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            var unhandled = Set<UIPress>()
+            for press in presses {
+                guard let key = press.key, onKey?(Int(key.keyCode.rawValue), true) == true else {
+                    unhandled.insert(press)
+                    continue
+                }
+            }
+            if !unhandled.isEmpty {
+                super.pressesBegan(unhandled, with: event)
+            }
+        }
+
+        override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            var unhandled = Set<UIPress>()
+            for press in presses {
+                guard let key = press.key, onKey?(Int(key.keyCode.rawValue), false) == true else {
+                    unhandled.insert(press)
+                    continue
+                }
+            }
+            if !unhandled.isEmpty {
+                super.pressesEnded(unhandled, with: event)
+            }
         }
     }
 }
