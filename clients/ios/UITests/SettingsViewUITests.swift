@@ -47,18 +47,21 @@ final class SettingsViewUITests: XCTestCase {
         XCTAssertTrue(backToSidebar.waitForExistence(timeout: 5))
         backToSidebar.tap()
 
-        // app.cells[...], not .buttons[...]/.any: a List(selection:) row's
-        // real underlying accessibility element is a Cell (confirmed by
-        // the earlier dump). .any + .firstMatch was tried next and got
-        // further (found *something*), but failed to tap it as "not
-        // hittable" -- the identifier turned out to propagate onto more
-        // than one node of the row's merged accessibility subtree, and
-        // .firstMatch's traversal-order pick landed on the row's own
-        // gearshape icon Image specifically, a leaf that isn't itself a
-        // real hit target (the enclosing Cell is). Targeting the Cell
-        // directly sidesteps the sub-element ambiguity entirely.
-        let settingsButton = app.cells["settingsButton"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        // Several rounds of guessing the exact element type a
+        // List(selection:) row's identifier lands on (.buttons[...],
+        // .any+.firstMatch, .cells[...]) each got a different, real CI
+        // failure (not found at all / found but not hittable / not found
+        // at all again) -- SwiftUI evidently propagates the identifier
+        // onto more than one node of the row's merged accessibility
+        // subtree, and which one is "first" or "the Cell" isn't something
+        // worth continuing to guess. Querying broadly (.any) and picking
+        // whichever match actually reports isHittable sidesteps needing to
+        // know the exact type at all -- .any is confirmed (by two earlier
+        // CI runs) to find *something* here, this just stops assuming
+        // which specific match is usable.
+        let matches = app.descendants(matching: .any).matching(identifier: "settingsButton")
+        XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 5))
+        let settingsButton = matches.allElementsBoundByIndex.first { $0.isHittable } ?? matches.firstMatch
         settingsButton.tap()
 
         let toggle = app.switches["onScreenControlsToggle"]
