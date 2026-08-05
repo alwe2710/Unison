@@ -8,8 +8,10 @@ endif
 export TARGET := finlink-nds
 export TOPDIR := $(CURDIR)
 
-# Leave blank to use ds_rules' built-in default (calico/share/nds-icon.bmp).
-GAME_ICON :=
+# 32x32, 16-color indexed BMP -- derived from assets/logo/finlink-logo.png,
+# see assets/logo/README.md. Leave blank to fall back to ds_rules' built-in
+# default (calico/share/nds-icon.bmp) instead.
+GAME_ICON := icon.bmp
 
 NITRO_FILES :=
 
