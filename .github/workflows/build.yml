@@ -327,11 +327,23 @@ jobs:
         # macos-15's Xcode 16.4 doesn't ship an "iPhone 15" simulator
         # anymore (real first run, 2026-08-05: only iPhone 16+ and iPad
         # models were available) -- "iPhone 16" instead.
+        #
+        # -parallel-testing-enabled NO: real CI run (2026-08-05), still
+        # within this single bundle even after splitting the two bundles
+        # into separate invocations above -- BeaconListener bound port
+        # 6805 successfully, then ~2.7s later a *second* bind() to the
+        # same port failed with EADDRINUSE, all inside one `xcodebuild
+        # test -only-testing:UnisonTests` run. Xcode's default test
+        # parallelization runs test classes/methods concurrently via
+        # multiple worker processes on the *same* Simulator (not separate
+        # cloned Simulators), so two tests that each grab a fixed
+        # real system resource (this port) can and did collide.
         run: |
           xcodebuild test \
             -project Unison.xcodeproj -scheme Unison \
             -only-testing:UnisonTests \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
       - name: Run UnisonUITests
         working-directory: clients/ios
@@ -340,6 +352,7 @@ jobs:
             -project Unison.xcodeproj -scheme Unison \
             -only-testing:UnisonUITests \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
       # Unsigned device .ipa -- no Apple Developer account configured (see
       # clients/ios/README.md), so this can't be signed here at all.
