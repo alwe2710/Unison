@@ -54,8 +54,17 @@ final class BeaconListener: ObservableObject {
     private var socketFD: Int32 = -1
     private var staleTimer: Timer?
 
+    /// Defaults to the real UNISON_BEACON_PORT for production use
+    /// (MenuView never passes an override). Tests pass a different port --
+    /// real CI run (2026-08-05): a unit test bundle is injected into (and
+    /// a UI test launches its own instance of) the *actual running app*,
+    /// whose own MenuView.onAppear starts its own real BeaconListener on
+    /// the real port independently of anything a test does, so a test
+    /// binding that exact same fixed port always loses the resulting race
+    /// against the app's own listener -- see BeaconListenerTests.swift's
+    /// own comment.
     @discardableResult
-    func start() -> Bool {
+    func start(port: UInt16 = UInt16(UNISON_BEACON_PORT)) -> Bool {
         stop()
 
         let fd = socket(AF_INET, SOCK_DGRAM, 0)
@@ -70,18 +79,18 @@ final class BeaconListener: ObservableObject {
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_addr.s_addr = INADDR_ANY
-        addr.sin_port = UInt16(UNISON_BEACON_PORT).bigEndian
+        addr.sin_port = port.bigEndian
         let bindResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bindResult == 0 else {
-            NSLog("BeaconListener: bind() to port \(UNISON_BEACON_PORT) failed, errno=\(errno) (\(String(cString: strerror(errno))))")
+            NSLog("BeaconListener: bind() to port \(port) failed, errno=\(errno) (\(String(cString: strerror(errno))))")
             close(fd)
             return false
         }
-        NSLog("BeaconListener: bound to port \(UNISON_BEACON_PORT), fd=\(fd)")
+        NSLog("BeaconListener: bound to port \(port), fd=\(fd)")
         socketFD = fd
 
         let thread = Thread { [weak self] in
