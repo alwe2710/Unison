@@ -314,8 +314,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
       - name: Run UnisonTests
         working-directory: clients/ios
+        # macos-15's Xcode 16.4 doesn't ship an "iPhone 15" simulator
+        # anymore (real first run, 2026-08-05: only iPhone 16+ and iPad
+        # models were available) -- "iPhone 16" instead.
         run: |
           xcodebuild test \
             -project Unison.xcodeproj -scheme Unison \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO
