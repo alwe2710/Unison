@@ -52,7 +52,19 @@ target_include_directories(test_language_and_bilinear PRIVATE
     ${UNISON_CORE_DIR}/include
 )
 
+# host_port.cpp is deliberately free of <3ds.h> (unlike the rest of
+# main.cpp's drawMenuScreen(), which calls it) -- no unison_core/prefs
+# needed here, it's pure string parsing.
+add_executable(test_host_port
+    test_host_port.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/host_port.cpp
+)
+target_include_directories(test_host_port PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source
+)
+
 enable_testing()
 add_test(NAME dual_screen_choice COMMAND test_dual_screen_choice)
 add_test(NAME audio_remix COMMAND test_audio_remix)
 add_test(NAME language_and_bilinear COMMAND test_language_and_bilinear)
+add_test(NAME host_port COMMAND test_host_port)

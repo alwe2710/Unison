@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <malloc.h>
@@ -37,6 +38,7 @@
 #include "audio.hpp"
 #include "discovery.hpp"
 #include "gba_buttons.hpp"
+#include "host_port.hpp"
 #include "language_pref.hpp"
 #include "prefs.hpp"
 #include "session.hpp"
@@ -91,7 +93,7 @@ const char *labelForStreamType(const char *streamType) {
     return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
 }
 
-enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE };
+enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE, ANTIALIASING };
 
 // strings::kStatusError ("Fehler: %s") applied -- small helper since this
 // is needed at both onDisconnected call sites below.
@@ -223,7 +225,39 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
 
     ui::Rect connectRect { 252, 8, 60, 28 };
     if (ui::button(textBuf, touch, connectRect, strings::kMenuConnect, !searching && !hostText.empty())) {
-        runSearch(menu, hostText);
+        if (auto hp = splitHostPort(hostText)) {
+            // "host:port" -- connect straight to that single-slot server,
+            // same as tapping a non-GC_GBA_LINK beacon entry below does.
+            // See splitHostPort()'s own comment for why this branch exists.
+            *connectedHost = hp->host;
+            videoTex->reset();
+            session->connect(hp->host, hp->port, prefs->videoMode,
+                GbaSession::Listener {
+                    .onConnected =
+                        [connected, connectedStreamType, connectedGrantedVideoMode](
+                            std::string streamType, std::string grantedVideoMode) {
+                            *connectedStreamType = std::move(streamType);
+                            *connectedGrantedVideoMode = std::move(grantedVideoMode);
+                            *connected = true;
+                        },
+                    .onVideoFrame =
+                        [videoTex](uint32_t w, uint32_t h, std::vector<uint8_t> rgb) {
+                            videoTex->setFrame(w, h, rgb);
+                        },
+                    .onAudioFrame =
+                        [audio](uint32_t rate, uint8_t ch, std::vector<int16_t> pcm) {
+                            audio->play(rate, ch, std::move(pcm));
+                        },
+                    .onDisconnected =
+                        [connected, menu](std::string reason) {
+                            *connected = false;
+                            std::lock_guard<std::mutex> l(menu->mutex);
+                            menu->statusText = formatError(reason);
+                        },
+                });
+        } else {
+            runSearch(menu, hostText);
+        }
     }
 
     if (pickerVisible) {
@@ -283,16 +317,30 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
     // (both "kein freier Slot" and an endless discovery scan) to a
     // perfectly healthy network where nothing just happens to answer --
     // this line is the difference.
-    std::string myIp = discovery::localIpString();
+    //
+    // localIpString() -> gethostid() is a real IPC round-trip to the soc:u
+    // sysmodule (like every libctru soc.h call), not a cheap local read --
+    // calling it unconditionally every single frame (as this used to) adds
+    // that IPC latency to every frame's budget on exactly the screen where
+    // taps are reported as needing to be repeated. The local IP practically
+    // never changes mid-session, so this is cached and only refreshed every
+    // 2s instead of 60x/s.
+    static std::string cachedMyIp;
+    static std::chrono::steady_clock::time_point lastIpRefresh;
+    auto nowSteady = std::chrono::steady_clock::now();
+    if (lastIpRefresh.time_since_epoch().count() == 0 || nowSteady - lastIpRefresh > std::chrono::seconds(2)) {
+        cachedMyIp = discovery::localIpString();
+        lastIpRefresh = nowSteady;
+    }
     std::string netLine;
-    if (myIp.empty()) {
+    if (cachedMyIp.empty()) {
         netLine = strings::kDiscoveryNoNetwork;
     } else {
         char buf[80];
-        snprintf(buf, sizeof(buf), strings::kDiscoveryOwnIp, myIp.c_str());
+        snprintf(buf, sizeof(buf), strings::kDiscoveryOwnIp, cachedMyIp.c_str());
         netLine = buf;
     }
-    ui::drawText(textBuf, netLine.c_str(), 190, 74, 0.38f, myIp.empty() ? ui::kColorButtonHeld : ui::kColorTextDim);
+    ui::drawText(textBuf, netLine.c_str(), 190, 74, 0.38f, cachedMyIp.empty() ? ui::kColorButtonHeld : ui::kColorTextDim);
 
     // No manual "search" trigger -- a server announces itself via UDP
     // beacon roughly every 2s on its own (docs/protocol.md), so
@@ -414,81 +462,103 @@ void applyLanguage(const Prefs &prefs) {
     strings::setLanguage(resolveLanguage(prefs));
 }
 
+// Redesigned as a consistently-spaced, full-width "tap anywhere in the row"
+// navigation list (current value baked right into the row's own label) --
+// closer to how Android's SettingsActivity reads, and replaces the old
+// label-left/tiny-button-right layout that was tuned purely by arithmetic
+// and never actually seen rendered on real hardware before now (see git
+// history/this function's previous revision). Antialiasing moved out to
+// its own sub-screen (drawAntialiasingScreen() below), matching Android's
+// separate AntialiasingActivity and freeing up enough room here that every
+// row gets the same 38px step instead of being squeezed to fit.
 void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
     ui::drawText(textBuf, strings::kSettings, 8, 8, 0.55f, ui::kColorText);
 
-    ui::drawText(textBuf, strings::kSettingsBottomScreenVideo, 8, 44, 0.45f, ui::kColorText);
-    ui::Rect t3 { 250, 40, 60, 28 };
-    if (ui::toggle(touch, t3, prefs->bottomScreenVideo)) {
+    // Row 1: the one plain toggle on this screen (not a sub-screen -- a
+    // single on/off doesn't need one). Only affects single-screen stream
+    // types (GC_GBA_LINK today) -- see this file's own top comment and
+    // useBottomForVideo in main().
+    ui::drawText(textBuf, strings::kSettingsBottomScreenVideo, 8, 48, 0.42f, ui::kColorText);
+    ui::Rect videoToggleRect { 250, 40, 62, 28 };
+    if (ui::toggle(touch, videoToggleRect, prefs->bottomScreenVideo)) {
         prefs->bottomScreenVideo = !prefs->bottomScreenVideo;
         prefs->save();
     }
-    // Only affects single-screen stream types (GC_GBA_LINK today) -- see
-    // this file's own top comment and useBottomForVideo in main(). One
-    // line (not the old two-line split) since the hint text is now a
-    // single central string (strings::kSettingsBottomScreenVideoHint) --
-    // a smaller scale than the two-line version used keeps it fitting the
-    // 320px-wide bottom screen.
-    ui::drawText(textBuf, strings::kSettingsBottomScreenVideoHint, 8, 72, 0.32f, ui::kColorTextDim);
+    ui::drawText(textBuf, strings::kSettingsBottomScreenVideoHint, 8, 74, 0.32f, ui::kColorTextDim);
 
-    // Opens LANGUAGE (a plain list, see drawLanguageScreen()) instead of
-    // cycling in place -- same "tap the row, pick from a list" flow as
-    // every other client now uses. Fits in the gap between the hint above
-    // and the antialiasing header below rather than claiming a whole new
-    // row of its own -- the 240px-tall bottom screen is already tight (see
-    // backRect below).
-    ui::drawText(textBuf, strings::kSettingsLanguage, 8, 84, 0.4f, ui::kColorTextDim);
+    // Rows 2-4: full-width navigation buttons, each opening its own
+    // sub-screen (same "tap the row, pick from a list, land back here"
+    // flow every sub-screen already uses). The current value is part of
+    // the button's own label, so there's nothing to read elsewhere on the
+    // row -- the whole row is one tap target, not just a small control on
+    // its right edge.
+    //
+    // (Previously this branch only recognized DE/EN and fell back to
+    // "System" for FR/IT/ES, which was wrong -- the language actually
+    // applied still matched prefs->language correctly, only this screen's
+    // own label was misleading. Fixed here incidentally while rewriting.)
     const char *languageLabel = prefs->language == Prefs::LanguagePref::DE ? strings::kLanguageGerman
                                : prefs->language == Prefs::LanguagePref::EN ? strings::kLanguageEnglish
+                               : prefs->language == Prefs::LanguagePref::FR ? strings::kLanguageFrench
+                               : prefs->language == Prefs::LanguagePref::IT ? strings::kLanguageItalian
+                               : prefs->language == Prefs::LanguagePref::ES ? strings::kLanguageSpanish
                                                                              : strings::kLanguageSystem;
-    ui::Rect languageRect { 200, 80, 104, 20 };
-    if (ui::button(textBuf, touch, languageRect, languageLabel)) {
+    std::string languageRowLabel = std::string(strings::kSettingsLanguage) + ": " + languageLabel;
+    ui::Rect languageRect { 8, 96, 304, 32 };
+    if (ui::button(textBuf, touch, languageRect, languageRowLabel.c_str())) {
         *screenState = BottomScreenState::LANGUAGE;
     }
 
-    // Same "tap the row, pick from a list" pattern as language above,
-    // squeezed into the same tight-space discipline (see this function's
-    // own comment on languageRect) -- one more row than this screen had
-    // room for before, so the antialiasing header/list/backRect below are
-    // all shifted down and slightly compressed (18px step instead of 22,
-    // 16px toggle height instead of 20) to still fit the 240px-tall bottom
-    // screen. Worth a real on-device visual check -- this was tuned by
-    // arithmetic, not by actually seeing it rendered.
-    ui::drawText(textBuf, strings::kSettingsVideoMode, 8, 108, 0.4f, ui::kColorTextDim);
     const char *videoModeLabel = prefs->videoMode == "h264" ? strings::kVideoModeH264
                                 : prefs->videoMode == "h265" ? strings::kVideoModeH265
                                 : prefs->videoMode == "legacy" ? strings::kVideoModeLegacy
                                                                 : strings::kVideoModeTiles;
-    ui::Rect videoModeRect { 200, 104, 104, 18 };
-    if (ui::button(textBuf, touch, videoModeRect, videoModeLabel)) {
+    std::string videoModeRowLabel = std::string(strings::kSettingsVideoMode) + ": " + videoModeLabel;
+    ui::Rect videoModeRect { 8, 134, 304, 32 };
+    if (ui::button(textBuf, touch, videoModeRect, videoModeRowLabel.c_str())) {
         *screenState = BottomScreenState::VIDEO_MODE;
     }
 
-    // Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
-    // stream_type rather than one global toggle -- GBA/DS pixel art and a
-    // Wii U GamePad's higher-effective-resolution render suit different
-    // filtering. Listed here (docs/protocol.md's fixed set of stream
-    // types) rather than only offering "the current one": this screen is
-    // only ever reachable pre-connect (see this file's own top comment),
-    // so there's no single "current" stream_type to key off anyway --
-    // whichever type is actually connected to later just reads whatever
-    // was configured here in advance (see main()'s onConnected handling).
-    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 128, 0.4f, ui::kColorTextDim);
-    float y = 146.0f;
+    ui::Rect antialiasingRect { 8, 172, 304, 32 };
+    if (ui::button(textBuf, touch, antialiasingRect, strings::kSettingsAntialiasing)) {
+        *screenState = BottomScreenState::ANTIALIASING;
+    }
+
+    ui::Rect backRect { 8, 210, 304, 26 };
+    if (ui::button(textBuf, touch, backRect, strings::kBack)) {
+        *screenState = BottomScreenState::MENU;
+    }
+}
+
+// Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
+// stream_type rather than one global toggle -- GBA/DS pixel art and a
+// Wii U GamePad's higher-effective-resolution render suit different
+// filtering. Listed here (docs/protocol.md's fixed set of stream types)
+// rather than only offering "the current one": this screen is only ever
+// reachable pre-connect (see this file's own top comment), so there's no
+// single "current" stream_type to key off anyway -- whichever type is
+// actually connected to later just reads whatever was configured here in
+// advance (see main()'s onConnected handling). Same per-row-toggle shape
+// the old inline version on drawSettingsScreen() had, just with the room
+// to breathe that moving it to its own screen buys back.
+void drawAntialiasingScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
+    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 8, 0.55f, ui::kColorText);
+
+    float y = 40.0f;
     for (const auto &entry : kKnownStreamTypes) {
-        ui::drawText(textBuf, labelForStreamType(entry.streamType), 8, y + 3, 0.38f, ui::kColorText);
-        ui::Rect r { 250, y, 60, 16 };
+        ui::drawText(textBuf, labelForStreamType(entry.streamType), 8, y + 8, 0.42f, ui::kColorText);
+        ui::Rect r { 250, y, 62, 28 };
         bool bilinear = prefs->bilinearFor(entry.streamType);
         if (ui::toggle(touch, r, bilinear)) {
             prefs->setBilinearFor(entry.streamType, !bilinear);
             prefs->save();
         }
-        y += 18.0f;
+        y += 36.0f;
     }
 
     ui::Rect backRect { 8, 220, 304, 18 };
     if (ui::button(textBuf, touch, backRect, strings::kBack)) {
-        *screenState = BottomScreenState::MENU;
+        *screenState = BottomScreenState::SETTINGS;
     }
 }
 
@@ -772,6 +842,8 @@ int main(int argc, char *argv[]) {
             drawSettingsScreen(textBuf, touch, &prefs, &screenState);
         } else if (screenState == BottomScreenState::VIDEO_MODE) {
             drawVideoModeScreen(textBuf, touch, &prefs, &screenState);
+        } else if (screenState == BottomScreenState::ANTIALIASING) {
+            drawAntialiasingScreen(textBuf, touch, &prefs, &screenState);
         } else {
             drawLanguageScreen(textBuf, touch, &prefs, &screenState);
         }

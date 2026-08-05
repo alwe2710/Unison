@@ -13,7 +13,7 @@
 # while over-provisioning is harmless.
 BasicInfo:
   Title                   : unison
-  ProductCode             : CTR-P-FNLK
+  ProductCode             : CTR-P-UNSN
   Logo                    : Nintendo
 
 TitleInfo:

@@ -86,8 +86,46 @@ Output: `clients/3ds/build/unison-3ds.3dsx`. Copy it to the SD card at
 - [x] Player -- video on the top screen, on-screen controls + physical
       buttons + "Trennen" on the bottom screen
 
-Everything above compiles and links cleanly to a `.3dsx`, but hasn't been
-tested on a real console in this environment for lack of access to real
-3DS hardware -- in particular the video texture UV convention
-(`Tex3DS_SubTexture`) and NDSP audio playback are untested assumptions
-from the citro2d/citro3d documentation.
+Everything above compiles and links cleanly to a `.3dsx`/`.cia`, and has
+since been installed and run on a real console via FBI. That first real
+hardware pass found four issues, addressed as follows:
+
+- Settings screen was cramped/hard to read (a purely arithmetic-tuned
+  layout, never actually seen rendered before that pass) -- redesigned as
+  a consistently-spaced navigation list, and Antialiasing split out into
+  its own `BottomScreenState::ANTIALIASING` sub-screen (matching Android's
+  separate `AntialiasingActivity`), same as Language/Video mode already
+  had.
+- Manual host entry always ran the GC_GBA_LINK P1-P4 lobby probe, even
+  though the field's own placeholder text ("IP address or IP:port") always
+  promised `host:port` would connect directly to a single-slot server the
+  same way Android's manual entry does -- a `host:port` value fed straight
+  into `inet_pton()` for all four probe ports, which fails identically on
+  every one of them (see `source/host_port.{hpp,cpp}` and its test). Fixed
+  by actually implementing that split, matching Android.
+- A cosmetic rename leftover (`ProductCode: CTR-P-FNLK` in `cia/template.rsf`,
+  from the pre-rename `finlink` naming) was found and fixed while
+  investigating why the CIA didn't show up on the Home Menu after an FBI
+  install -- the SMDH itself was independently verified correct (parsed by
+  hand: title/publisher strings read "Unison" in every language, and the
+  `Visible` flag is set), so this wasn't the actual cause of that symptom;
+  it remains open, most likely a device-side icon-cache/rescan quirk or a
+  conflicting leftover install under an old title, neither reproducible
+  without hardware.
+- Reported input lag/repeated taps needed during a beacon search was
+  traced to `drawMenuScreen()` calling `gethostid()` (a real IPC round trip
+  to the `soc:u` sysmodule, not a cheap local read) unconditionally on
+  every single frame just to show the "your IP" diagnostic line -- now
+  cached and refreshed only every 2s. `BeaconListener` and the P1-P4 probe
+  both already run on genuine background `std::thread`s (not literally
+  blocking the main thread), so if lag is still reported after this fix,
+  the next suspect is 3DS-specific thread scheduling/priority contention
+  on a single physical core, which would need `threadCreate()`-level
+  priority tuning -- not yet attempted, since it's speculative without
+  hardware to confirm it against.
+
+That pass didn't get as far as a successful stream connection (see the
+`host:port` bug above), so the video texture UV convention
+(`Tex3DS_SubTexture`) and NDSP audio playback are still unconfirmed on
+real hardware -- next real-hardware pass, now that manual entry actually
+works, should cover that.
