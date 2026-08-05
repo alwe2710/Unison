@@ -18,6 +18,11 @@ private struct Connection: Hashable {
 /// PlayerActivity with host/port extras, PlayerActivity does the actual
 /// connecting" split as Android.
 struct MenuView: View {
+    // Forwarded to every PlayerView this screen ever pushes -- see that
+    // property's own comment (PlayerView.swift). Not consulted here at
+    // all, just threaded through.
+    var onPlayerActiveChanged: ((Bool) -> Void)? = nil
+
     @State private var host: String = ""
     @State private var port: String = "6800"
     @StateObject private var beacon = BeaconListener()
@@ -128,10 +133,10 @@ struct MenuView: View {
             .frame(maxWidth: 500)
             .frame(maxWidth: .infinity)
             .navigationDestination(for: Int32.self) { port in
-                PlayerView(host: host, port: port)
+                PlayerView(host: host, port: port, onActiveChanged: onPlayerActiveChanged)
             }
             .navigationDestination(for: Connection.self) { connection in
-                PlayerView(host: connection.host, port: connection.port)
+                PlayerView(host: connection.host, port: connection.port, onActiveChanged: onPlayerActiveChanged)
             }
             // No gear-icon toolbar link to SettingsView anymore -- Settings
             // is its own top-level sidebar entry now (RootView.swift), same

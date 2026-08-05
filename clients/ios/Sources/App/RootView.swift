@@ -26,6 +26,16 @@ struct RootView: View {
     }
 
     @State private var selection: Section? = .connect
+    // Collapses the sidebar for the duration of an actual stream --
+    // reported directly after real-iPad testing: the sidebar should
+    // disappear once the stream is running, not stay docked next to a
+    // fullscreen game. PlayerView (nested inside MenuView's own
+    // NavigationStack, itself the detail pane below) reports its own
+    // appear/disappear up through onPlayerActiveChanged, several layers
+    // removed from this property -- see PlayerView.swift's own comment on
+    // why that's a plain closure, not @Binding<Bool> threaded all the way
+    // down.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     private let prefs = Prefs()
 
     var body: some View {
@@ -42,18 +52,19 @@ struct RootView: View {
         // the wrong slot (that case was genuinely two competing
         // NavigationLinks; this is List(selection:) used the one way it's
         // actually meant to be used).
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
                 Label(LocaleHelper.string("app_name", prefs: prefs), systemImage: "network")
                     .tag(Section.connect)
 
                 Label(LocaleHelper.string("settings", prefs: prefs), systemImage: "gearshape")
                     .tag(Section.settings)
-                    // A List(selection:) row's own tap/selection target is
-                    // exposed to XCUITest with the .button accessibility
-                    // trait -- SettingsViewUITests' existing
-                    // app.buttons["settingsButton"] query still matches
-                    // this unchanged.
+                    // SettingsViewUITests (see its own comment) queries
+                    // this identifier -- it's real-CI-confirmed to land on
+                    // more than one node of this row's merged accessibility
+                    // subtree (not a single, predictable element type), so
+                    // that test deliberately doesn't assume .button/.cell/
+                    // any specific one.
                     .accessibilityIdentifier("settingsButton")
             }
             .navigationTitle(LocaleHelper.string("app_name", prefs: prefs))
@@ -71,7 +82,9 @@ struct RootView: View {
                 // MenuView already wraps its own body in a NavigationStack
                 // (for its Connect -> PlayerView push) -- not wrapped again
                 // here, nesting NavigationStacks is undefined behavior.
-                MenuView()
+                MenuView(onPlayerActiveChanged: { active in
+                    columnVisibility = active ? .detailOnly : .automatic
+                })
             }
         }
     }

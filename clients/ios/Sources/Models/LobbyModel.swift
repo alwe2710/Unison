@@ -45,9 +45,27 @@ final class LobbyModel: ObservableObject {
         lastSearchedHost = host
         searching = false
         slotStates = results
-        pickerVisible = true
+        // Distinguishes "reached the host fine, every slot is just taken"
+        // from "couldn't reach a single one of the four ports" -- both used
+        // to show the same "no free slot" message and, worse, the same P1-
+        // P4 row regardless, which made a plain single-slot host (Cemu/
+        // Azahar/melonDS, or a typo'd address) show four dead buttons
+        // exactly as if it *were* a real GC_GBA_LINK/Dolphin multi-slot
+        // host. Reported directly after real-device testing: the picker
+        // should only appear once a search actually finds an instance that
+        // offers multiple players. Matches clients/3ds's own
+        // kLobbyNoneConfigured/kLobbyHostUnreachable split (main.cpp's
+        // runSearch()).
         let anyFree = results.contains(.free)
-        statusText = LocaleHelper.string(anyFree ? "lobby_pick" : "lobby_none_free", prefs: prefs)
+        let anyReachable = results.contains { $0 == .free || $0 == .occupied }
+        pickerVisible = anyReachable
+        if anyFree {
+            statusText = LocaleHelper.string("lobby_pick", prefs: prefs)
+        } else if anyReachable {
+            statusText = LocaleHelper.string("lobby_none_configured", prefs: prefs)
+        } else {
+            statusText = LocaleHelper.string("lobby_host_unreachable", prefs: prefs)
+        }
     }
 
     /// .unreachable covers both "port not configured as a GBA player slot

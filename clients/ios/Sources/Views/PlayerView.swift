@@ -277,6 +277,14 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
 struct PlayerView: View {
     let host: String
     let port: Int32
+    // Lets RootView collapse its NavigationSplitView sidebar for the
+    // duration of an actual stream (reported directly after real-iPad
+    // testing: the sidebar should disappear once the stream is running,
+    // not stay docked next to a fullscreen game) without PlayerView needing
+    // to know RootView/NavigationSplitView exist at all -- a plain closure
+    // rather than @Binding<Bool> so this view stays trivially constructible
+    // on its own (#Preview, tests) with nothing to wire up.
+    var onActiveChanged: ((Bool) -> Void)? = nil
 
     @StateObject private var viewModel = PlayerViewModel()
     @Environment(\.dismiss) private var dismiss
@@ -305,16 +313,17 @@ struct PlayerView: View {
             VStack {
                 statusBar
                 Spacer()
-                if viewModel.touchInput, viewModel.hasButtons {
-                    ExtendedControlsOverlay(hasSticks: viewModel.hasSticks, viewModel: viewModel)
-                }
             }
 
-            // Its own ZStack layer, not nested in the VStack above -- it
-            // needs the whole screen's bounds to position L/R/Select/Start/
-            // D-pad/A/B the way PlayerActivity.kt's PlayerScreen() does
-            // (real GBA button placement, corners + edges), not just a
-            // bottom row's worth of space. See ButtonOverlay's own comment.
+            // Each its own ZStack layer, not nested in the VStack above --
+            // both need the whole screen's bounds to corner-anchor their
+            // buttons/sticks the way PlayerActivity.kt's PlayerScreen()
+            // does (real GBA/3DS button placement), not just a bottom
+            // row's worth of space. See ButtonOverlay's/
+            // ExtendedControlsOverlay's own comments.
+            if viewModel.touchInput, viewModel.hasButtons {
+                ExtendedControlsOverlay(hasSticks: viewModel.hasSticks, viewModel: viewModel)
+            }
             if !viewModel.touchInput {
                 ButtonOverlay { bit, pressed in
                     viewModel.setButton(bit: bit, pressed: pressed)
@@ -333,11 +342,13 @@ struct PlayerView: View {
             // comment).
             OrientationLock.mask = .landscape
             UIViewController.attemptRotationToDeviceOrientation()
+            onActiveChanged?(true)
         }
         .onDisappear {
             viewModel.disconnect()
             OrientationLock.mask = .all
             UIViewController.attemptRotationToDeviceOrientation()
+            onActiveChanged?(false)
         }
     }
 
@@ -438,42 +449,92 @@ private struct ButtonOverlay: View {
 /// Up/Down/Left/Right/A/B) plus X/Y (EXT_BUTTONS), and -- only when the
 /// session also has real analog input (hasSticks, Azahar's
 /// N3DS_BOTTOM_SCREEN) -- ZL/ZR (EXT_BUTTONS_LIMITED) and both
-/// VirtualSticks. A single wrapped row rather than PlayerActivity.kt's
-/// own diamond/D-pad/corner-anchored layout -- functionally complete
-/// (every button/stick reachable), simplified layout given this is
-/// already a large feature addition; a closer visual port is a later
-/// polish pass, not blocking touch input from working at all.
+/// VirtualSticks. Corner-anchored, same visual language as ButtonOverlay's
+/// own layout (reported as fixed/working after real-device testing): ZL/ZR
+/// top corners, shared L/Select/Start/R top-center, a D-pad-equivalent
+/// cluster stacked above the left stick, an A/B/X/Y diamond stacked above
+/// the right stick -- replaces the previous single bottom-row layout
+/// (reported as still not correct after that same testing pass, unlike the
+/// plain-buttons case). Without hasSticks (melonDS's touch_and_buttons: a
+/// D-pad but no analog stick), the two clusters just have no stick beneath
+/// them and ZL/ZR don't render at all.
 private struct ExtendedControlsOverlay: View {
     let hasSticks: Bool
     @ObservedObject var viewModel: PlayerViewModel
 
+    private func hold(_ label: String, bit: UInt32) -> some View {
+        ExtHoldButton(label: label, bit: bit, viewModel: viewModel)
+    }
+
+    private func shared(_ label: String) -> some View {
+        // Force-unwrap is safe: GBA_BUTTONS is a fixed, hardcoded 10-entry
+        // list (GbaButtons.swift) that always contains exactly these
+        // labels -- a typo here would be a build-time-obvious programmer
+        // error, not a runtime possibility (same reasoning as
+        // ButtonOverlay.hold(_:)).
+        let entry = sharedExtButtons.first { $0.label == label }!
+        return hold(entry.label, bit: entry.bit)
+    }
+
     var body: some View {
-        HStack(alignment: .bottom) {
+        Color.clear
+            .overlay(alignment: .topLeading) {
+                if hasSticks {
+                    hold("ZL", bit: UInt32(ExtButtonBit.ZL)).padding()
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if hasSticks {
+                    hold("ZR", bit: UInt32(ExtButtonBit.ZR)).padding()
+                }
+            }
+            .overlay(alignment: .top) {
+                HStack(spacing: 12) {
+                    shared("L")
+                    shared("Select")
+                    shared("Start")
+                    shared("R")
+                }
+                .padding(.top, 8)
+            }
+            .overlay(alignment: .bottomLeading) { leftCluster.padding() }
+            .overlay(alignment: .bottomTrailing) { rightCluster.padding() }
+    }
+
+    /// D-pad-equivalent (Up/Down/Left/Right), stacked directly above the
+    /// left stick when present -- gba_buttons digital directions and the
+    /// stream's own analog stick are separate wire fields (protocol.md),
+    /// both meaningful to send at once, so this pairs with the stick
+    /// rather than replacing it.
+    private var leftCluster: some View {
+        VStack(spacing: 8) {
+            Color.clear
+                .frame(width: 132, height: 132)
+                .overlay(alignment: .top) { shared("Up") }
+                .overlay(alignment: .bottom) { shared("Down") }
+                .overlay(alignment: .leading) { shared("Left") }
+                .overlay(alignment: .trailing) { shared("Right") }
             if hasSticks {
                 Stick { x, y in viewModel.setLeftStick(x: x, y: y) }
             }
-            Spacer()
-            VStack(spacing: 8) {
-                if hasSticks {
-                    HStack {
-                        ExtHoldButton(label: "ZL", bit: UInt32(ExtButtonBit.ZL), viewModel: viewModel)
-                        ExtHoldButton(label: "ZR", bit: UInt32(ExtButtonBit.ZR), viewModel: viewModel)
-                    }
-                }
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(44)), count: 6), spacing: 8) {
-                    ForEach(sharedExtButtons, id: \.label) { entry in
-                        ExtHoldButton(label: entry.label, bit: entry.bit, viewModel: viewModel)
-                    }
-                    ExtHoldButton(label: "X", bit: UInt32(ExtButtonBit.X), viewModel: viewModel)
-                    ExtHoldButton(label: "Y", bit: UInt32(ExtButtonBit.Y), viewModel: viewModel)
-                }
-            }
+        }
+    }
+
+    /// A/B/X/Y diamond (X top, Y bottom, B leading, A trailing -- same
+    /// shape as PlayerActivity.kt's own ExtActionButtons), stacked directly
+    /// above the right stick when present.
+    private var rightCluster: some View {
+        VStack(spacing: 8) {
+            Color.clear
+                .frame(width: 132, height: 132)
+                .overlay(alignment: .top) { hold("X", bit: UInt32(ExtButtonBit.X)) }
+                .overlay(alignment: .bottom) { hold("Y", bit: UInt32(ExtButtonBit.Y)) }
+                .overlay(alignment: .leading) { shared("B") }
+                .overlay(alignment: .trailing) { shared("A") }
             if hasSticks {
-                Spacer()
                 Stick { x, y in viewModel.setRightStick(x: x, y: y) }
             }
         }
-        .padding()
     }
 
     private var sharedExtButtons: [(label: String, bit: UInt32)] {
