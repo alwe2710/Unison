@@ -45,11 +45,20 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: "Unison"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        # PlayerView locks to landscape (matches Android's PlayerActivity
-        # forcing landscape -- see that Activity's own manifest entry);
-        # every other screen is happy to inherit this too, same as Android
-        # not special-casing orientation per-Activity either.
+        # iPhone + iPad (Android has no such split -- a single
+        # android:orientation-less manifest covers both phone and tablet
+        # there). All four orientations declared as *possible* here;
+        # OrientationLock.swift (AppDelegate hook) restricts which are
+        # *active* per screen at runtime -- PlayerView locks to landscape
+        # (matches Android's PlayerActivity forcing landscape), every
+        # other screen (Menu/Settings/...) follows the device's actual
+        # orientation, unlike the previous app-wide landscape-only lock
+        # (fine on an iPhone held sideways to play, but forced every menu/
+        # settings screen sideways too, which reads badly, worse still on
+        # an iPad someone would naturally hold upright to navigate menus).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        TARGETED_DEVICE_FAMILY: "1,2"
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/../../core/include"
           - "$(SRCROOT)/../../core/third_party/miniz"

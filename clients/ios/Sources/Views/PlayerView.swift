@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 
 /// MVP streaming screen -- direct-enough analog of PlayerActivity.kt for
 /// this phase's scope (GC_GBA_LINK, gba_buttons only: no touch overlay, no
@@ -205,8 +206,23 @@ struct PlayerView: View {
             }
         }
         .statusBarHidden()
-        .onAppear { viewModel.connect(host: host, port: port) }
-        .onDisappear { viewModel.disconnect() }
+        .onAppear {
+            viewModel.connect(host: host, port: port)
+            // Matches Android's PlayerActivity forcing landscape (that
+            // Activity's own manifest entry) -- see OrientationLock.swift
+            // for why this needs an AppDelegate hook rather than a direct
+            // per-view SwiftUI modifier. Restored to .all on disappear so
+            // Menu/Settings go back to following the device's actual
+            // orientation, notably relevant on iPad (see project.yml's own
+            // comment).
+            OrientationLock.mask = .landscape
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+        .onDisappear {
+            viewModel.disconnect()
+            OrientationLock.mask = .all
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
     }
 
     @ViewBuilder

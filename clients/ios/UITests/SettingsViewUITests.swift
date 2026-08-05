@@ -32,20 +32,29 @@ final class SettingsViewUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
 
         let initialValue = toggle.value as? String
-        toggle.tap()
-        // Real first CI run (2026-08-05): reading toggle.value synchronously
-        // right after tap() raced the accessibility tree's own update and
-        // saw the pre-tap value -- waitForValueChange polls instead of
-        // asserting on a single synchronous snapshot, the standard robust
-        // XCUITest pattern for this.
+        Self.tapSwitch(toggle)
+        // Real first two CI runs (2026-08-05): plain toggle.tap() never
+        // registered at all, even waiting up to 5s for the value to
+        // change -- SwiftUI merges a Form row's label + Toggle into one
+        // accessibility element spanning the row's full width, so tap()'s
+        // default "center of the element" coordinate lands on the label
+        // text, not the actual switch control (right-aligned within that
+        // same row). tapSwitch() below taps near the element's own
+        // trailing edge instead, where the real control renders
+        // regardless of whether XCUITest reports the merged row's frame
+        // or just the switch's.
         XCTAssertTrue(Self.waitForValueChange(of: toggle, from: initialValue, timeout: 5),
                       "tapping the real rendered switch should flip its state")
 
         let toggledValue = toggle.value as? String
-        toggle.tap()
+        Self.tapSwitch(toggle)
         XCTAssertTrue(Self.waitForValueChange(of: toggle, from: toggledValue, timeout: 5),
                       "tapping it back should restore the original state")
         XCTAssertEqual(toggle.value as? String, initialValue)
+    }
+
+    private static func tapSwitch(_ element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
     }
 
     private static func waitForValueChange(of element: XCUIElement, from previousValue: String?,

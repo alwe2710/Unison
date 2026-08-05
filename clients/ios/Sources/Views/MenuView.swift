@@ -47,6 +47,14 @@ struct MenuView: View {
                 }
             }
             .padding()
+            // A plain unconstrained VStack stretches its Form full-width,
+            // which reads fine on an iPhone but leaves the text fields
+            // absurdly wide on an iPad -- capping and centering the
+            // content column is the standard lightweight "adaptive
+            // enough" iPad treatment short of a full NavigationSplitView
+            // rebuild of this screen (not warranted for a single form).
+            .frame(maxWidth: 500)
+            .frame(maxWidth: .infinity)
             .navigationDestination(for: Int32.self) { port in
                 PlayerView(host: host, port: port)
             }
