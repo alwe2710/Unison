@@ -18,8 +18,8 @@
         {
           "version": "0.1.0-dev",
           "date": "2026-08-05T00:00:00Z",
-          "downloadURL": "PLACEHOLDER",
-          "size": 0,
+          "downloadURL": "https://github.com/alwe2710/Unison/releases/download/ios-latest/Unison.ipa",
+          "size": 31047,
           "minOSVersion": "17.0"
         }
       ]
