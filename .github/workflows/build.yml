@@ -322,3 +322,25 @@ jobs:
             -project Unison.xcodeproj -scheme Unison \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO
+      # Unsigned device .ipa -- no Apple Developer account configured (see
+      # clients/ios/README.md), so this can't be signed here at all.
+      # AltStore/SideStore-style sideloading tools are the intended
+      # install path: they re-sign an unsigned .ipa on-device using the
+      # user's own free Apple ID via a paired AltServer, so an unsigned
+      # archive is exactly the right artifact to publish, not a
+      # limitation to work around.
+      - name: Archive unsigned .ipa (device, for AltStore-style sideloading)
+        working-directory: clients/ios
+        run: |
+          xcodebuild archive \
+            -project Unison.xcodeproj -scheme Unison \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Unison.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= AD_HOC_CODE_SIGNING_ALLOWED=YES
+          mkdir -p build/Payload
+          cp -R build/Unison.xcarchive/Products/Applications/Unison.app build/Payload/
+          cd build && zip -r Unison.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Unison-ipa
+          path: clients/ios/build/Unison.ipa

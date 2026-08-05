@@ -1,0 +1,28 @@
+{
+  "name": "Unison",
+  "identifier": "com.unison.altstore-source",
+  "subtitle": "GBA-stream client for finlink/Unison emulator hosts.",
+  "iconURL": "https://alwe2710.github.io/Unison/altstore/icon.png",
+  "website": "https://github.com/alwe2710/Unison",
+  "apps": [
+    {
+      "name": "Unison",
+      "bundleIdentifier": "com.unison.ios",
+      "developerName": "alwe2710",
+      "subtitle": "GBA-stream client (early scaffold build)",
+      "localizedDescription": "Native SwiftUI client for the Unison streaming protocol (Dolphin/Cemu/Azahar/melonDS host forks). Unsigned build -- install via AltStore/SideStore, which re-signs it on-device with your own free Apple ID.",
+      "iconURL": "https://alwe2710.github.io/Unison/altstore/icon.png",
+      "tintColor": "3478F6",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "0.1.0-dev",
+          "date": "2026-08-05T00:00:00Z",
+          "downloadURL": "PLACEHOLDER",
+          "size": 0,
+          "minOSVersion": "17.0"
+        }
+      ]
+    }
+  ]
+}
