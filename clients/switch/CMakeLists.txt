@@ -120,11 +120,17 @@ if (BUILD_SWITCH_NSP)
         COMMENT "Staging NSP input layout"
     )
 
+    # hacbrewpack defaults to looking for a "romfs" directory in the cwd and
+    # hard-fails ("Failed to open directory romfs!") if --romfsdir isn't
+    # passed explicitly -- point it at the same resources/ dir the .nro
+    # build already populates via copy_directory above (PROJECT_RESOURCES),
+    # so the installed NSP has the same fonts/i18n/icons as the .nro.
     add_custom_target(${PROJECT_NAME}_nsp ALL
         COMMAND ${NSP_TOOLS_DIR}/hacbrewpack
             --keyset ${SWITCH_KEYS_FILE}
             --exefsdir ${NSP_STAGE_DIR}/exefs
             --controldir ${NSP_STAGE_DIR}/control
+            --romfsdir ${CMAKE_BINARY_DIR}/resources
             --nologo
             --nspdir ${CMAKE_BINARY_DIR}/nsp_out
         DEPENDS ${NSP_TOOLS_DIR}/hacbrewpack ${NSP_STAGE_DIR}/.stamp
