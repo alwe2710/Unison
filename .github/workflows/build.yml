@@ -292,7 +292,12 @@ jobs:
     # clients/ios/README.md's own comment: Xcode/SwiftUI don't exist on
     # Linux at all, unlike every other client's devkitPro/emsdk toolchain,
     # so there's no local "does it compile" step before this job runs.
-    runs-on: macos-14
+    #
+    # macos-14 (real first run, 2026-08-05): its Xcode 15.4 can't open the
+    # project.pbxproj a `brew install xcodegen`-current XcodeGen writes
+    # ("future Xcode project file format (77)") -- macos-15's newer
+    # default Xcode reads it fine.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
