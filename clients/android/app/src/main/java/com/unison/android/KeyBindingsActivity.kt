@@ -1,7 +1,9 @@
 package com.unison.android
 
 import android.os.Bundle
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -185,5 +187,33 @@ class KeyBindingsActivity : LocalizedActivity() {
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Reported live: a D-pad press during a pending binding ALSO navigated
+     * the interface (Compose focus visibly jumping between rows) at the
+     * same time the button's own KeyEvent was being correctly captured
+     * above -- only a second, separate press then produced a
+     * clean-looking assignment. dispatchKeyEvent alone can't be the whole
+     * story: it already unconditionally intercepts+consumes the very
+     * first ACTION_DOWN while a bind is pending, so a KeyEvent-only leak
+     * isn't possible. The other, entirely independent path a gamepad's
+     * D-pad commonly ALSO reports through: a raw hat-switch MotionEvent
+     * (AXIS_HAT_X/AXIS_HAT_Y), which is what Compose's own default
+     * joystick-driven focus-navigation actually watches -- and which
+     * nothing in this class was suppressing at all, letting it reach the
+     * view hierarchy and move focus regardless of dispatchKeyEvent's own,
+     * unrelated capture of the synthesized KeyEvent. Swallowing every
+     * SOURCE_JOYSTICK/SOURCE_GAMEPAD generic motion event outright while a
+     * binding is pending -- not just the hat axis specifically, since
+     * there's no need to distinguish once a capture is already in
+     * progress -- closes that off the same way dispatchKeyEvent already
+     * closes off the KeyEvent side. */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (pendingBindTarget != null &&
+            (event.source and (InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_GAMEPAD)) != 0
+        ) {
+            return true
+        }
+        return super.onGenericMotionEvent(event)
     }
 }
