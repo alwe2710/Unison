@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// Carries a connect target (manual entry's parsed port, a discovered
+/// Carries a connect target (manual entry's host+port, a discovered
 /// single-client server, or a picked GC_GBA_LINK player slot) through
 /// SwiftUI's value-based navigation (NavigationLink(value:) +
-/// navigationDestination(for:)) -- see MenuView.discoveredRow's own
-/// comment for why a dedicated type rather than reusing @State directly.
+/// navigationDestination(for:)) -- one shared destination for all three,
+/// see MenuView.discoveredRow's own comment for why a discovered row still
+/// builds its own Connection value rather than routing through the shared
+/// @State host/port fields.
 private struct Connection: Hashable {
     let host: String
     let port: Int32
@@ -44,12 +46,14 @@ struct MenuView: View {
                         TextField("Port", text: $port)
                             .keyboardType(.numberPad)
 
-                        // GC_GBA_LINK's lobby probe -- a bare host (this
-                        // app has no combined "host:port" single-field
-                        // parsing like MenuActivity.kt's own searchLobby(),
-                        // the Port field above already covers that case)
-                        // means "search all four player slots", same
-                        // GET /status convenience endpoint that file uses.
+                        // GC_GBA_LINK's lobby probe -- always searches all
+                        // four player slots at their own fixed ports
+                        // (GbaStreamClient.playerBasePort+0...3), same
+                        // GET /status convenience endpoint MenuActivity.kt's
+                        // own searchLobby() uses; the Port field plays no
+                        // part here (see search()'s own comment on why the
+                        // host field's own embedded port, if any, is
+                        // stripped rather than used).
                         Button(LocaleHelper.string("discovery_start", prefs: prefs)) {
                             search()
                         }
@@ -122,12 +126,14 @@ struct MenuView: View {
                     }
                 }
 
-                // NavigationLink(value:) needs a real Int32 (matching
-                // navigationDestination(for: Int32.self) below) rather than
-                // an Optional -- only offered at all once the port field
-                // actually parses to one; wrapped in an always-present but
-                // disabled Button otherwise so the control doesn't jump
-                // around as the user types.
+                // NavigationLink(value:) needs a real Connection (matching
+                // navigationDestination(for: Connection.self) below) rather
+                // than an Optional -- only offered at all once the host/port
+                // fields actually resolve to one (manualConnection: an
+                // embedded "host:port" in the host field itself, or a bare
+                // host plus a valid separate Port field); wrapped in an
+                // always-present but disabled Button otherwise so the
+                // control doesn't jump around as the user types.
                 //
                 // .borderless (plain tinted text, no filled pill) rather
                 // than .borderedProminent -- reported directly after
@@ -136,8 +142,8 @@ struct MenuView: View {
                 // action, not a filled white-on-color button). .font(.body.bold())
                 // keeps it visually the screen's primary action despite the
                 // lighter-weight style.
-                if let port = parsedPort {
-                    NavigationLink(value: port) {
+                if let connection = manualConnection {
+                    NavigationLink(value: connection) {
                         Text(LocaleHelper.string("menu_connect", prefs: prefs))
                             .font(.body.bold())
                     }
@@ -164,9 +170,6 @@ struct MenuView: View {
             // ever being absurdly, phone-form-on-a-cinema-screen wide, so
             // the second layer of capping is redundant now, not just
             // visually broken.
-            .navigationDestination(for: Int32.self) { port in
-                PlayerView(host: host, port: port, onActiveChanged: onPlayerActiveChanged)
-            }
             .navigationDestination(for: Connection.self) { connection in
                 PlayerView(host: connection.host, port: connection.port, onActiveChanged: onPlayerActiveChanged)
             }
@@ -179,7 +182,13 @@ struct MenuView: View {
     }
 
     private func search() {
-        let target = host
+        // strippedHost, not the raw field: GC_GBA_LINK's lobby probe always
+        // uses its own fixed player-port scheme (GbaStreamClient.playerBasePort
+        // + slot), never the Port field -- but if the user typed a combined
+        // "host:port" here anyway (this field's own host_hint says that's
+        // valid), passing the raw string through would bake a bogus ":port"
+        // into every probed URL's hostname instead of just being ignored.
+        let target = strippedHost
         Task { await lobby.search(host: target, prefs: prefs) }
     }
 
@@ -207,15 +216,14 @@ struct MenuView: View {
             : server.streamType + LocaleHelper.string("discovery_incompatible_suffix", prefs: prefs)
 
         if server.compatible, server.streamType != GbaStreamClient.streamTypeGcGbaLink {
-            // A dedicated Hashable value type (not the same Int32 the
-            // manual-entry Connect button navigates with) -- reusing that
-            // one here would mean this row's tap has to write server.host
-            // into the shared `host` @State first and hope the
-            // navigationDestination(for: Int32.self) closure reads the
-            // updated value before building PlayerView, a real ordering
-            // hazard between a gesture side effect and SwiftUI's own
-            // navigation timing. This carries host+port with the
-            // navigation value itself instead, so there's nothing to race.
+            // Builds its own Connection value directly rather than writing
+            // server.host/server.handshakePort into the shared host/port
+            // @State and hoping manualConnection recomputes from them
+            // before navigationDestination(for: Connection.self) reads it
+            // -- a real ordering hazard between a gesture side effect and
+            // SwiftUI's own navigation timing. This carries host+port with
+            // the navigation value itself instead, so there's nothing to
+            // race.
             NavigationLink(value: Connection(host: server.host, port: server.handshakePort)) {
                 discoveredLabel(title: title, subtitle: subtitle)
             }
@@ -246,6 +254,26 @@ struct MenuView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// A colon-embedded port in the host field wins over the separate Port
+    /// field -- see splitHostPort()'s own comment (HostPort.swift) for why
+    /// that's the field this app's own host_hint has been promising all
+    /// along. Falls back to the Port field (parsedPort) for a bare host,
+    /// same as before this existed.
+    private var manualConnection: Connection? {
+        if let combined = splitHostPort(host) {
+            return Connection(host: combined.host, port: combined.port)
+        }
+        guard !host.isEmpty, let value = parsedPort else { return nil }
+        return Connection(host: host, port: value)
+    }
+
+    /// The host field with any embedded ":port" stripped back off, for the
+    /// one caller (search(), GC_GBA_LINK's own lobby probe) that only ever
+    /// wants the bare host -- see search()'s own comment.
+    private var strippedHost: String {
+        splitHostPort(host)?.host ?? host
     }
 
     private var parsedPort: Int32? {
