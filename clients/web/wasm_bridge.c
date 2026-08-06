@@ -203,3 +203,39 @@ EMSCRIPTEN_KEEPALIVE
 int unison_wasm_build_input_frame(unsigned int key_mask, uint8_t *out_buf) {
     return (int)unison_build_input_frame((uint16_t)key_mask, out_buf);
 }
+
+// For "touch_and_buttons" (NDS_BOTTOM_SCREEN -- no analog stick at all) and
+// "n3ds_touch_and_buttons" (N3DS_BOTTOM_SCREEN/WIIU_GAMEPAD -- has one or
+// two) sessions: X/Y/ZL/ZR only exist in unison_button_bit's own superset
+// bitmask, which only these two frame shapes carry (gba_buttons has no room
+// for them at all) -- added specifically so this client's keyboard/on-screen
+// rebinding can reach those four buttons like the other clients already can,
+// see index.html's own comment on why touch_x/y and the stick fields are
+// always sent as 0/not-pressed here (no touch or physical-analog-stick
+// input built out yet, out of scope for this addition).
+EMSCRIPTEN_KEEPALIVE
+int unison_wasm_build_touch_and_buttons_frame(int pressed, unsigned int touch_x, unsigned int touch_y,
+                                                unsigned int buttons, uint8_t *out_buf) {
+    unison_touch_and_buttons input;
+    input.pressed = pressed;
+    input.touch_x = (uint16_t)touch_x;
+    input.touch_y = (uint16_t)touch_y;
+    input.buttons = (uint32_t)buttons;
+    return (int)unison_build_touch_and_buttons_frame(&input, out_buf);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int unison_wasm_build_extended_input_frame(int pressed, unsigned int touch_x, unsigned int touch_y,
+                                             unsigned int buttons, int left_x, int left_y, int right_x,
+                                             int right_y, uint8_t *out_buf) {
+    unison_extended_input input;
+    input.pressed = pressed;
+    input.touch_x = (uint16_t)touch_x;
+    input.touch_y = (uint16_t)touch_y;
+    input.buttons = (uint32_t)buttons;
+    input.left_x = (int16_t)left_x;
+    input.left_y = (int16_t)left_y;
+    input.right_x = (int16_t)right_x;
+    input.right_y = (int16_t)right_y;
+    return (int)unison_build_extended_input_frame(&input, out_buf);
+}

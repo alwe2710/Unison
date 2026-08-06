@@ -431,6 +431,10 @@ function setBilinearFor(streamType, value) {
 // connected takes effect immediately; any other row just updates
 // filterPrefs for next time.
 let currentStreamType = '';
+// Which of the three type=2 frame shapes sendKeys() must build -- see that
+// function's own comment. Set alongside currentStreamType (same hello,
+// same lifetime/redirect-hop reasoning).
+let currentInputEncoding = 'gba_buttons';
 
 const connectEl = document.getElementById('connect');
 const connectStatusEl = document.getElementById('connectStatus');
@@ -614,17 +618,33 @@ connectForm.addEventListener('submit', (e) => {
 });
 
 async function beginSession(host, port) {
+// unison_button_bit (unison/protocol.h) -- the *wire* bit layout
+// touch_and_buttons/extended_input frames use for their own `buttons`
+// field, a completely different bit assignment than BUTTONS' own local
+// bits below (which only ever had to agree with themselves, this client
+// never having sent anything but a plain gba_buttons frame before X/Y/ZL/ZR
+// were added). sendKeys() translates through this map rather than reusing
+// BUTTONS' local bits directly whenever the session needs one of the two
+// wire shapes gba_buttons has no room for X/Y/ZL/ZR in at all.
+const UNISON_BUTTON_BIT = {
+  A: 1<<0, B: 1<<1, X: 1<<2, Y: 1<<3, L: 1<<4, R: 1<<5, ZL: 1<<6, ZR: 1<<7,
+  Select: 1<<8, Start: 1<<9, Up: 1<<10, Down: 1<<11, Left: 1<<12, Right: 1<<13,
+};
+
 // Order matches the other clients' own unified key-bindings list (Android's
 // KeyBindingsActivity, iOS's KeyBindingsView): A, B, X, Y, Start, Select,
-// D-pad Up/Down/Left/Right, L, R, ZL, ZR -- minus X/Y/ZL/ZR, which this
-// client has never had at all (carried over unmodified from the original
+// D-pad Up/Down/Left/Right, L, R, ZL, ZR. X/Y/ZL/ZR are new -- this client
+// never had them at all before (carried over unmodified from the original
 // Dolphin-only web UI, see README.md's own "Scope", predating the
-// touch_and_buttons/extended-input concept Cemu/Azahar/melonDS later added;
-// a real gap, not something this reorder itself addresses).
+// touch_and_buttons/extended-input concept Cemu/Azahar/melonDS later
+// added) -- only reachable on a touch_and_buttons/n3ds_touch_and_buttons
+// session (see sendKeys()), silently unbindable-but-harmless otherwise,
+// same as any other button a given server's console doesn't have.
 const BUTTONS = [
-  ['A', 1<<0, 'KeyX'], ['B', 1<<1, 'KeyZ'], ['Start', 1<<3, 'Enter'], ['Select', 1<<2, 'ShiftRight'],
+  ['A', 1<<0, 'KeyX'], ['B', 1<<1, 'KeyZ'], ['X', 1<<10, 'KeyC'], ['Y', 1<<11, 'KeyV'],
+  ['Start', 1<<3, 'Enter'], ['Select', 1<<2, 'ShiftRight'],
   ['Up', 1<<6, 'ArrowUp'], ['Down', 1<<7, 'ArrowDown'], ['Left', 1<<5, 'ArrowLeft'], ['Right', 1<<4, 'ArrowRight'],
-  ['L', 1<<9, 'KeyA'], ['R', 1<<8, 'KeyS'],
+  ['L', 1<<9, 'KeyA'], ['R', 1<<8, 'KeyS'], ['ZL', 1<<12, 'KeyQ'], ['ZR', 1<<13, 'KeyE'],
 ];
 const nameToBit = {};
 for (const [name, bit] of BUTTONS) nameToBit[name] = bit;
@@ -872,6 +892,7 @@ function handleHandshakeMessage(text) {
       // different port that sends its own fresh hello -- this always
       // reflects whichever connection is current, same as pendingAck.
       currentStreamType = wasmModule.ccall('unison_wasm_hello_stream_type', 'string', [], []);
+      currentInputEncoding = wasmModule.ccall('unison_wasm_hello_input_encoding', 'string', [], []);
       canvas.style.imageRendering = bilinearFor(currentStreamType, filterPrefs) ? 'auto' : 'pixelated';
       const wantsAudio = wasmModule.ccall('unison_wasm_hello_has_audio', 'number', [], []);
       // Generous/native throughout: nothing about a browser tab justifies
@@ -1106,11 +1127,41 @@ async function handleVideoMessage(msgBuffer) {
 
 connect(host, port);
 
+// keyState is always kept in BUTTONS' own local bit layout (unchanged,
+// still what codeToButton/nameToBit and the keydown/keyup/touch listeners
+// below all use) -- translated into unison_button_bit's wire layout here,
+// on send, only for the two shapes that need it. touch_x/touch_y/pressed
+// and (for extended_input) both analog sticks are always sent as
+// 0/not-pressed/centered -- no real touch or physical-stick input built
+// out for this client yet, out of scope for what this translation itself
+// adds (X/Y/ZL/ZR reachable via keyboard/on-screen-button binding, same as
+// every other button here already was).
+function unisonButtonsFromKeyState() {
+  let bits = 0;
+  for (const [name, bit] of BUTTONS) {
+    if (keyState & bit) bits |= UNISON_BUTTON_BIT[name];
+  }
+  return bits;
+}
+
 function sendKeys() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  const bufPtr = wasmModule._malloc(3);
-  const n = wasmModule.ccall('unison_wasm_build_input_frame', 'number', ['number', 'number'],
-                              [keyState, bufPtr]);
+  let bufPtr, n;
+  if (currentInputEncoding === 'touch_and_buttons') {
+    bufPtr = wasmModule._malloc(10);
+    n = wasmModule.ccall('unison_wasm_build_touch_and_buttons_frame', 'number',
+                          ['number', 'number', 'number', 'number', 'number'],
+                          [0, 0, 0, unisonButtonsFromKeyState(), bufPtr]);
+  } else if (currentInputEncoding === 'n3ds_touch_and_buttons') {
+    bufPtr = wasmModule._malloc(18);
+    n = wasmModule.ccall('unison_wasm_build_extended_input_frame', 'number',
+                          ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'number', 'number'],
+                          [0, 0, 0, unisonButtonsFromKeyState(), 0, 0, 0, 0, bufPtr]);
+  } else {
+    bufPtr = wasmModule._malloc(3);
+    n = wasmModule.ccall('unison_wasm_build_input_frame', 'number', ['number', 'number'],
+                          [keyState, bufPtr]);
+  }
   const msg = wasmModule.HEAPU8.slice(bufPtr, bufPtr + n);  // .slice() copies -- ws.send needs its
                                                              // own bytes, not a view into memory
                                                              // about to be freed below.

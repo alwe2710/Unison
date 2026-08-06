@@ -196,6 +196,41 @@ check("error.detail", mod.ccall("unison_wasm_error_detail", "string", [], []).in
   mod._free(bufPtr);
 }
 
+// ---------------- touch_and_buttons / extended_input ----------------
+// Added alongside X/Y/ZL/ZR becoming bindable in the web UI (index.html) --
+// unison_button_bit's own X bit (1<<2) is used here since it's one of the
+// four new buttons this addition exists for.
+{
+  const bufPtr = mod._malloc(10);
+  const n = mod.ccall("unison_wasm_build_touch_and_buttons_frame", "number",
+    ["number", "number", "number", "number", "number"], [1, 100, 50, 1 << 2, bufPtr]);
+  check("build_touch_and_buttons_frame size", n === 10);
+  const bytes = mod.HEAPU8.subarray(bufPtr, bufPtr + 10);
+  check("touch_and_buttons_frame[0] == type 2", bytes[0] === 2);
+  check("touch_and_buttons_frame pressed", bytes[1] === 1);
+  check("touch_and_buttons_frame touch_x LE", (bytes[3] << 8 | bytes[2]) === 100);
+  check("touch_and_buttons_frame touch_y LE", (bytes[5] << 8 | bytes[4]) === 50);
+  check("touch_and_buttons_frame buttons (X bit) LE",
+    (bytes[9] << 24 | bytes[8] << 16 | bytes[7] << 8 | bytes[6]) === (1 << 2));
+  mod._free(bufPtr);
+}
+{
+  const bufPtr = mod._malloc(18);
+  const n = mod.ccall("unison_wasm_build_extended_input_frame", "number",
+    ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
+    [0, 0, 0, 1 << 2, -32768, 0, 0, 32767, bufPtr]);
+  check("build_extended_input_frame size", n === 18);
+  const bytes = mod.HEAPU8.subarray(bufPtr, bufPtr + 18);
+  check("extended_input_frame[0] == type 2", bytes[0] === 2);
+  check("extended_input_frame buttons (X bit) LE",
+    (bytes[9] << 24 | bytes[8] << 16 | bytes[7] << 8 | bytes[6]) === (1 << 2));
+  const leftX = (bytes[11] << 8 | bytes[10]) << 16 >> 16; // sign-extend from int16
+  check("extended_input_frame left_x (signed)", leftX === -32768);
+  const rightY = (bytes[17] << 8 | bytes[16]) << 16 >> 16;
+  check("extended_input_frame right_y (signed)", rightY === 32767);
+  mod._free(bufPtr);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) FAILED`);
   process.exit(1);
