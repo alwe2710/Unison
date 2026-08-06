@@ -35,7 +35,7 @@ private enum BindTarget: Identifiable {
 /// under its own header/hint, mirroring KeyBindingsActivity.kt's own former
 /// three-section split) -- merged per explicit request into one flat list
 /// in a fixed, hand-specified order (A, B, X, Y, Start, Select, D-pad
-/// Up/Down/Left/Right, L, ZL, R, ZR) that doesn't match either underlying
+/// Up/Down/Left/Right, L, R, ZL, ZR) that doesn't match either underlying
 /// list's own declaration order, hence this rather than just concatenating
 /// GBA_BUTTONS with EXT_BUTTONS/EXT_BUTTONS_LIMITED directly.
 /// GBA_BUTTONS/ExtButtons.swift's own declaration order is left alone --
@@ -55,7 +55,7 @@ private let unifiedBindOrder: [BindTarget] = {
         .gba(gbaByKey["A"]!), .gba(gbaByKey["B"]!), .ext(extByKey["X"]!), .ext(extByKey["Y"]!),
         .gba(gbaByKey["START"]!), .gba(gbaByKey["SELECT"]!),
         .gba(gbaByKey["UP"]!), .gba(gbaByKey["DOWN"]!), .gba(gbaByKey["LEFT"]!), .gba(gbaByKey["RIGHT"]!),
-        .gba(gbaByKey["L"]!), .ext(extByKey["ZL"]!), .gba(gbaByKey["R"]!), .ext(extByKey["ZR"]!),
+        .gba(gbaByKey["L"]!), .gba(gbaByKey["R"]!), .ext(extByKey["ZL"]!), .ext(extByKey["ZR"]!),
     ]
     order += EXT_BUTTONS_LIMITED.filter { $0.kind != .button }.map { .ext($0) }
     return order

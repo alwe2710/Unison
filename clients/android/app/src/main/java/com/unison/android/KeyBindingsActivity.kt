@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
  * (GBA_BUTTONS's own Standard-Tasten list, then EXT_BUTTONS+
  * EXT_BUTTONS_LIMITED's Erweiterte-Tasten list under its own header/hint) --
  * merged per explicit request into one flat list in a fixed, hand-specified
- * order (A, B, X, Y, Start, Select, D-pad Up/Down/Left/Right, L, ZL, R, ZR)
+ * order (A, B, X, Y, Start, Select, D-pad Up/Down/Left/Right, L, R, ZL, ZR)
  * that doesn't match either underlying list's own declaration order, hence
  * [unifiedBindOrder] rather than just concatenating GBA_BUTTONS with
  * EXT_BUTTONS/EXT_BUTTONS_LIMITED directly. GBA_BUTTONS/ExtButtons.kt's own
@@ -83,8 +83,8 @@ class KeyBindingsActivity : LocalizedActivity() {
             BindTarget.Gba(gbaByKey.getValue("LEFT")),
             BindTarget.Gba(gbaByKey.getValue("RIGHT")),
             BindTarget.Gba(gbaByKey.getValue("L")),
-            BindTarget.Ext(extByKey.getValue("ZL")),
             BindTarget.Gba(gbaByKey.getValue("R")),
+            BindTarget.Ext(extByKey.getValue("ZL")),
             BindTarget.Ext(extByKey.getValue("ZR")),
         )
     }
