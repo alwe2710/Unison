@@ -177,10 +177,22 @@
      label left, current value right, whole row tappable. */
   .nav-row{cursor:pointer;font:inherit;color:inherit}
   .nav-row-value{color:var(--muted);font-size:12px}
-  #languagePanel,#videoModePanel{display:none;position:fixed;inset:0;background:rgba(20,15,26,0.94);
+  /* #keyBindingsPanel/#bilinearPanel join this same shared-overlay rule --
+     both are new sub-panels opened from #settingsPanel/#menuPanel's nav rows
+     the same way #languagePanel/#videoModePanel already were (see those two
+     panels' own JS wiring, openLanguagePanel()/openVideoModePanel(), and the
+     analogous openKeyBindingsPanel()/openBilinearPanel() below it). overflow-y
+     auto here (new) since #keyBindingsPanel in particular can now get taller
+     than the viewport once both the keyboard table and the gamepad list live
+     in it together -- language/video-mode's own short lists never needed it,
+     but it's harmless for those too. */
+  #languagePanel,#videoModePanel,#keyBindingsPanel,#bilinearPanel{
+                 display:none;position:fixed;inset:0;background:rgba(20,15,26,0.94);
                  color:var(--ink);font-family:var(--font-body);z-index:40;flex-direction:column;
-                 align-items:center;justify-content:center;gap:10px;padding:20px;box-sizing:border-box}
-  #languagePanel h3,#videoModePanel h3{font-family:var(--font-display);margin:0 0 4px;font-size:18px}
+                 align-items:center;justify-content:center;gap:10px;padding:20px;box-sizing:border-box;
+                 overflow-y:auto}
+  #languagePanel h3,#videoModePanel h3,#keyBindingsPanel h3,#bilinearPanel h3{
+                 font-family:var(--font-display);margin:0 0 4px;font-size:18px}
   .language-list{display:flex;flex-direction:column;gap:8px;width:100%;max-width:320px}
   .language-list button{font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer;
                         background:var(--surface);border:var(--border);border-radius:var(--radius);
@@ -206,8 +218,13 @@
   input.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
                       border-radius:50%;background:var(--muted)}
   input.switch:checked::after{left:16px;background:var(--accent)}
-  #closeMenu{margin-top:10px;background:transparent;border:var(--border);color:var(--muted);
-             font-family:var(--font-body);font-size:12.5px;font-weight:600;
+  /* #closeKeyBindings/#closeBilinear (new) reuse this same look -- visually
+     they're the identical "muted pill at the bottom" whether the label ends
+     up being "Schließen" (top-level panels, back to the game) or "Zurück"
+     (these two sub-panels, back to whichever of #settingsPanel/#menuPanel
+     opened them -- see openKeyBindingsPanel()/openBilinearPanel()). */
+  #closeMenu,#closeKeyBindings,#closeBilinear{margin-top:10px;background:transparent;border:var(--border);
+             color:var(--muted);font-family:var(--font-body);font-size:12.5px;font-weight:600;
              padding:9px 20px;border-radius:999px;cursor:pointer}
 
   /* ---------- Desktop keyboard-rebind: a gear button bottom-right opens a
@@ -279,17 +296,17 @@
   <button id="settingsButton" title="Tastenbelegung">&#9881;</button>
 </div>
 <div id="settingsPanel">
-  <h3>Tastenbelegung</h3>
+  <h3 id="settingsPanelTitle">Einstellungen</h3>
   <div class="stats-row">
     <span>Ping: <b id="statPing">--</b> ms</span>
     <span>Bildrate: <b id="statFps">--</b> fps</span>
   </div>
-  <table id="settingsTable">
-    <thead><tr><th>Taste</th><th>Belegung</th><th></th></tr></thead>
-    <tbody id="settingsTableBody"></tbody>
-  </table>
-  <div class="menu-label">Bilineare Filterung</div>
-  <div id="filterRowsDesktop" class="filter-rows"></div>
+  <button class="menu-row nav-row" id="keyBindingsRowDesktop">
+    <span id="keyBindingsLabelDesktop"></span>
+  </button>
+  <button class="menu-row nav-row" id="bilinearRowDesktop">
+    <span id="bilinearLabelDesktop"></span>
+  </button>
   <button class="menu-row nav-row" id="languageRowDesktop">
     <span>Sprache</span>
     <span id="languageValueDesktop" class="nav-row-value"></span>
@@ -307,6 +324,29 @@
 <div id="videoModePanel">
   <h3 id="videoModePanelTitle"></h3>
   <div id="videoModeOptionsList" class="language-list"></div>
+</div>
+<!-- New nested sub-panels (mirroring Android's SettingsActivity, whose
+     Tastenzuweisungen/Bilineare-Filterung rows each push their own full
+     screen instead of showing inline content) -- opened from a nav row on
+     either #settingsPanel (desktop) or #menuPanel (mobile) via the same
+     returnPanel-parameterized open*Panel() pattern #languagePanel/
+     #videoModePanel already use, see the JS below. Unlike those two, there's
+     no single "tap an option, done" action here, so each gets its own
+     explicit back button instead of returning automatically. -->
+<div id="keyBindingsPanel">
+  <h3 id="keyBindingsPanelTitle"></h3>
+  <table id="settingsTable">
+    <thead><tr><th>Taste</th><th>Belegung</th><th></th></tr></thead>
+    <tbody id="settingsTableBody"></tbody>
+  </table>
+  <div class="menu-label" id="gamepadSectionLabel"></div>
+  <div id="gamepadBindingsList"></div>
+  <button id="closeKeyBindings"></button>
+</div>
+<div id="bilinearPanel">
+  <h3 id="bilinearPanelTitle"></h3>
+  <div id="filterRows" class="filter-rows"></div>
+  <button id="closeBilinear"></button>
 </div>
 <div id="videoModeFallbackPanel">
   <div class="card">
@@ -349,8 +389,12 @@
     <span>Touch-Overlay anzeigen</span>
     <input type="checkbox" class="switch" id="toggleOverlay">
   </label>
-  <div class="menu-label">Bilineare Filterung</div>
-  <div id="filterRowsMobile" class="filter-rows"></div>
+  <button class="menu-row nav-row" id="keyBindingsRowMobile">
+    <span id="keyBindingsLabelMobile"></span>
+  </button>
+  <button class="menu-row nav-row" id="bilinearRowMobile">
+    <span id="bilinearLabelMobile"></span>
+  </button>
   <button class="menu-row nav-row" id="languageRowMobile">
     <span>Sprache</span>
     <span id="languageValueMobile" class="nav-row-value"></span>
@@ -359,8 +403,6 @@
     <span id="videoModeLabelMobile"></span>
     <span id="videoModeValueMobile" class="nav-row-value"></span>
   </button>
-  <div class="menu-label">Gamecontroller-Belegung</div>
-  <div id="gamepadBindingsList"></div>
   <button id="closeMenu">Schließen</button>
 </div>
 </div>
@@ -496,8 +538,11 @@ function renderFilterRows(containerId) {
     container.appendChild(row);
   }
 }
-renderFilterRows('filterRowsDesktop');
-renderFilterRows('filterRowsMobile');
+// Was two separate calls (filterRowsDesktop/filterRowsMobile) against two
+// duplicated containers, one inline in each of #settingsPanel/#menuPanel --
+// both now instead nav-row into the single shared #bilinearPanel below, so
+// there's only ever one live #filterRows list to render.
+renderFilterRows('filterRows');
 
 // Own overlay (#languagePanel), opened from either settings panel's
 // "Sprache"/"Language" row -- a plain list, not the previous inline
@@ -611,6 +656,29 @@ function openVideoModePanel(returnPanel) {
 document.getElementById('videoModeRowDesktop').onclick = () => openVideoModePanel(document.getElementById('settingsPanel'));
 document.getElementById('videoModeRowMobile').onclick = () => openVideoModePanel(document.getElementById('menuPanel'));
 updateVideoModeRowValues();
+
+// #keyBindingsPanel's/#bilinearPanel's own row-label text (e.g. "Tastenzuweisungen")
+// is set here, unconditionally, same as language/video-mode's rows just
+// above -- it's static per-language text, no connection needed to know it.
+// The panels' actual open/close wiring, though, lives inside beginSession()
+// further down (not here) -- unlike #languagePanel/#videoModePanel,
+// opening #keyBindingsPanel calls renderSettings()/renderGamepadBindingsList(),
+// both of which are only meaningful (and only defined) once a session is
+// live, same reason the old inline settingsTable/gamepadBindingsList
+// rendering always lived inside beginSession() too.
+function updateKeyBindingsRowValues() {
+  const label = t('settings_key_bindings');
+  document.getElementById('keyBindingsLabelDesktop').textContent = label;
+  document.getElementById('keyBindingsLabelMobile').textContent = label;
+}
+updateKeyBindingsRowValues();
+
+function updateBilinearRowValues() {
+  const label = t('settings_antialiasing');
+  document.getElementById('bilinearLabelDesktop').textContent = label;
+  document.getElementById('bilinearLabelMobile').textContent = label;
+}
+updateBilinearRowValues();
 
 // This client's own real answer to "no discovery beacon" (README.md's own
 // section on it) -- a browser has no way to receive the UDP broadcast
@@ -1373,68 +1441,193 @@ function endTouchPointer(e) {
 canvas.addEventListener('pointerup', endTouchPointer);
 canvas.addEventListener('pointercancel', endTouchPointer);
 
-// --- Mobile-only: on-screen touch overlay (drawn on top of the fullscreen
-// video like a typical mobile emulator) and optional game-controller
-// binding via the hamburger menu. Both are irrelevant on desktop, which
-// already has the keyboard-rebind panel below. ---
 const touchControlsEl = document.getElementById('touchControls');
-if (isMobile) {
-  const GAMEPAD_DEFAULTS = {A: 0, B: 1, Select: 8, Start: 9, Up: 12, Down: 13, Left: 14,
-                            Right: 15, L: 4, R: 5};
-  const gamepadBindings =
-      JSON.parse(localStorage.getItem('unisonWebGamepadBindings') || 'null') ||
-      Object.assign({}, GAMEPAD_DEFAULTS);
-  function saveGamepadBindings() {
-    localStorage.setItem('unisonWebGamepadBindings', JSON.stringify(gamepadBindings));
+
+// --- Shared (used to be split across the isMobile/!isMobile blocks below,
+// one half each -- both now live in #keyBindingsPanel, reachable from either
+// #settingsPanel (desktop) or #menuPanel (mobile), see openKeyBindingsPanel()
+// above): the keyboard-rebind table and the gamepad-binding list. Neither
+// has anything device-specific about its own logic -- BUTTONS, bindings,
+// keyState, sendKeys() are all already shared globals -- the old split was
+// purely an artifact of where each list used to be *displayed*, not
+// anything about how either works. ---
+const settingsTableBody = document.getElementById('settingsTableBody');
+
+function renderSettings() {
+  settingsTableBody.innerHTML = '';
+  for (const [name, bit] of BUTTONS) {
+    const row = document.createElement('tr');
+    const nameCell = document.createElement('td');
+    nameCell.textContent = name;
+    const keyCell = document.createElement('td');
+    keyCell.textContent = bindings[name];
+    const actionCell = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.textContent = t('settings_bind');
+    btn.onclick = () => {
+      btn.textContent = t('settings_press_key');
+      const onKey = (e) => {
+        e.preventDefault();
+        Object.assign(bindings, assignBinding(bindings, name, e.code));
+        saveBindings();
+        rebuildCodeMap();
+        renderSettings();
+        window.removeEventListener('keydown', onKey, true);
+      };
+      window.addEventListener('keydown', onKey, true);
+    };
+    actionCell.appendChild(btn);
+    row.appendChild(nameCell);
+    row.appendChild(keyCell);
+    row.appendChild(actionCell);
+    settingsTableBody.appendChild(row);
   }
-  let activeGamepadIndex = null;
-  window.addEventListener('gamepadconnected', (e) => { activeGamepadIndex = e.gamepad.index; });
-  window.addEventListener('gamepaddisconnected', (e) => {
-    if (activeGamepadIndex === e.gamepad.index) activeGamepadIndex = null;
-  });
-  let lastGamepadState = 0;
-  function pollGamepad() {
-    if (activeGamepadIndex !== null) {
-      const gp = navigator.getGamepads()[activeGamepadIndex];
-      if (gp) {
-        let newState = 0;
-        for (const [name, bit] of BUTTONS) {
-          const idx = gamepadBindings[name];
-          if (idx !== undefined && gp.buttons[idx] && gp.buttons[idx].pressed) newState |= bit;
-        }
-        if (newState !== lastGamepadState) {
-          // Merge: clear bits the gamepad used to hold, set the ones it
-          // holds now, leave bits held by keyboard/touch alone.
-          keyState = (keyState & ~lastGamepadState) | newState;
-          lastGamepadState = newState;
-          sendKeys();
-        }
+}
+renderSettings();
+
+const GAMEPAD_DEFAULTS = {A: 0, B: 1, Select: 8, Start: 9, Up: 12, Down: 13, Left: 14,
+                          Right: 15, L: 4, R: 5};
+const gamepadBindings =
+    JSON.parse(localStorage.getItem('unisonWebGamepadBindings') || 'null') ||
+    Object.assign({}, GAMEPAD_DEFAULTS);
+function saveGamepadBindings() {
+  localStorage.setItem('unisonWebGamepadBindings', JSON.stringify(gamepadBindings));
+}
+let activeGamepadIndex = null;
+window.addEventListener('gamepadconnected', (e) => { activeGamepadIndex = e.gamepad.index; });
+window.addEventListener('gamepaddisconnected', (e) => {
+  if (activeGamepadIndex === e.gamepad.index) activeGamepadIndex = null;
+});
+let lastGamepadState = 0;
+function pollGamepad() {
+  if (activeGamepadIndex !== null) {
+    const gp = navigator.getGamepads()[activeGamepadIndex];
+    if (gp) {
+      let newState = 0;
+      for (const [name, bit] of BUTTONS) {
+        const idx = gamepadBindings[name];
+        if (idx !== undefined && gp.buttons[idx] && gp.buttons[idx].pressed) newState |= bit;
+      }
+      if (newState !== lastGamepadState) {
+        // Merge: clear bits the gamepad used to hold, set the ones it
+        // holds now, leave bits held by keyboard/touch alone.
+        keyState = (keyState & ~lastGamepadState) | newState;
+        lastGamepadState = newState;
+        sendKeys();
       }
     }
-    requestAnimationFrame(pollGamepad);
   }
   requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
 
-  function rebindGamepadButton(name, onDone) {
-    if (activeGamepadIndex === null) { onDone(); return; }
-    const baseline = navigator.getGamepads()[activeGamepadIndex].buttons.map((b) => b.pressed);
-    function check() {
-      const gp = navigator.getGamepads()[activeGamepadIndex];
-      if (gp) {
-        for (let i = 0; i < gp.buttons.length; i++) {
-          if (gp.buttons[i].pressed && !baseline[i]) {
-            gamepadBindings[name] = i;
-            saveGamepadBindings();
-            onDone();
-            return;
-          }
+function rebindGamepadButton(name, onDone) {
+  if (activeGamepadIndex === null) { onDone(); return; }
+  const baseline = navigator.getGamepads()[activeGamepadIndex].buttons.map((b) => b.pressed);
+  function check() {
+    const gp = navigator.getGamepads()[activeGamepadIndex];
+    if (gp) {
+      for (let i = 0; i < gp.buttons.length; i++) {
+        if (gp.buttons[i].pressed && !baseline[i]) {
+          gamepadBindings[name] = i;
+          saveGamepadBindings();
+          onDone();
+          return;
         }
       }
-      requestAnimationFrame(check);
     }
     requestAnimationFrame(check);
   }
+  requestAnimationFrame(check);
+}
 
+const gamepadListEl = document.getElementById('gamepadBindingsList');
+function renderGamepadBindingsList() {
+  gamepadListEl.innerHTML = '';
+  if (activeGamepadIndex === null) {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = t('key_bindings_no_gamepad');
+    gamepadListEl.appendChild(hint);
+  }
+  for (const [name] of BUTTONS) {
+    const row = document.createElement('div');
+    row.className = 'menu-row';
+    const label = document.createElement('span');
+    label.textContent = name + ': ' +
+        (gamepadBindings[name] !== undefined ? ('Knopf ' + gamepadBindings[name]) :
+                                                t('settings_unbound'));
+    const btn = document.createElement('button');
+    btn.className = 'pill';
+    btn.textContent = t('settings_bind');
+    btn.onclick = () => {
+      btn.textContent = t('key_bindings_press_button');
+      rebindGamepadButton(name, renderGamepadBindingsList);
+    };
+    row.appendChild(label);
+    row.appendChild(btn);
+    gamepadListEl.appendChild(row);
+  }
+}
+
+// Own overlay (#keyBindingsPanel), opened from either settings panel's
+// "Tastenzuweisungen" row -- same returnPanel pattern #languagePanel/
+// #videoModePanel use (see those two above, outside beginSession -- this one
+// has to live in here instead, since it calls renderSettings()/
+// renderGamepadBindingsList() just above, both beginSession-scoped). Unlike
+// language/video-mode's single-tap-and-done pickers, there's no one value to
+// pick here (it's a whole interactive screen), so it needs its own explicit
+// back button instead of returning automatically.
+const keyBindingsPanel = document.getElementById('keyBindingsPanel');
+let keyBindingsReturnPanel = null;
+
+function openKeyBindingsPanel(returnPanel) {
+  keyBindingsReturnPanel = returnPanel;
+  returnPanel.style.display = 'none';
+  document.getElementById('keyBindingsPanelTitle').textContent = t('settings_key_bindings');
+  document.getElementById('gamepadSectionLabel').textContent = t('key_bindings_gamepad_section');
+  document.getElementById('closeKeyBindings').textContent = t('back');
+  renderSettings();
+  renderGamepadBindingsList();
+  keyBindingsPanel.style.display = 'flex';
+}
+
+document.getElementById('keyBindingsRowDesktop').onclick = () => openKeyBindingsPanel(document.getElementById('settingsPanel'));
+document.getElementById('keyBindingsRowMobile').onclick = () => openKeyBindingsPanel(document.getElementById('menuPanel'));
+document.getElementById('closeKeyBindings').onclick = () => {
+  keyBindingsPanel.style.display = 'none';
+  if (keyBindingsReturnPanel) keyBindingsReturnPanel.style.display = 'flex';
+};
+
+// Own overlay (#bilinearPanel), same pattern -- doesn't actually need to be
+// inside beginSession (renderFilterRows('filterRows') already ran once,
+// outside, right after it was declared), but kept next to #keyBindingsPanel's
+// wiring here rather than split across the beginSession boundary for no
+// real reason, since both rows live in the same two parent panels.
+const bilinearPanel = document.getElementById('bilinearPanel');
+let bilinearReturnPanel = null;
+
+function openBilinearPanel(returnPanel) {
+  bilinearReturnPanel = returnPanel;
+  returnPanel.style.display = 'none';
+  document.getElementById('bilinearPanelTitle').textContent = t('settings_antialiasing');
+  document.getElementById('closeBilinear').textContent = t('back');
+  bilinearPanel.style.display = 'flex';
+}
+
+document.getElementById('bilinearRowDesktop').onclick = () => openBilinearPanel(document.getElementById('settingsPanel'));
+document.getElementById('bilinearRowMobile').onclick = () => openBilinearPanel(document.getElementById('menuPanel'));
+document.getElementById('closeBilinear').onclick = () => {
+  bilinearPanel.style.display = 'none';
+  if (bilinearReturnPanel) bilinearReturnPanel.style.display = 'flex';
+};
+
+// --- Mobile-only: on-screen touch overlay (drawn on top of the fullscreen
+// video like a typical mobile emulator) and the hamburger menu button
+// itself. The gamepad-binding list used to live inline here too (now shared
+// above, in #keyBindingsPanel) -- opening the mobile menu no longer needs to
+// pre-render it, openKeyBindingsPanel() does that itself on demand. ---
+if (isMobile) {
   touchControlsEl.querySelectorAll('.tbtn').forEach((btn) => {
     const bit = nameToBit[btn.dataset.name];
     const press = (e) => {
@@ -1463,87 +1656,24 @@ if (isMobile) {
   const menuButton = document.getElementById('menuButton');
   const menuPanel = document.getElementById('menuPanel');
   const overlayToggle = document.getElementById('toggleOverlay');
-  const gamepadListEl = document.getElementById('gamepadBindingsList');
   overlayToggle.checked = showOverlay;
   overlayToggle.onchange = () => {
     touchControlsEl.style.display = overlayToggle.checked ? 'block' : 'none';
     localStorage.setItem('unisonWebShowOverlay', overlayToggle.checked);
   };
 
-  function renderGamepadBindingsList() {
-    gamepadListEl.innerHTML = '';
-    if (activeGamepadIndex === null) {
-      const hint = document.createElement('div');
-      hint.className = 'hint';
-      hint.textContent = t('key_bindings_no_gamepad');
-      gamepadListEl.appendChild(hint);
-    }
-    for (const [name] of BUTTONS) {
-      const row = document.createElement('div');
-      row.className = 'menu-row';
-      const label = document.createElement('span');
-      label.textContent = name + ': ' +
-          (gamepadBindings[name] !== undefined ? ('Knopf ' + gamepadBindings[name]) :
-                                                  t('settings_unbound'));
-      const btn = document.createElement('button');
-      btn.className = 'pill';
-      btn.textContent = t('settings_bind');
-      btn.onclick = () => {
-        btn.textContent = t('key_bindings_press_button');
-        rebindGamepadButton(name, renderGamepadBindingsList);
-      };
-      row.appendChild(label);
-      row.appendChild(btn);
-      gamepadListEl.appendChild(row);
-    }
-  }
-
   menuButton.style.display = 'flex';
-  menuButton.onclick = () => {
-    menuPanel.style.display = 'flex';
-    renderGamepadBindingsList();
-  };
+  menuButton.onclick = () => { menuPanel.style.display = 'flex'; };
   document.getElementById('closeMenu').onclick = () => { menuPanel.style.display = 'none'; };
 }
 
-// The desktop keyboard-rebind table has no purpose on a touch device -- it
-// shows the mobile overlay/gamepad menu instead (see above).
+// The desktop keyboard-rebind table/gamepad list have no purpose on a touch
+// device -- it shows the mobile overlay/hamburger menu instead (see above).
+// This just wires the gear button itself now; the keybindings screen it
+// leads to (#keyBindingsPanel) is shared, see above.
 if (!isMobile) {
   const settingsButton = document.getElementById('settingsButton');
   const settingsPanel = document.getElementById('settingsPanel');
-  const settingsTableBody = document.getElementById('settingsTableBody');
-
-  function renderSettings() {
-    settingsTableBody.innerHTML = '';
-    for (const [name, bit] of BUTTONS) {
-      const row = document.createElement('tr');
-      const nameCell = document.createElement('td');
-      nameCell.textContent = name;
-      const keyCell = document.createElement('td');
-      keyCell.textContent = bindings[name];
-      const actionCell = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.textContent = t('settings_bind');
-      btn.onclick = () => {
-        btn.textContent = t('settings_press_key');
-        const onKey = (e) => {
-          e.preventDefault();
-          Object.assign(bindings, assignBinding(bindings, name, e.code));
-          saveBindings();
-          rebuildCodeMap();
-          renderSettings();
-          window.removeEventListener('keydown', onKey, true);
-        };
-        window.addEventListener('keydown', onKey, true);
-      };
-      actionCell.appendChild(btn);
-      row.appendChild(nameCell);
-      row.appendChild(keyCell);
-      row.appendChild(actionCell);
-      settingsTableBody.appendChild(row);
-    }
-  }
-  renderSettings();
 
   settingsButton.style.display = 'flex';
   settingsButton.onclick = () => { settingsPanel.style.display = 'flex'; };
