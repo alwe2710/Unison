@@ -15,7 +15,9 @@ import android.media.MediaRecorder
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -199,6 +201,17 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     private var extStickLDragY = 0
     private var extStickRDragX = 0 // right VirtualStick's own (touch-drag) contribution
     private var extStickRDragY = 0
+    // A real physical controller's analog thumbsticks -- fed from
+    // onGenericMotionEvent, see that override's own comment. Always drives
+    // the session's own sticks directly, same as VirtualStick's touch-drag
+    // contribution and unlike a bindable digital button -- a real
+    // thumbstick has no equivalent concept of "unbound" the way a keyboard
+    // key does (mirrors clients/ios's own ControllerInputHandler, whose
+    // comment states this exact convention outright).
+    private var extStickLPhysicalX = 0
+    private var extStickLPhysicalY = 0
+    private var extStickRPhysicalX = 0
+    private var extStickRPhysicalY = 0
     // Physical-key "digital stick" contribution -- held, each pushes that
     // stick to full deflection on that axis, same convention several other
     // emulators offer as a keyboard alternative to a real analog input;
@@ -227,10 +240,10 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
             negative -> -32767
             else -> 32767
         }
-        val leftX = (extStickLDragX + axis(extKeyStickLLeft, extKeyStickLRight)).coerceIn(-32768, 32767)
-        val leftY = (extStickLDragY + axis(extKeyStickLDown, extKeyStickLUp)).coerceIn(-32768, 32767)
-        val rightX = (extStickRDragX + axis(extKeyStickRLeft, extKeyStickRRight)).coerceIn(-32768, 32767)
-        val rightY = (extStickRDragY + axis(extKeyStickRDown, extKeyStickRUp)).coerceIn(-32768, 32767)
+        val leftX = (extStickLDragX + extStickLPhysicalX + axis(extKeyStickLLeft, extKeyStickLRight)).coerceIn(-32768, 32767)
+        val leftY = (extStickLDragY + extStickLPhysicalY + axis(extKeyStickLDown, extKeyStickLUp)).coerceIn(-32768, 32767)
+        val rightX = (extStickRDragX + extStickRPhysicalX + axis(extKeyStickRLeft, extKeyStickRRight)).coerceIn(-32768, 32767)
+        val rightY = (extStickRDragY + extStickRPhysicalY + axis(extKeyStickRDown, extKeyStickRUp)).coerceIn(-32768, 32767)
         client?.sendExtendedInput(
             extTouchPressed, extTouchX, extTouchY,
             extButtons or extPhysicalButtons, leftX, leftY, rightX, rightY
@@ -1030,6 +1043,57 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         return super.dispatchKeyEvent(event)
     }
 
+    /** Real analog thumbstick input -- reported live: the right stick was
+     * never recognized at all, the left only ever registered as D-pad
+     * presses. Root cause, confirmed by there being no onGenericMotionEvent
+     * override anywhere in this class before this fix: a physical
+     * thumbstick reports through MotionEvent axis values (AXIS_X/AXIS_Y
+     * for the left stick, AXIS_Z/AXIS_RZ for the right -- Android's own
+     * documented standard gamepad axis mapping), never as a KeyEvent at
+     * all, so dispatchKeyEvent above could never see it regardless of any
+     * fix there -- an entirely separate Android input path needs its own
+     * separate handling. The left stick's own "only ever seen as D-pad"
+     * symptom specifically is a controller/driver-level quirk, not
+     * something fixable from here: some gamepads report their D-pad (a hat
+     * switch) on the very same underlying HID report field their left
+     * stick would otherwise share, which Android additionally synthesizes
+     * into KEYCODE_DPAD_* automatically -- reading AXIS_X/AXIS_Y directly
+     * here (rather than relying on any DPAD KeyEvent) is the most this app
+     * itself can do; if the controller's own firmware/driver genuinely
+     * never exposes a distinct analog axis for that stick, no app-level
+     * fix can recover data the OS was never given.
+     *
+     * Deadzone: matches VirtualStick's own already-live analog precedent
+     * only loosely (that one has no deadzone at all, being a bounded touch
+     * drag with no physical center-rest drift) -- 0.15 is the standard,
+     * widely-used starting point for a real analog stick's own resting
+     * noise (Android's own official game controller sample uses the same
+     * value), not levels this codebase already had, since none of the
+     * other physical-input paths (keyboard digital-stick, VirtualStick's
+     * own touch drag) have any physical rest-position noise to filter. */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (!hasSticksMode || event.action != MotionEvent.ACTION_MOVE ||
+            (event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK
+        ) {
+            return super.onGenericMotionEvent(event)
+        }
+
+        fun axis(code: Int): Float {
+            val v = event.getAxisValue(code)
+            return if (kotlin.math.abs(v) < STICK_AXIS_DEADZONE) 0f else v
+        }
+
+        // Y sign matches VirtualStick's own convention (see its comment):
+        // positive = stick pushed up, opposite of MotionEvent's own raw
+        // AXIS_Y/AXIS_RZ (positive = pushed down/away).
+        extStickLPhysicalX = (axis(MotionEvent.AXIS_X) * 32767f).toInt()
+        extStickLPhysicalY = (-axis(MotionEvent.AXIS_Y) * 32767f).toInt()
+        extStickRPhysicalX = (axis(MotionEvent.AXIS_Z) * 32767f).toInt()
+        extStickRPhysicalY = (-axis(MotionEvent.AXIS_RZ) * 32767f).toInt()
+        sendCombinedExtendedInput()
+        return true
+    }
+
     private fun sendCombinedInput() {
         client?.sendInput(touchMask or physicalMask)
     }
@@ -1091,6 +1155,10 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         extStickLDragY = 0
         extStickRDragX = 0
         extStickRDragY = 0
+        extStickLPhysicalX = 0
+        extStickLPhysicalY = 0
+        extStickRPhysicalX = 0
+        extStickRPhysicalY = 0
         extKeyStickLUp = false
         extKeyStickLDown = false
         extKeyStickLLeft = false
@@ -1302,5 +1370,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         const val EXTRA_HOST = "host"
         const val EXTRA_STREAM_TYPE = "stream_type"
         const val EXTRA_PORT = "port"
+        // See onGenericMotionEvent's own comment.
+        private const val STICK_AXIS_DEADZONE = 0.15f
     }
 }
