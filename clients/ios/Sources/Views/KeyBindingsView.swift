@@ -126,7 +126,14 @@ struct KeyBindingsView: View {
                 // ControllerCaptureView's own comment. Real, visible text
                 // instead of the 1x1-invisible frame this had before, so
                 // the live GCExtendedGamepad state is actually readable on
-                // screen while this sheet is up.
+                // screen while this sheet is up. Explicit minHeight: a bare
+                // ScrollView inside a VStack has no intrinsic height of its
+                // own to lay out with -- without this, the VStack was
+                // sizing it down to effectively nothing, making the text
+                // invisible regardless of whether it was actually updating
+                // underneath (confirmed by the user's own report: no text
+                // at all, not even the "(waiting...)" placeholder that's
+                // always present from the very first frame).
                 ScrollView {
                     Text(controllerDebugInfo.isEmpty ? "(waiting for controller state...)" : controllerDebugInfo)
                         .font(.system(.caption, design: .monospaced))
@@ -134,6 +141,8 @@ struct KeyBindingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
                 }
+                .frame(minHeight: 180, maxHeight: 260)
+                .background(.quaternary.opacity(0.3))
                 ControllerCaptureView(debugInfo: $controllerDebugInfo) { element in
                     switch target {
                     case .gba(let button): prefs.setControllerBinding(element, for: button)
