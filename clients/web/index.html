@@ -28,7 +28,11 @@
   #status{position:absolute;top:8px;left:8px;margin:0;z-index:5;font-size:11px;
           color:var(--ink);background:rgba(0,0,0,0.4);padding:2px 8px;border-radius:20px}
   #videoWrap{position:relative;line-height:0}
-  canvas{image-rendering:pixelated;display:block;border:var(--border);border-radius:12px}
+  /* touch-action:none -- without it, a touch-drag on the canvas (real
+     touch input, see the pointerdown/pointermove listeners below) also
+     scrolls/pinch-zooms the page underneath it, same as any other
+     touch-driven control surface needs. */
+  canvas{image-rendering:pixelated;display:block;border:var(--border);border-radius:12px;touch-action:none}
 
   /* ---------- Connect / lobby: rounded "cartridge" tiles joined by a thin
      link-cable line, referencing the physical GC-GBA link cable this
@@ -650,6 +654,16 @@ const nameToBit = {};
 for (const [name, bit] of BUTTONS) nameToBit[name] = bit;
 
 let keyState = 0;
+// touch_and_buttons/n3ds_touch_and_buttons' own touch fields -- x/y are the
+// bottom screen's own native pixel coordinates, meaningless (and sent as 0)
+// whenever pressed is false (unison/protocol.h's own unison_touch_state
+// comment: "a release carries no meaningful position"), same convention
+// sendKeys() below already relies on. A gba_buttons session (Dolphin) never
+// reads these (see sendKeys()'s own branch for that encoding) -- harmless
+// to always track regardless of which kind of session is actually active.
+let touchPressed = false;
+let touchX = 0;
+let touchY = 0;
 
 const statusEl = document.getElementById('status');
 const canvas = document.getElementById('screen');
@@ -1151,12 +1165,15 @@ function sendKeys() {
     bufPtr = wasmModule._malloc(10);
     n = wasmModule.ccall('unison_wasm_build_touch_and_buttons_frame', 'number',
                           ['number', 'number', 'number', 'number', 'number'],
-                          [0, 0, 0, unisonButtonsFromKeyState(), bufPtr]);
+                          [touchPressed ? 1 : 0, touchX, touchY, unisonButtonsFromKeyState(), bufPtr]);
   } else if (currentInputEncoding === 'n3ds_touch_and_buttons') {
     bufPtr = wasmModule._malloc(18);
+    // Sticks always centered (0, 0) here -- same "no physical-stick input
+    // built out for this client yet" scope note as the frame's own
+    // buttons-translation comment above.
     n = wasmModule.ccall('unison_wasm_build_extended_input_frame', 'number',
                           ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'number', 'number'],
-                          [0, 0, 0, unisonButtonsFromKeyState(), 0, 0, 0, 0, bufPtr]);
+                          [touchPressed ? 1 : 0, touchX, touchY, unisonButtonsFromKeyState(), 0, 0, 0, 0, bufPtr]);
   } else {
     bufPtr = wasmModule._malloc(3);
     n = wasmModule.ccall('unison_wasm_build_input_frame', 'number', ['number', 'number'],
@@ -1195,6 +1212,66 @@ window.addEventListener('keyup', (e) => {
   e.preventDefault();
   if (keyState & bit) { keyState &= ~bit; sendKeys(); }
 });
+
+// --- Touch (canvas #screen): mouse/touch/pen via the unified Pointer
+// Events API -- one code path for both desktop click-drag and mobile touch,
+// same reasoning VirtualStick's own touch handling has elsewhere in this
+// client. #touchControls' own .tbtn buttons sit visually on top (their own
+// pointer-events:auto, see CSS) but the container itself is
+// pointer-events:none, so a drag anywhere else over the video reaches this
+// listener on the canvas underneath -- no explicit z-index coordination
+// needed between the two.
+//
+// Coordinate mapping direct port of clients/android's own
+// PlayerActivity.sendMappedTouch() (that function's own comment has the
+// full "ContentScale.Fit letterbox, clamp stray taps to the nearest edge"
+// rationale) -- canvas.width/height (the backing-buffer resolution, kept in
+// sync with the server's actual video size in decodeAndDrawFrame, not the
+// CSS-displayed size) is this client's own equivalent of that function's
+// bitmapWidth/bitmapHeight; getBoundingClientRect() is this client's own
+// equivalent of Compose's containerSize, correct for both desktop (explicit
+// aspect-matched sizing, resizeDesktopCanvas) and mobile (object-fit:
+// contain, real letterboxing) without needing to know which mode is active.
+function sendMappedTouch(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0 || canvas.width <= 0 || canvas.height <= 0) return;
+
+  const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+  const offsetX = (rect.width - canvas.width * scale) / 2;
+  const offsetY = (rect.height - canvas.height * scale) / 2;
+
+  touchPressed = true;
+  touchX = Math.min(Math.max(Math.round((clientX - rect.left - offsetX) / scale), 0), canvas.width - 1);
+  touchY = Math.min(Math.max(Math.round((clientY - rect.top - offsetY) / scale), 0), canvas.height - 1);
+  sendKeys();
+}
+
+function releaseTouch() {
+  if (!touchPressed) return;
+  touchPressed = false;
+  touchX = 0;
+  touchY = 0;
+  sendKeys();
+}
+
+let activeTouchPointerId = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (activeTouchPointerId !== null) return; // one touch point at a time, same as a real 3DS/DS
+  activeTouchPointerId = e.pointerId;
+  canvas.setPointerCapture(e.pointerId); // keeps receiving move/up even if the pointer leaves the canvas mid-drag
+  sendMappedTouch(e.clientX, e.clientY);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== activeTouchPointerId) return;
+  sendMappedTouch(e.clientX, e.clientY);
+});
+function endTouchPointer(e) {
+  if (e.pointerId !== activeTouchPointerId) return;
+  activeTouchPointerId = null;
+  releaseTouch();
+}
+canvas.addEventListener('pointerup', endTouchPointer);
+canvas.addEventListener('pointercancel', endTouchPointer);
 
 // --- Mobile-only: on-screen touch overlay (drawn on top of the fullscreen
 // video like a typical mobile emulator) and optional game-controller
