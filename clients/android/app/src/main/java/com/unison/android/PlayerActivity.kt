@@ -990,21 +990,44 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // Physical keyboard/controller input, per the bindings set in
     // SettingsActivity. Unbound keys fall through to the system default
     // (e.g. volume/back keys keep working).
-
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (hasButtonsMode && handleExtKey(keyCode, pressed = true)) return true
-        val bit = keyCodeToBit[keyCode] ?: return super.onKeyDown(keyCode, event)
-        physicalMask = physicalMask or bit
-        sendCombinedInput()
-        return true
-    }
-
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (hasButtonsMode && handleExtKey(keyCode, pressed = false)) return true
-        val bit = keyCodeToBit[keyCode] ?: return super.onKeyUp(keyCode, event)
-        physicalMask = physicalMask and bit.inv()
-        sendCombinedInput()
-        return true
+    //
+    // dispatchKeyEvent, not onKeyDown/onKeyUp: reported live -- a bound
+    // controller press always got ALSO picked up as ordinary system input
+    // at the same time (on-screen focus visibly jumping between the
+    // Compose touch controls, sometimes a highlighted control's own click
+    // firing) alongside actually reaching the game correctly. Root cause:
+    // onKeyDown/onKeyUp are only a *fallback* Android calls if nothing
+    // earlier in dispatch already consumed the event -- and a gamepad's
+    // D-pad is delivered as the exact same KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT
+    // (plus KEYCODE_DPAD_CENTER/KEYCODE_BUTTON_A-as-"click") codes Android
+    // uses for its own built-in focus-navigation-and-click handling on any
+    // focusable View/composable -- which runs *before* onKeyDown/onKeyUp
+    // ever gets a look in, in the DecorView's own dispatch, not after.
+    // Overriding dispatchKeyEvent (same mechanism KeyBindingsActivity's own
+    // binding-capture already relies on, see that Activity's own comment)
+    // intercepts the event at the very first possible point, before any
+    // View/composable's default focus-navigation gets a chance to react to
+    // it at all -- the same fix every other Android game/emulator project
+    // uses for this exact, well-known problem (RetroArch, Dolphin Android,
+    // Yuzu, DraStic, ...).
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (hasButtonsMode && handleExtKey(event.keyCode, pressed = true)) return true
+                val bit = keyCodeToBit[event.keyCode] ?: return super.dispatchKeyEvent(event)
+                physicalMask = physicalMask or bit
+                sendCombinedInput()
+                return true
+            }
+            KeyEvent.ACTION_UP -> {
+                if (hasButtonsMode && handleExtKey(event.keyCode, pressed = false)) return true
+                val bit = keyCodeToBit[event.keyCode] ?: return super.dispatchKeyEvent(event)
+                physicalMask = physicalMask and bit.inv()
+                sendCombinedInput()
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun sendCombinedInput() {
