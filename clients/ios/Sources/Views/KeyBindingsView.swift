@@ -43,6 +43,9 @@ struct KeyBindingsView: View {
     @StateObject private var controllerObserver = ControllerObserver()
     @State private var pendingKeyTarget: BindTarget?
     @State private var pendingControllerTarget: BindTarget?
+    // TEMPORARY diagnostic (2026-08-06) -- see ControllerCaptureView's own
+    // comment on why this is surfaced directly in the UI instead of a log.
+    @State private var controllerDebugInfo: String = ""
     // Prefs (UserDefaults) isn't @Published -- SwiftUI only re-evaluates a
     // View's body when one of its own @State properties changes, so a
     // plain prefs.clear...Binding() call from a Clear button's action
@@ -119,10 +122,19 @@ struct KeyBindingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                // Invisible -- no UIKit responder chain involved at all for
-                // a controller (unlike KeyCaptureView above), just needs to
-                // be in the view tree for as long as the sheet is up.
-                ControllerCaptureView { element in
+                // TEMPORARY diagnostic (2026-08-06) -- see
+                // ControllerCaptureView's own comment. Real, visible text
+                // instead of the 1x1-invisible frame this had before, so
+                // the live GCExtendedGamepad state is actually readable on
+                // screen while this sheet is up.
+                ScrollView {
+                    Text(controllerDebugInfo.isEmpty ? "(waiting for controller state...)" : controllerDebugInfo)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                }
+                ControllerCaptureView(debugInfo: $controllerDebugInfo) { element in
                     switch target {
                     case .gba(let button): prefs.setControllerBinding(element, for: button)
                     case .ext(let button): prefs.setControllerBinding(element, for: button)
@@ -133,7 +145,7 @@ struct KeyBindingsView: View {
                 .frame(width: 1, height: 1)
             }
             .padding()
-            .presentationDetents([.fraction(0.3)])
+            .presentationDetents([.medium, .large])
         }
     }
 
