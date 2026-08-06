@@ -63,6 +63,53 @@ final class PrefsTests: XCTestCase {
         XCTAssertEqual(map.count, 1)
     }
 
+    func testControllerBindingRoundTrip() {
+        let up = GBA_BUTTONS.first { $0.prefKey == "UP" }!
+        XCTAssertNil(prefs.controllerBinding(for: up))
+        prefs.setControllerBinding(.dpadUp, for: up)
+        XCTAssertEqual(prefs.controllerBinding(for: up), .dpadUp)
+        prefs.clearControllerBinding(for: up)
+        XCTAssertNil(prefs.controllerBinding(for: up))
+    }
+
+    func testControllerBindingsByElementOnlyIncludesBoundButtons() {
+        let up = GBA_BUTTONS.first { $0.prefKey == "UP" }!
+        prefs.setControllerBinding(.dpadUp, for: up)
+        let map = prefs.controllerBindingsByElement()
+        XCTAssertEqual(map[.dpadUp], up.bit)
+        XCTAssertEqual(map.count, 1)
+    }
+
+    /// A keyboard binding and a controller binding for the *same* button
+    /// are independent -- setting one must not disturb the other, matching
+    /// ControllerInputHandler's own "both active at once" comment.
+    func testKeyAndControllerBindingsAreIndependentForTheSameButton() {
+        let a = GBA_BUTTONS.first { $0.prefKey == "A" }!
+        prefs.setKeyBinding(9, for: a)
+        prefs.setControllerBinding(.buttonA, for: a)
+        XCTAssertEqual(prefs.keyBinding(for: a), 9)
+        XCTAssertEqual(prefs.controllerBinding(for: a), .buttonA)
+        prefs.clearControllerBinding(for: a)
+        XCTAssertEqual(prefs.keyBinding(for: a), 9, "clearing the controller binding must not clear the keyboard one")
+        XCTAssertNil(prefs.controllerBinding(for: a))
+    }
+
+    func testExtControllerBindingRoundTrip() {
+        let x = EXT_BUTTONS.first { $0.prefKey == "X" }!
+        XCTAssertNil(prefs.controllerBinding(for: x))
+        prefs.setControllerBinding(.buttonY, for: x)
+        XCTAssertEqual(prefs.controllerBinding(for: x), .buttonY)
+        let map = prefs.extControllerBindingsByElement()
+        XCTAssertEqual(map[.buttonY]?.prefKey, "X")
+    }
+
+    func testSharedExtButtonBitsByControllerElementUsesStandardBindings() {
+        let up = GBA_BUTTONS.first { $0.prefKey == "UP" }!
+        prefs.setControllerBinding(.dpadUp, for: up)
+        let map = prefs.sharedExtButtonBitsByControllerElement()
+        XCTAssertEqual(map[.dpadUp], ExtButtonBit.UP)
+    }
+
     func testBilinearOverridePersistsPerStreamType() {
         XCTAssertEqual(prefs.bilinear(for: "GC_GBA_LINK"), false)
         prefs.setBilinear(true, for: "GC_GBA_LINK")

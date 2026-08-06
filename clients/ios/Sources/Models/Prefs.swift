@@ -93,6 +93,87 @@ final class Prefs {
         return result
     }
 
+    // MARK: - Controller bindings (GBA_BUTTONS)
+    //
+    // Same shape as the keyboard bindings above, deliberately a completely
+    // separate pref namespace ("controllerbind_"/"extcontrollerbind_", not
+    // reusing "keybind_"/"extkeybind_") -- a keyboard binding and a
+    // controller binding for the same GBA button are independent and both
+    // active at once (see PlayerViewModel's own MARK on physical key/
+    // controller input), not alternatives to each other. Stores
+    // ControllerElement's String rawValue rather than anything from
+    // GameController itself -- see that enum's own comment for why.
+
+    func controllerBinding(for button: GbaButton) -> ControllerElement? {
+        guard let raw = defaults.string(forKey: controllerPrefKey(for: button)) else { return nil }
+        return ControllerElement(rawValue: raw)
+    }
+
+    func setControllerBinding(_ element: ControllerElement, for button: GbaButton) {
+        defaults.set(element.rawValue, forKey: controllerPrefKey(for: button))
+    }
+
+    func clearControllerBinding(for button: GbaButton) {
+        defaults.removeObject(forKey: controllerPrefKey(for: button))
+    }
+
+    /// ControllerElement -> GBA button bit, only for buttons that have a
+    /// controller binding set.
+    func controllerBindingsByElement() -> [ControllerElement: Int] {
+        var result: [ControllerElement: Int] = [:]
+        for button in GBA_BUTTONS {
+            if let element = controllerBinding(for: button) {
+                result[element] = button.bit
+            }
+        }
+        return result
+    }
+
+    // MARK: - Controller bindings (ExtButtons -- unison_extended_input)
+
+    func controllerBinding(for button: ExtButton) -> ControllerElement? {
+        guard let raw = defaults.string(forKey: controllerPrefKey(for: button)) else { return nil }
+        return ControllerElement(rawValue: raw)
+    }
+
+    func setControllerBinding(_ element: ControllerElement, for button: ExtButton) {
+        defaults.set(element.rawValue, forKey: controllerPrefKey(for: button))
+    }
+
+    func clearControllerBinding(for button: ExtButton) {
+        defaults.removeObject(forKey: controllerPrefKey(for: button))
+    }
+
+    /// ControllerElement -> ExtButton (not just a bit, unlike
+    /// controllerBindingsByElement() above), same "PlayerView needs to tell
+    /// a stick-direction entry apart from a plain button" reasoning as
+    /// extKeyBindingsByKeyCode().
+    func extControllerBindingsByElement() -> [ControllerElement: ExtButton] {
+        var result: [ControllerElement: ExtButton] = [:]
+        for button in EXT_BUTTONS + EXT_BUTTONS_LIMITED {
+            if let element = controllerBinding(for: button) {
+                result[element] = button
+            }
+        }
+        return result
+    }
+
+    /// ControllerElement -> unison_button_bit, for Standard-Tasten
+    /// (GBA_BUTTONS) controller bindings that double as a hasButtonsMode
+    /// button too (GBA_PREFKEY_TO_EXT_BUTTON_BIT) -- lets PlayerView honor
+    /// one controller binding for both wire encodings, same reasoning as
+    /// sharedExtButtonBitsByKeyCode().
+    func sharedExtButtonBitsByControllerElement() -> [ControllerElement: Int] {
+        var result: [ControllerElement: Int] = [:]
+        for button in GBA_BUTTONS {
+            guard let extBit = GBA_PREFKEY_TO_EXT_BUTTON_BIT[button.prefKey] else { continue }
+            if let element = controllerBinding(for: button) {
+                result[element] = extBit
+            }
+        }
+        return result
+    }
+
     // MARK: - Simple settings
 
     var onScreenControlsEnabled: Bool {
@@ -131,6 +212,8 @@ final class Prefs {
 
     private func prefKey(for button: GbaButton) -> String { "keybind_\(button.prefKey)" }
     private func prefKey(for button: ExtButton) -> String { "extkeybind_\(button.prefKey)" }
+    private func controllerPrefKey(for button: GbaButton) -> String { "controllerbind_\(button.prefKey)" }
+    private func controllerPrefKey(for button: ExtButton) -> String { "extcontrollerbind_\(button.prefKey)" }
     private func prefKeyForBilinear(_ streamType: String) -> String { "bilinear_video_filter.\(streamType)" }
 
     // MARK: - Static data (single source of truth, mirrors Prefs.kt's companion object)

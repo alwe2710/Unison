@@ -1,39 +1,38 @@
 import GameController
 
 /// Real game-controller (MFi/Bluetooth/USB, GameController framework) input
-/// during a PlayerView session -- the piece PlayerKeyInputView's own
-/// comment (and KeyCaptureView's, and this session's real-device testing
-/// feedback) documents as missing: iOS has no unified key-event story
-/// covering both a hardware keyboard and a controller the way Android's
-/// KeyEvent does, so this is a completely separate input path from
-/// PlayerViewModel.handlePhysicalKey(), not a variation of it.
+/// during a PlayerView session -- a completely separate input path from
+/// PlayerViewModel.handlePhysicalKey() (the keyboard's own), not a
+/// variation of it: iOS has no unified key-event story covering both a
+/// hardware keyboard and a controller the way Android's KeyEvent does.
 ///
-/// Fixed, sensible default mapping -- no per-button rebind UI like the
-/// keyboard's own KeyBindingsView. A `GCExtendedGamepad` is a fixed,
-/// well-known button/dpad/stick set (not arbitrary input the way a
-/// keyboard's HID codes are), so a single reasonable default is enough
-/// for v1: matches how every other client's own physical D-pad/buttons
-/// already have one fixed mapping with no rebind screen either (3DS/
-/// Switch's physical buttons already line up with the GBA's own layout,
-/// see clients/3ds/source/gba_buttons.hpp's own comment). A later pass
-/// could add per-element rebinding if that turns out to matter in
-/// practice.
+/// Prefs-driven, exactly mirroring PlayerViewModel.handlePhysicalKey()'s
+/// dispatch shape (Prefs.controllerBindingsByElement()/
+/// extControllerBindingsByElement()/sharedExtButtonBitsByControllerElement(),
+/// same three-dictionary pattern as the keyboard's own
+/// keyBindingsByKeyCode()/etc.) -- KeyBindingsView's new "Gamepad bindings"
+/// section is what actually configures these; nothing here hardcodes which
+/// physical button does what. An unbound button/dpad-direction does
+/// nothing, same as an unbound keyboard key -- consistent with that
+/// screen's own existing convention rather than silently falling back to
+/// some fixed default a user configured *around* instead of *out of*.
 ///
-/// Mapping (dpad/buttonA/buttonB/leftShoulder/rightShoulder/buttonMenu/
-/// buttonOptions cover every plain gba_buttons session already; buttonX/Y,
-/// the triggers, and both thumbsticks only apply to a hasButtons/hasSticks
-/// session, where there's a real place on the wire for them):
-///   D-pad          -> Up/Down/Left/Right
-///   A / B          -> A / B
-///   Left/Right shoulder -> L / R
-///   Menu button    -> Start
-///   Options button (if present -- not every MFi controller has one) -> Select
-///   X / Y          -> Ext X / Y (hasButtons only)
-///   Left/Right trigger  -> Ext ZL / ZR (hasSticks only)
-///   Left/Right thumbstick -> the stream's own two analog sticks (hasSticks only)
+/// Analog thumbsticks are the one exception: their raw x/y values always
+/// drive the session's own two analog sticks directly (when hasSticks)
+/// regardless of any binding -- that's not really a "binding" question,
+/// it's just what a real thumbstick naturally does, the same way a
+/// keyboard (which has no analog axes at all) never had an equivalent
+/// concept to begin with. A thumbstick direction can *additionally* be
+/// bound as a discrete digital element (e.g. "L-Stick Up" bound to a plain
+/// GBA button) without that binding replacing the stick's own analog feed.
 final class ControllerInputHandler {
     private weak var viewModel: PlayerViewModel?
     private var observers: [NSObjectProtocol] = []
+    private let prefs = Prefs()
+
+    private lazy var elementToBit = prefs.controllerBindingsByElement()
+    private lazy var elementToExtButton = prefs.extControllerBindingsByElement()
+    private lazy var elementToExtBitFromGba = prefs.sharedExtButtonBitsByControllerElement()
 
     init(viewModel: PlayerViewModel) {
         self.viewModel = viewModel
@@ -81,38 +80,85 @@ final class ControllerInputHandler {
     private func sync(_ gamepad: GCExtendedGamepad) {
         guard let viewModel else { return }
 
-        if viewModel.touchInput, viewModel.hasButtons {
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.A), pressed: gamepad.buttonA.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.B), pressed: gamepad.buttonB.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.X), pressed: gamepad.buttonX.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.Y), pressed: gamepad.buttonY.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.L), pressed: gamepad.leftShoulder.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.R), pressed: gamepad.rightShoulder.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.START), pressed: gamepad.buttonMenu.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.SELECT), pressed: gamepad.buttonOptions?.isPressed ?? false)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.UP), pressed: gamepad.dpad.up.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.DOWN), pressed: gamepad.dpad.down.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.LEFT), pressed: gamepad.dpad.left.isPressed)
-            viewModel.setExtButton(bit: UInt32(ExtButtonBit.RIGHT), pressed: gamepad.dpad.right.isPressed)
-            if viewModel.hasSticks {
-                viewModel.setExtButton(bit: UInt32(ExtButtonBit.ZL), pressed: gamepad.leftTrigger.isPressed)
-                viewModel.setExtButton(bit: UInt32(ExtButtonBit.ZR), pressed: gamepad.rightTrigger.isPressed)
-                viewModel.setLeftStick(x: Self.axis(gamepad.leftThumbstick.xAxis.value),
-                                        y: Self.axis(gamepad.leftThumbstick.yAxis.value))
-                viewModel.setRightStick(x: Self.axis(gamepad.rightThumbstick.xAxis.value),
-                                         y: Self.axis(gamepad.rightThumbstick.yAxis.value))
+        // Same condition as PlayerViewModel.handlePhysicalKey()'s own
+        // `if hasButtons, ...` gate (hasButtons alone, not touchInput &&
+        // hasButtons) -- the protocol only ever reports hasButtons=true
+        // for a touch-capable session to begin with, so the two are
+        // equivalent in practice; matching the exact same condition here
+        // keeps both physical-input paths visibly consistent instead of
+        // looking like they disagree about something.
+        let extendedSession = viewModel.hasButtons
+
+        for element in ControllerElement.allCases {
+            let pressed = Self.isPressed(element, on: gamepad)
+            dispatch(element, pressed: pressed, extendedSession: extendedSession)
+        }
+
+        if extendedSession, viewModel.hasSticks {
+            viewModel.setLeftStick(x: Self.axis(gamepad.leftThumbstick.xAxis.value),
+                                    y: Self.axis(gamepad.leftThumbstick.yAxis.value))
+            viewModel.setRightStick(x: Self.axis(gamepad.rightThumbstick.xAxis.value),
+                                     y: Self.axis(gamepad.rightThumbstick.yAxis.value))
+        }
+    }
+
+    /// Direct port of PlayerViewModel.handlePhysicalKey()'s own dispatch
+    /// shape, just keyed by ControllerElement instead of a keyboard HID
+    /// code, and with no "was this handled" return value to fall through
+    /// with (a controller press has no system responder chain to fall
+    /// through to at all).
+    private func dispatch(_ element: ControllerElement, pressed: Bool, extendedSession: Bool) {
+        guard let viewModel else { return }
+
+        if extendedSession {
+            if let button = elementToExtButton[element] {
+                if button.kind == .button {
+                    viewModel.setExtButton(bit: UInt32(button.bit), pressed: pressed)
+                }
+                // Stick-direction ExtButton kinds bound to a discrete
+                // controller element (e.g. a face button standing in for
+                // "L-Stick Up") aren't handled here -- PlayerViewModel's
+                // own digital-stick accumulation (extKeyStick...) is
+                // private to its keyboard path, and duplicating it for the
+                // rare case of binding a *button* to a *stick direction* on
+                // a device that already has real analog sticks isn't worth
+                // the complexity this pass. The element's own binding
+                // dropdown still accepts it (consistent with the keyboard
+                // side), it's just a no-op for now if picked.
             }
-        } else {
-            viewModel.setButton(bit: GbaKey.A, pressed: gamepad.buttonA.isPressed)
-            viewModel.setButton(bit: GbaKey.B, pressed: gamepad.buttonB.isPressed)
-            viewModel.setButton(bit: GbaKey.L, pressed: gamepad.leftShoulder.isPressed)
-            viewModel.setButton(bit: GbaKey.R, pressed: gamepad.rightShoulder.isPressed)
-            viewModel.setButton(bit: GbaKey.START, pressed: gamepad.buttonMenu.isPressed)
-            viewModel.setButton(bit: GbaKey.SELECT, pressed: gamepad.buttonOptions?.isPressed ?? false)
-            viewModel.setButton(bit: GbaKey.UP, pressed: gamepad.dpad.up.isPressed)
-            viewModel.setButton(bit: GbaKey.DOWN, pressed: gamepad.dpad.down.isPressed)
-            viewModel.setButton(bit: GbaKey.LEFT, pressed: gamepad.dpad.left.isPressed)
-            viewModel.setButton(bit: GbaKey.RIGHT, pressed: gamepad.dpad.right.isPressed)
+            if let bit = elementToExtBitFromGba[element] {
+                viewModel.setExtButton(bit: UInt32(bit), pressed: pressed)
+            }
+        } else if let bit = elementToBit[element] {
+            viewModel.setButton(bit: bit, pressed: pressed)
+        }
+    }
+
+    private static func isPressed(_ element: ControllerElement, on pad: GCExtendedGamepad) -> Bool {
+        let threshold: Float = 0.6
+        switch element {
+        case .buttonA: return pad.buttonA.isPressed
+        case .buttonB: return pad.buttonB.isPressed
+        case .buttonX: return pad.buttonX.isPressed
+        case .buttonY: return pad.buttonY.isPressed
+        case .leftShoulder: return pad.leftShoulder.isPressed
+        case .rightShoulder: return pad.rightShoulder.isPressed
+        case .leftTrigger: return pad.leftTrigger.isPressed
+        case .rightTrigger: return pad.rightTrigger.isPressed
+        case .buttonMenu: return pad.buttonMenu.isPressed
+        case .buttonOptions: return pad.buttonOptions?.isPressed ?? false
+        case .dpadUp: return pad.dpad.up.isPressed
+        case .dpadDown: return pad.dpad.down.isPressed
+        case .dpadLeft: return pad.dpad.left.isPressed
+        case .dpadRight: return pad.dpad.right.isPressed
+        case .leftThumbstickUp: return pad.leftThumbstick.yAxis.value > threshold
+        case .leftThumbstickDown: return pad.leftThumbstick.yAxis.value < -threshold
+        case .leftThumbstickLeft: return pad.leftThumbstick.xAxis.value < -threshold
+        case .leftThumbstickRight: return pad.leftThumbstick.xAxis.value > threshold
+        case .rightThumbstickUp: return pad.rightThumbstick.yAxis.value > threshold
+        case .rightThumbstickDown: return pad.rightThumbstick.yAxis.value < -threshold
+        case .rightThumbstickLeft: return pad.rightThumbstick.xAxis.value < -threshold
+        case .rightThumbstickRight: return pad.rightThumbstick.xAxis.value > threshold
         }
     }
 
