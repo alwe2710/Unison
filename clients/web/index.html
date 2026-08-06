@@ -73,6 +73,12 @@
                        font-size:14px;border:none;cursor:pointer;padding:13px;
                        border-radius:var(--radius);background:var(--accent);color:var(--accent-ink)}
   #connectForm button:disabled{opacity:0.6;cursor:default}
+  /* Secondary action, not the primary "Verbinden" -- outline instead of
+     filled, so it doesn't visually compete with the actual submit button
+     right below it. */
+  #probePortsBtn{margin-top:-2px;background:transparent;border:var(--border);
+                 color:var(--ink)}
+  #probeStatus{color:var(--muted);font-size:12.5px;min-height:1.2em;margin:0}
   #connectError{color:#ff9a9a;font-size:12.5px;min-height:1.2em}
 
   .slot{display:flex;align-items:center;gap:12px;width:100%;font:inherit;color:var(--ink);
@@ -252,6 +258,8 @@
         <input id="portInput" type="number" min="1" max="65535" value="6800" required>
       </label>
     </div>
+    <button type="button" id="probePortsBtn">Port automatisch finden</button>
+    <p id="probeStatus"></p>
     <button type="submit" id="connectSubmit">Verbinden</button>
     <div id="connectError"></div>
   </form>
@@ -603,6 +611,98 @@ function openVideoModePanel(returnPanel) {
 document.getElementById('videoModeRowDesktop').onclick = () => openVideoModePanel(document.getElementById('settingsPanel'));
 document.getElementById('videoModeRowMobile').onclick = () => openVideoModePanel(document.getElementById('menuPanel'));
 updateVideoModeRowValues();
+
+// This client's own real answer to "no discovery beacon" (README.md's own
+// section on it) -- a browser has no way to receive the UDP broadcast
+// every other client instead listens for passively, full stop, no amount
+// of restricting to one known host works around that (there's no socket
+// API to restrict in the first place). What *is* buildable: given a host
+// the user already typed in, actively probe each of Unison's four
+// well-known fixed handshake ports against it in turn, so the user only
+// has to know the IP, not also which of the four ports its particular
+// emulator uses. Not a listen, an active short-timeout connect-and-check,
+// same distinction PlayerActivity.kt's own manual-entry vs. beacon split
+// already draws for the native clients.
+const PROBE_PORTS = [
+  { port: 6800, label: 'Dolphin' },
+  { port: 6810, label: 'Azahar' },
+  { port: 6820, label: 'melonDS' },
+  { port: 6840, label: 'Cemu' },
+];
+
+// Real WS connect + a real, WASM-parsed hello (unison_wasm_parse_hello --
+// same validation beginSession() itself uses below, not a second
+// hand-rolled check, matching this file's own top comment on why parallel
+// protocol reimplementations are avoided) -- closed immediately either way,
+// never handed off into the real session; beginSession() opens its own
+// fresh connection from scratch once a port is found, exactly as if the
+// user had typed it in by hand.
+async function probeOnePort(wasmModule, host, port, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let socket;
+    const finish = (found) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (socket) {
+        socket.onmessage = socket.onerror = socket.onclose = null;
+        try { socket.close(); } catch { /* already closed/never opened */ }
+      }
+      resolve(found);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    try {
+      socket = new WebSocket(`ws://${host}:${port}/`);
+    } catch {
+      finish(false);
+      return;
+    }
+    socket.onmessage = (e) => {
+      if (typeof e.data !== 'string') { finish(false); return; }
+      const bytes = new TextEncoder().encode(e.data);
+      const ptr = wasmModule._malloc(bytes.length);
+      wasmModule.HEAPU8.set(bytes, ptr);
+      const isHello = wasmModule.ccall('unison_wasm_peek_handshake_message', 'number',
+          ['number', 'number'], [ptr, bytes.length]) === 1;
+      const parsed = isHello && wasmModule.ccall('unison_wasm_parse_hello', 'number',
+          ['number', 'number'], [ptr, bytes.length]);
+      wasmModule._free(ptr);
+      finish(!!parsed);
+    };
+    socket.onerror = () => finish(false);
+    socket.onclose = () => finish(false);
+  });
+}
+
+async function probeHost(host) {
+  const wasmModule = await wasmModulePromise;
+  const results = await Promise.all(
+    PROBE_PORTS.map(({ port }) => probeOnePort(wasmModule, host, port, 1500).then((ok) => ({ port, ok })))
+  );
+  return results.find((r) => r.ok) || null;
+}
+
+const probePortsBtn = document.getElementById('probePortsBtn');
+const probeStatusEl = document.getElementById('probeStatus');
+probePortsBtn.addEventListener('click', async () => {
+  const host = hostInput.value.trim();
+  if (!host) {
+    probeStatusEl.textContent = 'Bitte zuerst eine IP-Adresse eingeben.';
+    return;
+  }
+  probePortsBtn.disabled = true;
+  probeStatusEl.textContent = 'Suche läuft...';
+  const hit = await probeHost(host);
+  probePortsBtn.disabled = false;
+  if (hit) {
+    portInput.value = String(hit.port);
+    const label = PROBE_PORTS.find((p) => p.port === hit.port)?.label || '';
+    probeStatusEl.textContent = `Gefunden: ${label} auf Port ${hit.port}.`;
+  } else {
+    probeStatusEl.textContent = 'Kein Server auf den bekannten Ports gefunden.';
+  }
+});
 
 connectForm.addEventListener('submit', (e) => {
   e.preventDefault();
