@@ -357,7 +357,21 @@ class MenuActivity : LocalizedActivity() {
         discoveryStatusText = getString(R.string.discovery_scanning)
 
         Thread {
-            val seenHosts = HashSet<String>()
+            // host alone -- not host+handshake_port -- used to be this set's
+            // key, which permanently dropped every beacon from a second
+            // server the moment any server on that same host had already
+            // been seen once this scan (not just merged/overwritten like
+            // switch/3ds/nds's equivalent bug -- here it's a one-shot filter
+            // *before* the entry is even built, so the second server never
+            // appeared at all, for the rest of the scan). Reported live:
+            // two emulators on one dev/LAN box, each with its own
+            // handshake_port -- exactly the scenario this collapses. iOS's
+            // own DiscoveredServer.id already keys on
+            // host+handshakePort+streamType (BeaconListener.swift); ported
+            // that same host+handshakePort key here, matching the fix
+            // already applied to switch/3ds/nds's own dedup logic for the
+            // identical root cause.
+            val seenHostsAndPorts = HashSet<String>()
             var socket: DatagramSocket? = null
             try {
                 socket = DatagramSocket(null).apply {
@@ -391,7 +405,8 @@ class MenuActivity : LocalizedActivity() {
                     val beaconHost = json.optString("host")
                     val host = beaconHost.ifEmpty { packet.address?.hostAddress ?: "" }
                     if (host.isEmpty()) continue
-                    if (!seenHosts.add(host)) continue // already listed from an earlier beacon tick
+                    val handshakePort = json.optInt("handshake_port", 0)
+                    if (!seenHostsAndPorts.add("$host:$handshakePort")) continue // already listed from an earlier beacon tick
 
                     val protocolVersion = json.optInt("protocol_version", -1)
                     val server = DiscoveredServer(
@@ -399,7 +414,7 @@ class MenuActivity : LocalizedActivity() {
                         emulatorIdentifier = json.optString("emulator_identifier", "?"),
                         gameTitle = json.optString("game_title", ""),
                         streamType = json.optString("stream_type", ""),
-                        handshakePort = json.optInt("handshake_port", 0),
+                        handshakePort = handshakePort,
                         protocolVersion = protocolVersion,
                         compatible = protocolVersion == GbaStreamClient.PROTOCOL_VERSION
                     )
@@ -415,10 +430,10 @@ class MenuActivity : LocalizedActivity() {
             runOnUiThread {
                 discovering = false
                 discoveryProgress = 1f
-                discoveryStatusText = if (seenHosts.isEmpty()) {
+                discoveryStatusText = if (seenHostsAndPorts.isEmpty()) {
                     getString(R.string.discovery_none_found)
                 } else {
-                    getString(R.string.discovery_found, seenHosts.size)
+                    getString(R.string.discovery_found, seenHostsAndPorts.size)
                 }
             }
         }.start()
