@@ -150,15 +150,20 @@ struct MenuView: View {
                 }
             }
             .padding()
-            // A plain unconstrained VStack stretches its Form full-width,
-            // which reads fine on an iPhone but leaves the text fields
-            // absurdly wide on an iPad -- capping and centering the
-            // content column keeps this screen itself readable regardless
-            // of how much width the surrounding NavigationSplitView detail
-            // pane actually gives it (RootView.swift is what makes the app
-            // as a whole read as an iPad app, not this cap by itself).
-            .frame(maxWidth: 500)
-            .frame(maxWidth: .infinity)
+            // No maxWidth cap here anymore (there used to be one, 500pt
+            // centered) -- reported as a visible "gray frame" on iPad's
+            // wide landscape layout: capping this screen's own content
+            // left a plain-background margin on both sides of the capped
+            // Form, and Form's own inset-grouped background (a distinct
+            // gray) meeting that plain margin read as an unwanted border/
+            // frame right at the cap's edges, worse the wider the
+            // surrounding space was. That cap predates RootView's
+            // NavigationSplitView, back when this screen was shown
+            // full-screen-wide with no sidebar constraining it at all --
+            // the sidebar's own detail pane already keeps this screen from
+            // ever being absurdly, phone-form-on-a-cinema-screen wide, so
+            // the second layer of capping is redundant now, not just
+            // visually broken.
             .navigationDestination(for: Int32.self) { port in
                 PlayerView(host: host, port: port, onActiveChanged: onPlayerActiveChanged)
             }
