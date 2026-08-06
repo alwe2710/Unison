@@ -1024,6 +1024,14 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // uses for this exact, well-known problem (RetroArch, Dolphin Android,
     // Yuzu, DraStic, ...).
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // TEMPORARY diagnostic (2026-08-06) -- two real fix attempts for
+        // controller input still didn't resolve it on real hardware;
+        // rather than guess a third time, log every single event this
+        // override actually sees. Remove once the real cause is found.
+        android.util.Log.d("UnisonInputDiag", "dispatchKeyEvent keyCode=${event.keyCode} " +
+            "action=${event.action} source=0x${event.source.toString(16)} " +
+            "device=${event.device?.name} bound=${keyCodeToBit.containsKey(event.keyCode)} " +
+            "hasButtonsMode=$hasButtonsMode")
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
                 if (hasButtonsMode && handleExtKey(event.keyCode, pressed = true)) return true
@@ -1085,10 +1093,23 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
      * other physical-input paths (keyboard digital-stick, VirtualStick's
      * own touch drag) have any physical rest-position noise to filter. */
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (!hasSticksMode || event.action != MotionEvent.ACTION_MOVE ||
+        if (event.action != MotionEvent.ACTION_MOVE ||
             (event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK
         ) {
             return super.dispatchGenericMotionEvent(event)
+        }
+
+        // D-pad-via-hat-axis, independent of hasSticksMode (unlike the
+        // stick reading below) -- a D-pad exists regardless of whether this
+        // session negotiated real analog sticks. See handleHatAxes' own
+        // comment for why this exists at all: confirmed live (DualSense)
+        // that some controllers report their D-pad *only* this way, no
+        // KeyEvent ever generated for it, so dispatchKeyEvent above alone
+        // can never cover every controller's D-pad.
+        handleHatAxes(event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y))
+
+        if (!hasSticksMode) {
+            return true
         }
 
         fun axis(code: Int): Float {
@@ -1105,6 +1126,50 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         extStickRPhysicalY = (-axis(MotionEvent.AXIS_RZ) * 32767f).toInt()
         sendCombinedExtendedInput()
         return true
+    }
+
+    // Which of the four synthetic KEYCODE_DPAD_* directions handleHatAxes()
+    // currently considers "held", so it only reacts to an actual state
+    // change rather than resending a press on every single motion tick --
+    // a real hat switch's own controller keeps streaming ACTION_MOVE
+    // continuously even while sitting still at rest (confirmed live,
+    // DualSense), same "confirmed live" reasoning as the field below.
+    private var hatDpadState = 0
+
+    /** Synthesizes KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT digital presses/releases
+     * from a hat-switch axis and routes them through the exact same
+     * keyCodeToBit/handleExtKey path dispatchKeyEvent's own real KeyEvent
+     * case uses -- confirmed live (DualSense, real logcat capture) that a
+     * D-pad press can produce this axis and NO KeyEvent at all, so
+     * dispatchKeyEvent by itself can never see or handle that controller's
+     * D-pad regardless of any fix made there; this is the actual missing
+     * half. KeyBindingsActivity's own dispatchGenericMotionEvent mirrors
+     * this same KEYCODE_DPAD_* identity when *capturing* a binding for a
+     * hat-only D-pad, so a button bound that way round-trips correctly
+     * through keyCodeToBit here (built from that exact same stored value)
+     * without this class needing to know or care which of the two paths a
+     * given controller's D-pad actually used. */
+    private fun handleHatAxes(hatX: Float, hatY: Float) {
+        val newState = (if (hatX < -0.5f) 1 else 0) or
+            (if (hatX > 0.5f) 2 else 0) or
+            (if (hatY < -0.5f) 4 else 0) or
+            (if (hatY > 0.5f) 8 else 0)
+        if (newState == hatDpadState) return
+        val changed = newState xor hatDpadState
+
+        fun apply(bitFlag: Int, keyCode: Int) {
+            if (changed and bitFlag == 0) return
+            val pressed = newState and bitFlag != 0
+            if (hasButtonsMode && handleExtKey(keyCode, pressed = pressed)) return
+            val bit = keyCodeToBit[keyCode] ?: return
+            physicalMask = if (pressed) physicalMask or bit else physicalMask and bit.inv()
+            sendCombinedInput()
+        }
+        apply(1, KeyEvent.KEYCODE_DPAD_LEFT)
+        apply(2, KeyEvent.KEYCODE_DPAD_RIGHT)
+        apply(4, KeyEvent.KEYCODE_DPAD_UP)
+        apply(8, KeyEvent.KEYCODE_DPAD_DOWN)
+        hatDpadState = newState
     }
 
     private fun sendCombinedInput() {
@@ -1172,6 +1237,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         extStickLPhysicalY = 0
         extStickRPhysicalX = 0
         extStickRPhysicalY = 0
+        hatDpadState = 0
         extKeyStickLUp = false
         extKeyStickLDown = false
         extKeyStickLLeft = false

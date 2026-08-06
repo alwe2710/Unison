@@ -171,6 +171,13 @@ class KeyBindingsActivity : LocalizedActivity() {
     /** Intercepts the next key press while a binding is pending, regardless
      * of which composable has focus. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // TEMPORARY diagnostic (2026-08-06) -- see this file's own recent
+        // history: two real fix attempts here still didn't resolve
+        // controller binding on real hardware. Logs every event this
+        // override actually sees. Remove once the real cause is found.
+        android.util.Log.d("UnisonInputDiag", "KB.dispatchKeyEvent keyCode=${event.keyCode} " +
+            "action=${event.action} source=0x${event.source.toString(16)} " +
+            "device=${event.device?.name} pendingBindTarget=$pendingBindTarget")
         val target = pendingBindTarget
         if (target != null && event.action == KeyEvent.ACTION_DOWN) {
             when (target) {
@@ -189,31 +196,67 @@ class KeyBindingsActivity : LocalizedActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-    /** Reported live: a D-pad press during a pending binding ALSO navigated
-     * the interface (Compose focus visibly jumping between rows) at the
-     * same time the button's own KeyEvent was being correctly captured
-     * above -- only a second, separate press then produced a
-     * clean-looking assignment. dispatchKeyEvent alone can't be the whole
-     * story: it already unconditionally intercepts+consumes the very
-     * first ACTION_DOWN while a bind is pending, so a KeyEvent-only leak
-     * isn't possible. The other, entirely independent path a gamepad's
-     * D-pad commonly ALSO reports through: a raw hat-switch MotionEvent
-     * (AXIS_HAT_X/AXIS_HAT_Y), which is what Compose's own default
-     * joystick-driven focus-navigation actually watches -- and which
-     * nothing in this class was suppressing at all, letting it reach the
-     * view hierarchy and move focus regardless of dispatchKeyEvent's own,
-     * unrelated capture of the synthesized KeyEvent. Swallowing every
-     * SOURCE_JOYSTICK/SOURCE_GAMEPAD generic motion event outright while a
-     * binding is pending -- not just the hat axis specifically, since
-     * there's no need to distinguish once a capture is already in
-     * progress -- closes that off the same way dispatchKeyEvent already
-     * closes off the KeyEvent side. */
-    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (pendingBindTarget != null &&
-            (event.source and (InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_GAMEPAD)) != 0
-        ) {
-            return true
+    /** Real diagnostic evidence (2026-08-06, DualSense controller): a D-pad
+     * press produces NO KeyEvent at all on this device -- only a raw
+     * hat-switch MotionEvent (AXIS_HAT_X/AXIS_HAT_Y). dispatchKeyEvent
+     * above, however correct in itself, therefore never sees a D-pad press
+     * from this controller to capture in the first place -- confirmed live
+     * via logcat (dispatchKeyEvent never fired for a press that
+     * dispatchGenericMotionEvent very much did, HATY going to -1.0 and
+     * back). A first attempt at this override only *suppressed* hat-axis
+     * motion while a binding was pending (to stop it also driving Compose's
+     * own joystick-focus-navigation); that stopped the interface from
+     * visibly reacting, but did nothing to actually let a hat-only D-pad be
+     * bound at all, since nothing was ever recorded for it. This version
+     * captures a hat-axis crossing itself, synthesizing the same
+     * KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT identity a real D-pad KeyEvent would
+     * have carried and storing *that* via prefs.setKeyBinding, exactly like
+     * the KeyEvent path above does -- so PlayerActivity's own
+     * keyCodeToBit/handleExtKey lookups (built from the same stored
+     * KEYCODE_DPAD_* values) work identically regardless of which of the
+     * two paths a given controller's D-pad actually uses. No repeat-capture
+     * guard needed: once the first crossing sets pendingBindTarget to null,
+     * every subsequent motion tick (this controller sends a continuous
+     * stream, even at rest) simply finds nothing pending and falls through.
+     *
+     * dispatchGenericMotionEvent, not onGenericMotionEvent -- the exact
+     * same fallback-vs-first-look mistake PlayerActivity's own analog-
+     * stick fix already made and had to correct (see that class's own
+     * comment): onGenericMotionEvent is only Android's fallback, called
+     * after the DecorView/Compose hierarchy's dispatch already had first
+     * crack. */
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        val target = pendingBindTarget
+        if (target == null || (event.source and (InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_GAMEPAD)) == 0) {
+            return super.dispatchGenericMotionEvent(event)
         }
-        return super.onGenericMotionEvent(event)
+
+        val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        val keyCode = when {
+            hatY < -0.5f -> KeyEvent.KEYCODE_DPAD_UP
+            hatY > 0.5f -> KeyEvent.KEYCODE_DPAD_DOWN
+            hatX < -0.5f -> KeyEvent.KEYCODE_DPAD_LEFT
+            hatX > 0.5f -> KeyEvent.KEYCODE_DPAD_RIGHT
+            else -> null
+        }
+        if (keyCode != null) {
+            // TEMPORARY diagnostic (2026-08-06) -- only logs an actual
+            // capture, not this controller's continuous at-rest stream.
+            android.util.Log.d("UnisonInputDiag",
+                "KB.dispatchGenericMotionEvent captured keyCode=$keyCode for $target (hat-axis, no KeyEvent existed)")
+            when (target) {
+                is BindTarget.Gba -> {
+                    prefs.setKeyBinding(target.button, keyCode)
+                    bindingTexts[gbaKey(target.button)] = describeGbaBinding(target.button)
+                }
+                is BindTarget.Ext -> {
+                    prefs.setKeyBinding(target.button, keyCode)
+                    bindingTexts[extKey(target.button)] = describeExtBinding(target.button)
+                }
+            }
+            pendingBindTarget = null
+        }
+        return true
     }
 }
