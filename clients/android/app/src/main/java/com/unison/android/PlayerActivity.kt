@@ -1120,10 +1120,24 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         // Y sign matches VirtualStick's own convention (see its comment):
         // positive = stick pushed up, opposite of MotionEvent's own raw
         // AXIS_Y/AXIS_RZ (positive = pushed down/away).
-        extStickLPhysicalX = (axis(MotionEvent.AXIS_X) * 32767f).toInt()
-        extStickLPhysicalY = (-axis(MotionEvent.AXIS_Y) * 32767f).toInt()
-        extStickRPhysicalX = (axis(MotionEvent.AXIS_Z) * 32767f).toInt()
-        extStickRPhysicalY = (-axis(MotionEvent.AXIS_RZ) * 32767f).toInt()
+        val newLX = (axis(MotionEvent.AXIS_X) * 32767f).toInt()
+        val newLY = (-axis(MotionEvent.AXIS_Y) * 32767f).toInt()
+        val newRX = (axis(MotionEvent.AXIS_Z) * 32767f).toInt()
+        val newRY = (-axis(MotionEvent.AXIS_RZ) * 32767f).toInt()
+        // TEMPORARY diagnostic (2026-08-06) -- only on an actual change,
+        // not this controller's continuous at-rest ACTION_MOVE stream.
+        if (newLX != extStickLPhysicalX || newLY != extStickLPhysicalY ||
+            newRX != extStickRPhysicalX || newRY != extStickRPhysicalY
+        ) {
+            android.util.Log.d("UnisonInputDiag",
+                "stick change L=($newLX,$newLY) R=($newRX,$newRY) rawX=${event.getAxisValue(MotionEvent.AXIS_X)} " +
+                    "rawY=${event.getAxisValue(MotionEvent.AXIS_Y)} rawZ=${event.getAxisValue(MotionEvent.AXIS_Z)} " +
+                    "rawRZ=${event.getAxisValue(MotionEvent.AXIS_RZ)}")
+        }
+        extStickLPhysicalX = newLX
+        extStickLPhysicalY = newLY
+        extStickRPhysicalX = newRX
+        extStickRPhysicalY = newRY
         sendCombinedExtendedInput()
         return true
     }
@@ -1270,6 +1284,18 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // writing to AudioTrack from a background thread is exactly what it's for.
 
     override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String) {
+        // TEMPORARY diagnostic (2026-08-06) -- reported live: sticks still
+        // not read even after dispatchGenericMotionEvent started correctly
+        // firing (confirmed via the D-pad fix working). One cheap
+        // possibility to rule in/out first: hasSticksMode itself simply
+        // being false for whichever server this session was tested
+        // against (dispatchGenericMotionEvent's own stick-reading branch
+        // is unconditionally gated on it) -- not every stream type reports
+        // real analog sticks (melonDS/NDS_BOTTOM_SCREEN has none, the
+        // hardware itself never had any; GC_GBA_LINK has no touch/sticks
+        // at all either).
+        android.util.Log.d("UnisonInputDiag",
+            "onConnected isTouch=$isTouch hasButtons=$hasButtons hasSticks=$hasSticks")
         runOnUiThread {
             connected = true
             touchMode = isTouch

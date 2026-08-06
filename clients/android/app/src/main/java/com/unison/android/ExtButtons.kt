@@ -56,20 +56,27 @@ val GBA_PREFKEY_TO_EXT_BUTTON_BIT: Map<String, Int> = mapOf(
     "B" to GbaStreamClient.BUTTON_B,
 )
 
-/** ZL/ZR and both sticks' directions -- only meaningful on the small subset
- * of stream types whose console actually has them (Cemu's WIIU_GAMEPAD is
- * the only two-stick, ZL/ZR-having server today), kept in their own list so
- * the UI can label this group accordingly instead of implying every
- * hasButtonsMode server uses them. */
+/** ZL/ZR -- only meaningful on the small subset of stream types whose
+ * console actually has them (Cemu's WIIU_GAMEPAD is the only two-stick,
+ * ZL/ZR-having server today), kept in their own list so the UI can label
+ * this group accordingly instead of implying every hasButtonsMode server
+ * uses them.
+ *
+ * The eight STICK_* directional entries used to live here too (a
+ * keyboard-key-driven "digital stick" convenience) -- removed from this
+ * bindable list per explicit request: a real physical controller's own
+ * analog stick already drives the session's stick directly (PlayerActivity.
+ * dispatchGenericMotionEvent, unconditional, no binding needed at all --
+ * see ControllerInputHandler's own iOS-side precedent, same convention),
+ * and capturing a *stick push itself* as the input for one of these
+ * bindings was never implemented (KeyBindingsActivity's own capture only
+ * ever recognized KeyEvents and the D-pad's hat axis, never the regular
+ * stick axes) -- confirmed live as a real "nothing happens" dead end
+ * rather than something to build out further. ExtInputKind still has the
+ * STICK_* cases (PlayerActivity.handleExtKey, ExtInputKind.kt) for a
+ * pre-existing stored binding to keep working if one somehow exists, but
+ * nothing can create a new one via this screen anymore. */
 val EXT_BUTTONS_LIMITED = listOf(
     ExtButton("ZL", ExtInputKind.BUTTON, GbaStreamClient.BUTTON_ZL, "ZL"),
     ExtButton("ZR", ExtInputKind.BUTTON, GbaStreamClient.BUTTON_ZR, "ZR"),
-    ExtButton("Stick L hoch", ExtInputKind.STICK_L_UP, 0, "STICK_L_UP"),
-    ExtButton("Stick L runter", ExtInputKind.STICK_L_DOWN, 0, "STICK_L_DOWN"),
-    ExtButton("Stick L links", ExtInputKind.STICK_L_LEFT, 0, "STICK_L_LEFT"),
-    ExtButton("Stick L rechts", ExtInputKind.STICK_L_RIGHT, 0, "STICK_L_RIGHT"),
-    ExtButton("Stick R hoch", ExtInputKind.STICK_R_UP, 0, "STICK_R_UP"),
-    ExtButton("Stick R runter", ExtInputKind.STICK_R_DOWN, 0, "STICK_R_DOWN"),
-    ExtButton("Stick R links", ExtInputKind.STICK_R_LEFT, 0, "STICK_R_LEFT"),
-    ExtButton("Stick R rechts", ExtInputKind.STICK_R_RIGHT, 0, "STICK_R_RIGHT"),
 )
