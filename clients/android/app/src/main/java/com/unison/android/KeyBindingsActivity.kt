@@ -31,15 +31,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 /**
- * Physical key binding per button, split into two sections: GBA_BUTTONS
- * (every stream type that has any buttons at all understands these) and
- * EXT_BUTTONS/EXT_BUTTONS_LIMITED (only a hasButtonsMode session -- Azahar's
- * N3DS_BOTTOM_SCREEN today -- reads these; ZL/ZR/the stick directions within
- * that are flagged further still, since even among hasButtonsMode servers
- * most consoles don't have a second shoulder pair or care about them).
- * Split out of SettingsActivity into its own screen (this used to be one
- * inline section there) purely so that screen isn't dominated by what's
- * now three separate lists.
+ * Physical key binding per button. Used to be three separate sections
+ * (GBA_BUTTONS's own Standard-Tasten list, then EXT_BUTTONS+
+ * EXT_BUTTONS_LIMITED's Erweiterte-Tasten list under its own header/hint) --
+ * merged per explicit request into one flat list in a fixed, hand-specified
+ * order (A, B, X, Y, Start, Select, D-pad Up/Down/Left/Right, L, ZL, R, ZR)
+ * that doesn't match either underlying list's own declaration order, hence
+ * [unifiedBindOrder] rather than just concatenating GBA_BUTTONS with
+ * EXT_BUTTONS/EXT_BUTTONS_LIMITED directly. GBA_BUTTONS/ExtButtons.kt's own
+ * declaration order is left alone -- both lists are also used elsewhere
+ * (PlayerActivity's on-screen touch row, Prefs' key-to-button maps) where
+ * this screen's own display order has no business dictating anything.
  *
  * Same dispatchKeyEvent-intercepts-the-next-press mechanism as before,
  * generalized over which of the two button types is currently pending via
@@ -62,6 +64,31 @@ class KeyBindingsActivity : LocalizedActivity() {
     // share a label/prefKey, e.g. both have an "A".
     private val bindingTexts = mutableStateMapOf<String, String>()
 
+    // See this class's own doc comment. ZL/ZR are EXT_BUTTONS_LIMITED's
+    // remaining two entries (the eight STICK_* rows that used to also live
+    // there were removed from that list entirely, see ExtButtons.kt's own
+    // comment) -- X/Y come from EXT_BUTTONS.
+    private val unifiedBindOrder: List<BindTarget> by lazy {
+        val gbaByKey = GBA_BUTTONS.associateBy { it.prefKey }
+        val extByKey = (EXT_BUTTONS + EXT_BUTTONS_LIMITED).associateBy { it.prefKey }
+        listOf(
+            BindTarget.Gba(gbaByKey.getValue("A")),
+            BindTarget.Gba(gbaByKey.getValue("B")),
+            BindTarget.Ext(extByKey.getValue("X")),
+            BindTarget.Ext(extByKey.getValue("Y")),
+            BindTarget.Gba(gbaByKey.getValue("START")),
+            BindTarget.Gba(gbaByKey.getValue("SELECT")),
+            BindTarget.Gba(gbaByKey.getValue("UP")),
+            BindTarget.Gba(gbaByKey.getValue("DOWN")),
+            BindTarget.Gba(gbaByKey.getValue("LEFT")),
+            BindTarget.Gba(gbaByKey.getValue("RIGHT")),
+            BindTarget.Gba(gbaByKey.getValue("L")),
+            BindTarget.Ext(extByKey.getValue("ZL")),
+            BindTarget.Gba(gbaByKey.getValue("R")),
+            BindTarget.Ext(extByKey.getValue("ZR")),
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -82,52 +109,34 @@ class KeyBindingsActivity : LocalizedActivity() {
                         }
                     ) { innerPadding ->
                         LazyColumn(modifier = Modifier.padding(innerPadding).padding(horizontal = 16.dp).fillMaxSize()) {
-                            item {
-                                Spacer(Modifier.height(8.dp))
-                                Text(stringResource(R.string.key_bindings_standard_section), style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            items(GBA_BUTTONS) { button ->
-                                BindingRow(
-                                    label = button.label,
-                                    bindingText = bindingTexts[gbaKey(button)] ?: "",
-                                    onBind = {
-                                        pendingBindTarget = BindTarget.Gba(button)
-                                        bindingTexts[gbaKey(button)] = getString(R.string.settings_press_key)
-                                    },
-                                    onClear = {
-                                        prefs.clearKeyBinding(button)
-                                        bindingTexts[gbaKey(button)] = describeGbaBinding(button)
-                                    }
-                                )
-                            }
-
-                            item {
-                                Spacer(Modifier.height(16.dp))
-                                HorizontalDivider()
-                                Spacer(Modifier.height(16.dp))
-                                Text(stringResource(R.string.key_bindings_extended_section), style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    stringResource(R.string.key_bindings_extended_hint),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            items(EXT_BUTTONS + EXT_BUTTONS_LIMITED) { button ->
-                                BindingRow(
-                                    label = button.label,
-                                    bindingText = bindingTexts[extKey(button)] ?: "",
-                                    onBind = {
-                                        pendingBindTarget = BindTarget.Ext(button)
-                                        bindingTexts[extKey(button)] = getString(R.string.settings_press_key)
-                                    },
-                                    onClear = {
-                                        prefs.clearKeyBinding(button)
-                                        bindingTexts[extKey(button)] = describeExtBinding(button)
-                                    }
-                                )
+                            item { Spacer(Modifier.height(8.dp)) }
+                            items(unifiedBindOrder) { target ->
+                                when (target) {
+                                    is BindTarget.Gba -> BindingRow(
+                                        label = target.button.label,
+                                        bindingText = bindingTexts[gbaKey(target.button)] ?: "",
+                                        onBind = {
+                                            pendingBindTarget = target
+                                            bindingTexts[gbaKey(target.button)] = getString(R.string.settings_press_key)
+                                        },
+                                        onClear = {
+                                            prefs.clearKeyBinding(target.button)
+                                            bindingTexts[gbaKey(target.button)] = describeGbaBinding(target.button)
+                                        }
+                                    )
+                                    is BindTarget.Ext -> BindingRow(
+                                        label = target.button.label,
+                                        bindingText = bindingTexts[extKey(target.button)] ?: "",
+                                        onBind = {
+                                            pendingBindTarget = target
+                                            bindingTexts[extKey(target.button)] = getString(R.string.settings_press_key)
+                                        },
+                                        onClear = {
+                                            prefs.clearKeyBinding(target.button)
+                                            bindingTexts[extKey(target.button)] = describeExtBinding(target.button)
+                                        }
+                                    )
+                                }
                             }
                             item { Spacer(Modifier.height(8.dp)) }
                         }
