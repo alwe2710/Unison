@@ -614,10 +614,17 @@ connectForm.addEventListener('submit', (e) => {
 });
 
 async function beginSession(host, port) {
+// Order matches the other clients' own unified key-bindings list (Android's
+// KeyBindingsActivity, iOS's KeyBindingsView): A, B, X, Y, Start, Select,
+// D-pad Up/Down/Left/Right, L, ZL, R, ZR -- minus X/Y/ZL/ZR, which this
+// client has never had at all (carried over unmodified from the original
+// Dolphin-only web UI, see README.md's own "Scope", predating the
+// touch_and_buttons/extended-input concept Cemu/Azahar/melonDS later added;
+// a real gap, not something this reorder itself addresses).
 const BUTTONS = [
-  ['A', 1<<0, 'KeyX'], ['B', 1<<1, 'KeyZ'], ['Select', 1<<2, 'ShiftRight'],
-  ['Start', 1<<3, 'Enter'], ['Right', 1<<4, 'ArrowRight'], ['Left', 1<<5, 'ArrowLeft'],
-  ['Up', 1<<6, 'ArrowUp'], ['Down', 1<<7, 'ArrowDown'], ['R', 1<<8, 'KeyS'], ['L', 1<<9, 'KeyA'],
+  ['A', 1<<0, 'KeyX'], ['B', 1<<1, 'KeyZ'], ['Start', 1<<3, 'Enter'], ['Select', 1<<2, 'ShiftRight'],
+  ['Up', 1<<6, 'ArrowUp'], ['Down', 1<<7, 'ArrowDown'], ['Left', 1<<5, 'ArrowLeft'], ['Right', 1<<4, 'ArrowRight'],
+  ['L', 1<<9, 'KeyA'], ['R', 1<<8, 'KeyS'],
 ];
 const nameToBit = {};
 for (const [name, bit] of BUTTONS) nameToBit[name] = bit;
