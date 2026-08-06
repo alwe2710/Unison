@@ -276,6 +276,15 @@ typedef struct {
     bool extended_input;
     bool has_buttons;
     char granted_video_mode[UNISON_VIDEO_MODE_LEN];
+    // hello.stream_type verbatim -- PlayerView needs this (not just the
+    // touch_input/has_buttons/extended_input booleans derived from it) to
+    // look up Prefs.bilinear(for:), which is keyed per stream_type string
+    // (KeyBindingsView/AntialiasingView's own per-console rows). Two
+    // different stream types (WIIU_GAMEPAD, N3DS_BOTTOM_SCREEN) share the
+    // exact same touch_input/has_buttons/extended_input=true/true/true
+    // shape, so those three booleans alone can't tell Cemu and Azahar
+    // apart the way the raw string can.
+    char stream_type[UNISON_STREAM_TYPE_LEN];
 } app_handshake_result;
 
 // App-level handshake (unison/handshake.h, docs/protocol.md
@@ -319,6 +328,8 @@ static app_handshake_result perform_app_handshake(unison_native_client *c, byte_
             result.extended_input || strcmp(hello.input_encoding, "touch_and_buttons") == 0;
         result.touch_input =
             result.has_buttons || strcmp(hello.input_encoding, "n3ds_touch") == 0;
+        strncpy(result.stream_type, hello.stream_type, sizeof(result.stream_type) - 1);
+        result.stream_type[sizeof(result.stream_type) - 1] = '\0';
 
         unison_hello_ack_request ack_req;
         memset(&ack_req, 0, sizeof(ack_req));
@@ -659,7 +670,8 @@ static void *client_thread_main(void *arg) {
 
     if (c->callbacks.on_connected) {
         c->callbacks.on_connected(c->callbacks.user_data, hs.touch_input, hs.has_buttons,
-                                   hs.extended_input, hs.width, hs.height, hs.granted_video_mode);
+                                   hs.extended_input, hs.width, hs.height, hs.granted_video_mode,
+                                   hs.stream_type);
     }
     run_session_loop(c, &buf);
     byte_buf_free(&buf);

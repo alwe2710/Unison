@@ -20,8 +20,15 @@ final class GbaStreamClient {
         /// only ever actually negotiates a gba_buttons (touchInput=false)
         /// session; the other fields exist for parity with a future
         /// touch-input PlayerView.
+        /// streamType: the raw hello.stream_type ("GC_GBA_LINK",
+        /// "N3DS_BOTTOM_SCREEN", ...) -- needed alongside
+        /// touchInput/hasButtons/hasSticks because WIIU_GAMEPAD and
+        /// N3DS_BOTTOM_SCREEN share the exact same true/true/true shape;
+        /// only the raw string actually distinguishes Cemu from Azahar
+        /// (used to key Prefs.bilinear(for:), which AntialiasingView's own
+        /// rows set per stream type).
         func onConnected(touchInput: Bool, hasButtons: Bool, hasSticks: Bool, width: Int32, height: Int32,
-                          grantedVideoMode: String)
+                          grantedVideoMode: String, streamType: String)
         /// rgb565 is a fresh Data copy (unlike the C callback's raw
         /// pointer, which is only valid for that call) -- same "safe to
         /// keep" contract as Android's ByteArray.
@@ -59,13 +66,14 @@ final class GbaStreamClient {
 
         var callbacks = unison_native_callbacks()
         callbacks.user_data = retained.toOpaque()
-        callbacks.on_connected = { userData, touchInput, hasButtons, hasSticks, width, height, grantedVideoMode in
+        callbacks.on_connected = { userData, touchInput, hasButtons, hasSticks, width, height, grantedVideoMode, streamType in
             guard let userData else { return }
             let client = Unmanaged<GbaStreamClient>.fromOpaque(userData).takeUnretainedValue()
             let mode = grantedVideoMode.map { String(cString: $0) } ?? ""
+            let type = streamType.map { String(cString: $0) } ?? ""
             client.listener?.onConnected(touchInput: touchInput != 0, hasButtons: hasButtons != 0,
                                           hasSticks: hasSticks != 0, width: width, height: height,
-                                          grantedVideoMode: mode)
+                                          grantedVideoMode: mode, streamType: type)
         }
         callbacks.on_video_frame = { userData, width, height, rgb565, len in
             guard let userData, let rgb565 else { return }

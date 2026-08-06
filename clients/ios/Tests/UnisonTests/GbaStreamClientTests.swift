@@ -23,7 +23,7 @@ final class GbaStreamClientTests: XCTestCase {
         }
 
         func onConnected(touchInput: Bool, hasButtons: Bool, hasSticks: Bool, width: Int32, height: Int32,
-                          grantedVideoMode: String) {
+                          grantedVideoMode: String, streamType: String) {
             XCTFail("a closed port should never report onConnected")
         }
 

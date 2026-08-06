@@ -6,6 +6,22 @@ import XCTest
 /// test without a Simulator-rendered UI or a real network session (see
 /// GbaStreamClientTests.swift for that side of the pipeline).
 final class PlayerViewModelTests: XCTestCase {
+    /// Real regression test for the bilinear-filter fix: onConnected used
+    /// to only capture touchInput/hasButtons/hasSticks, silently dropping
+    /// streamType -- PlayerView's Image then had nothing to look
+    /// Prefs.bilinear(for:) up with (see PlayerView.body's own comment),
+    /// so the AntialiasingView toggle never actually affected rendering no
+    /// matter what it was set to.
+    func testOnConnectedCapturesStreamType() {
+        let viewModel = PlayerViewModel()
+        let expectation = expectation(description: "onConnected dispatches to main")
+        viewModel.onConnected(touchInput: true, hasButtons: true, hasSticks: true, width: 854, height: 480,
+                               grantedVideoMode: "tiles", streamType: "WIIU_GAMEPAD")
+        DispatchQueue.main.async { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(viewModel.streamType, "WIIU_GAMEPAD")
+    }
+
     func testDecodesKnownRGB565Pixels() {
         // Pure red (0xF800), pure green (0x07E0), pure black (0x0000),
         // pure white (0xFFFF) -- u16le, so low byte first.

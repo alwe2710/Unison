@@ -24,8 +24,17 @@ typedef struct {
     // which of the three touch-frame shapes unison_native_send_touch()
     // itself builds, same three-way selection as jni_bridge.c's own
     // maybe_send_touch().
+    // stream_type: hello.stream_type verbatim ("GC_GBA_LINK",
+    // "N3DS_BOTTOM_SCREEN", ...) -- needed alongside touch_input/
+    // has_buttons/extended_input because two different stream types
+    // (WIIU_GAMEPAD, N3DS_BOTTOM_SCREEN) share the exact same
+    // touch_input/has_buttons/extended_input=1/1/1 shape; only the raw
+    // string actually distinguishes Cemu from Azahar. Valid only for the
+    // duration of this call, same "copy it if you need to keep it"
+    // contract as on_video_frame's rgb565.
     void (*on_connected)(void *user_data, int touch_input, int has_buttons, int extended_input,
-                          int32_t width, int32_t height, const char *granted_video_mode);
+                          int32_t width, int32_t height, const char *granted_video_mode,
+                          const char *stream_type);
     // rgb565 is only valid for the duration of this call (owned by the
     // background thread's reusable decode buffer) -- copy it if the
     // callback needs to keep it past returning, same contract as

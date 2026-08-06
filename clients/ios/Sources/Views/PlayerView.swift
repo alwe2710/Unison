@@ -30,6 +30,12 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     @Published private(set) var hasSticks = false
     @Published private(set) var streamWidth: Int32 = 0
     @Published private(set) var streamHeight: Int32 = 0
+    // Set from onConnected -- see that method's own comment on why this
+    // (not just touchInput/hasButtons/hasSticks) is what Prefs.bilinear(for:)
+    // needs. Empty (Prefs.bilinear(for:) then falls through to
+    // defaultBilinear's own "unknown stream type" branch) until a real
+    // hello has arrived.
+    @Published private(set) var streamType = ""
 
     private var client: GbaStreamClient?
     private var keymask: UInt16 = 0
@@ -255,7 +261,7 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     // MARK: - GbaStreamClient.Listener (fires on the background session thread)
 
     func onConnected(touchInput: Bool, hasButtons: Bool, hasSticks: Bool, width: Int32, height: Int32,
-                      grantedVideoMode: String) {
+                      grantedVideoMode: String, streamType: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.status = .connected
@@ -264,6 +270,7 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
             self.hasSticks = hasSticks
             self.streamWidth = width
             self.streamHeight = height
+            self.streamType = streamType
         }
     }
 
@@ -395,15 +402,27 @@ struct PlayerView: View {
 
     @StateObject private var viewModel = PlayerViewModel()
     @Environment(\.dismiss) private var dismiss
+    // Separate instance from PlayerViewModel's own private `prefs` (that
+    // one is a different type's private property, out of reach from this
+    // struct's body) -- both just wrap the same UserDefaults, so two
+    // instances are as consistent as one.
+    private let prefs = Prefs()
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             if let frame = viewModel.currentFrame {
+                // Was unconditionally .none (nearest-neighbor) here,
+                // ignoring AntialiasingView's own per-stream-type toggle
+                // entirely -- the setting persisted correctly (Prefs.
+                // setBilinear) but nothing at render time ever read it
+                // back. .medium (not .high): a modest smooth upscale,
+                // matching Android's own bilinear (not some sharper/
+                // Lanczos-like resampling) filter mode.
                 Image(uiImage: frame)
                     .resizable()
-                    .interpolation(.none) // native-resolution pixel art, see Prefs.defaultBilinear's own comment
+                    .interpolation(prefs.bilinear(for: viewModel.streamType) ? .medium : .none)
                     .aspectRatio(contentMode: .fit)
             }
 
