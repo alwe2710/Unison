@@ -35,6 +35,12 @@ private enum BindTarget: Identifiable {
 
 struct KeyBindingsView: View {
     private let prefs = Prefs()
+    // Not a direct GCController.controllers() query (that was this
+    // screen's first cut) -- see ControllerObserver's own comment: it's
+    // neither reactive to a controller connecting/disconnecting while this
+    // screen is already open, nor reliably populated for an
+    // already-paired controller without an explicit discovery kick.
+    @StateObject private var controllerObserver = ControllerObserver()
     @State private var pendingKeyTarget: BindTarget?
     @State private var pendingControllerTarget: BindTarget?
     // Prefs (UserDefaults) isn't @Published -- SwiftUI only re-evaluates a
@@ -65,7 +71,7 @@ struct KeyBindingsView: View {
             }
 
             Section {
-                if GCController.controllers().isEmpty {
+                if controllerObserver.controllers.isEmpty {
                     Text(LocaleHelper.string("key_bindings_no_gamepad", prefs: prefs))
                         .foregroundStyle(.secondary)
                 }
@@ -108,7 +114,7 @@ struct KeyBindingsView: View {
                     .font(.title2)
                 Text(target.label)
                     .foregroundStyle(.secondary)
-                if GCController.controllers().isEmpty {
+                if controllerObserver.controllers.isEmpty {
                     Text(LocaleHelper.string("key_bindings_no_gamepad", prefs: prefs))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -164,7 +170,7 @@ struct KeyBindingsView: View {
                 pendingControllerTarget = target
             }
             .buttonStyle(.bordered)
-            .disabled(GCController.controllers().isEmpty)
+            .disabled(controllerObserver.controllers.isEmpty)
             Button(LocaleHelper.string("settings_clear", prefs: prefs)) {
                 switch target {
                 case .gba(let button): prefs.clearControllerBinding(for: button)

@@ -48,6 +48,17 @@ final class ControllerInputHandler {
         for controller in GCController.controllers() {
             attach(controller)
         }
+        // Real-device gap, reported directly: GCController.controllers()
+        // doesn't reliably reflect an already-OS-paired-and-connected
+        // controller until the app has explicitly kicked off discovery at
+        // least once -- see ControllerObserver's own comment (this class
+        // doesn't share that one's SwiftUI-observability concern, but has
+        // the identical underlying GameController-framework gotcha). Kicked
+        // *after* the pass above, not before -- if the controller is
+        // already enumerable this call changes nothing observable; if it
+        // isn't yet, GCControllerDidConnect (already observed above) is
+        // what picks it up once discovery actually finds it.
+        GCController.startWirelessControllerDiscovery {}
     }
 
     deinit {

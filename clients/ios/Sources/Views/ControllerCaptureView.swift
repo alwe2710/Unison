@@ -26,6 +26,10 @@ struct ControllerCaptureView: View {
     }
 
     private func attachAll() {
+        // Defense-in-depth: KeyBindingsView's own ControllerObserver
+        // already kicks this off when that screen appears, but this sheet
+        // shouldn't depend on that ordering to work correctly on its own.
+        GCController.startWirelessControllerDiscovery {}
         for controller in GCController.controllers() {
             guard let gamepad = controller.extendedGamepad else { continue }
             gamepad.valueChangedHandler = { pad, _ in
