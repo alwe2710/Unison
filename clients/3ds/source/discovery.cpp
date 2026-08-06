@@ -213,8 +213,19 @@ void BeaconListener::threadMain() {
                     std::lock_guard<std::mutex> lock(mutex);
                     auto now = std::chrono::steady_clock::now();
                     bool updated = false;
+                    // host alone -- not host+handshakePort -- used to be the
+                    // dedup key, which merges two entirely different servers
+                    // that just happen to share a host into one slot the
+                    // moment they're on the same machine (reported for real
+                    // on the switch client, which mirrors this file: two
+                    // emulators on one dev/LAN box, each with its own
+                    // handshake_port, made one row flicker between two
+                    // identities instead of showing two stable rows). iOS's
+                    // own DiscoveredServer.id already keys on
+                    // host+handshakePort+streamType (BeaconListener.swift)
+                    // -- matching that shape here.
                     for (auto &e : entries) {
-                        if (e.server.host == server.host) {
+                        if (e.server.host == server.host && e.server.handshakePort == server.handshakePort) {
                             e.server = server;
                             e.lastSeen = now;
                             updated = true;

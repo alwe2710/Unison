@@ -38,9 +38,19 @@ bool beaconScan_start(BeaconScan *scan) {
     return true;
 }
 
-static BeaconServer *findByHost(BeaconScan *scan, const char *host) {
+/* host alone -- not host+handshake_port -- used to be this match's key,
+ * which merges two entirely different servers that just happen to share a
+ * host into one slot the moment they're on the same machine (reported for
+ * real on the switch client, which has the same beacon-list shape as this
+ * file: two emulators on one dev/LAN box, each with its own
+ * handshake_port, made one row flicker between two identities instead of
+ * showing two stable rows). iOS's own DiscoveredServer.id already keys on
+ * host+handshakePort+streamType (BeaconListener.swift) -- matching that
+ * shape here. */
+static BeaconServer *findByHostAndPort(BeaconScan *scan, const char *host, int handshakePort) {
     for (int i = 0; i < BEACON_MAX_SERVERS; i++) {
-        if (scan->servers[i].inUse && strcmp(scan->servers[i].beacon.host, host) == 0) {
+        if (scan->servers[i].inUse && scan->servers[i].beacon.handshake_port == handshakePort &&
+            strcmp(scan->servers[i].beacon.host, host) == 0) {
             return &scan->servers[i];
         }
     }
@@ -77,7 +87,7 @@ void beaconScan_tick(BeaconScan *scan) {
             if (!unison_parse_beacon(buf, (size_t)n, &beacon)) {
                 continue; /* not a well-formed Unison beacon -- ignore, per unison/discovery.h */
             }
-            BeaconServer *slot = findByHost(scan, beacon.host);
+            BeaconServer *slot = findByHostAndPort(scan, beacon.host, beacon.handshake_port);
             if (!slot) {
                 slot = findFreeOrOldest(scan);
             }
