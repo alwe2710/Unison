@@ -2,18 +2,15 @@ import GameController
 import SwiftUI
 
 /// Direct port of KeyBindingsActivity.kt: physical key binding per button,
-/// split into GBA_BUTTONS (every stream type with any buttons at all
-/// understands these) and EXT_BUTTONS/EXT_BUTTONS_LIMITED (only a
-/// hasButtonsMode session -- Azahar's N3DS_BOTTOM_SCREEN today -- reads
-/// these), plus a real, independent game-controller binding for the same
-/// button set (its own "Gamepad bindings" section below) -- a keyboard
-/// binding and a controller binding for the same GBA button are both
-/// active at once during a session, not alternatives to each other (see
-/// PlayerViewModel's own MARK on physical key/controller input). Two
-/// completely separate capture mechanisms (KeyCaptureView vs.
-/// ControllerCaptureView) since GameController framework has no
-/// relationship to UIPress/UIKit's responder chain that KeyCaptureView
-/// relies on at all -- see either file's own comment.
+/// plus a real, independent game-controller binding for the same button set
+/// (its own "Gamepad bindings" section below) -- a keyboard binding and a
+/// controller binding for the same GBA button are both active at once
+/// during a session, not alternatives to each other (see PlayerViewModel's
+/// own MARK on physical key/controller input). Two completely separate
+/// capture mechanisms (KeyCaptureView vs. ControllerCaptureView) since
+/// GameController framework has no relationship to UIPress/UIKit's
+/// responder chain that KeyCaptureView relies on at all -- see either
+/// file's own comment.
 private enum BindTarget: Identifiable {
     case gba(GbaButton)
     case ext(ExtButton)
@@ -32,6 +29,37 @@ private enum BindTarget: Identifiable {
         }
     }
 }
+
+/// Used to be two separate Sections (GBA_BUTTONS's own "Standard-Tasten"
+/// list, then EXT_BUTTONS+EXT_BUTTONS_LIMITED's "Erweiterte Tasten" list
+/// under its own header/hint, mirroring KeyBindingsActivity.kt's own former
+/// three-section split) -- merged per explicit request into one flat list
+/// in a fixed, hand-specified order (A, B, X, Y, Start, Select, D-pad
+/// Up/Down/Left/Right, L, ZL, R, ZR) that doesn't match either underlying
+/// list's own declaration order, hence this rather than just concatenating
+/// GBA_BUTTONS with EXT_BUTTONS/EXT_BUTTONS_LIMITED directly.
+/// GBA_BUTTONS/ExtButtons.swift's own declaration order is left alone --
+/// both lists are also used elsewhere (PlayerView's on-screen touch row,
+/// Prefs' key-to-button maps) where this screen's own display order has no
+/// business dictating anything.
+///
+/// The eight STICK_L/R_* directional entries stay appended at the end,
+/// unlike clients/android's own equivalent screen (where they were removed
+/// entirely) -- not yet confirmed live whether iOS's own stick-direction
+/// capture has the same "nothing can actually bind it" dead end Android's
+/// did, so left in place until that's actually checked here specifically.
+private let unifiedBindOrder: [BindTarget] = {
+    let gbaByKey = Dictionary(uniqueKeysWithValues: GBA_BUTTONS.map { ($0.prefKey, $0) })
+    let extByKey = Dictionary(uniqueKeysWithValues: (EXT_BUTTONS + EXT_BUTTONS_LIMITED).map { ($0.prefKey, $0) })
+    var order: [BindTarget] = [
+        .gba(gbaByKey["A"]!), .gba(gbaByKey["B"]!), .ext(extByKey["X"]!), .ext(extByKey["Y"]!),
+        .gba(gbaByKey["START"]!), .gba(gbaByKey["SELECT"]!),
+        .gba(gbaByKey["UP"]!), .gba(gbaByKey["DOWN"]!), .gba(gbaByKey["LEFT"]!), .gba(gbaByKey["RIGHT"]!),
+        .gba(gbaByKey["L"]!), .ext(extByKey["ZL"]!), .gba(gbaByKey["R"]!), .ext(extByKey["ZR"]!),
+    ]
+    order += EXT_BUTTONS_LIMITED.filter { $0.kind != .button }.map { .ext($0) }
+    return order
+}()
 
 struct KeyBindingsView: View {
     private let prefs = Prefs()
@@ -57,20 +85,10 @@ struct KeyBindingsView: View {
 
     var body: some View {
         List {
-            Section(LocaleHelper.string("key_bindings_standard_section", prefs: prefs)) {
-                ForEach(GBA_BUTTONS) { button in
-                    keyBindingRow(target: .gba(button), bindingText: describeKeyBinding(for: button))
-                }
-            }
-
             Section {
-                ForEach(EXT_BUTTONS + EXT_BUTTONS_LIMITED) { button in
-                    keyBindingRow(target: .ext(button), bindingText: describeKeyBinding(for: button))
+                ForEach(unifiedBindOrder) { target in
+                    keyBindingRow(target: target, bindingText: describeKeyBinding(for: target))
                 }
-            } header: {
-                Text(LocaleHelper.string("key_bindings_extended_section", prefs: prefs))
-            } footer: {
-                Text(LocaleHelper.string("key_bindings_extended_hint", prefs: prefs))
             }
 
             Section {
@@ -78,11 +96,8 @@ struct KeyBindingsView: View {
                     Text(LocaleHelper.string("key_bindings_no_gamepad", prefs: prefs))
                         .foregroundStyle(.secondary)
                 }
-                ForEach(GBA_BUTTONS) { button in
-                    controllerBindingRow(target: .gba(button), bindingText: describeControllerBinding(for: button))
-                }
-                ForEach(EXT_BUTTONS + EXT_BUTTONS_LIMITED) { button in
-                    controllerBindingRow(target: .ext(button), bindingText: describeControllerBinding(for: button))
+                ForEach(unifiedBindOrder) { target in
+                    controllerBindingRow(target: target, bindingText: describeControllerBinding(for: target))
                 }
             } header: {
                 Text(LocaleHelper.string("key_bindings_gamepad_section", prefs: prefs))
@@ -200,6 +215,20 @@ struct KeyBindingsView: View {
                 refreshToken.toggle()
             }
             .buttonStyle(.bordered)
+        }
+    }
+
+    private func describeKeyBinding(for target: BindTarget) -> String {
+        switch target {
+        case .gba(let button): return describeKeyBinding(for: button)
+        case .ext(let button): return describeKeyBinding(for: button)
+        }
+    }
+
+    private func describeControllerBinding(for target: BindTarget) -> String {
+        switch target {
+        case .gba(let button): return describeControllerBinding(for: button)
+        case .ext(let button): return describeControllerBinding(for: button)
         }
     }
 
