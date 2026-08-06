@@ -1045,8 +1045,8 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
 
     /** Real analog thumbstick input -- reported live: the right stick was
      * never recognized at all, the left only ever registered as D-pad
-     * presses. Root cause, confirmed by there being no onGenericMotionEvent
-     * override anywhere in this class before this fix: a physical
+     * presses. Root cause, confirmed by there being no generic-motion
+     * handling anywhere in this class before this fix: a physical
      * thumbstick reports through MotionEvent axis values (AXIS_X/AXIS_Y
      * for the left stick, AXIS_Z/AXIS_RZ for the right -- Android's own
      * documented standard gamepad axis mapping), never as a KeyEvent at
@@ -1063,6 +1063,19 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
      * never exposes a distinct analog axis for that stick, no app-level
      * fix can recover data the OS was never given.
      *
+     * dispatchGenericMotionEvent, not onGenericMotionEvent -- the exact
+     * same fallback-vs-first-look mistake dispatchKeyEvent (above) already
+     * fixed for KeyEvents, just for MotionEvent's own separate dispatch
+     * chain: onGenericMotionEvent is only Android's *fallback*, called
+     * after the DecorView/Compose hierarchy's own dispatch already had
+     * first crack -- any focusable/pointer-input composable on screen
+     * (the on-screen ExtHoldButton/VirtualStick controls themselves
+     * included) consuming the event there means onGenericMotionEvent
+     * never gets called at all. First real live test after adding
+     * onGenericMotionEvent confirmed this the hard way: neither stick
+     * produced any input whatsoever, worse than before the fix existed at
+     * all, not better.
+     *
      * Deadzone: matches VirtualStick's own already-live analog precedent
      * only loosely (that one has no deadzone at all, being a bounded touch
      * drag with no physical center-rest drift) -- 0.15 is the standard,
@@ -1071,11 +1084,11 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
      * value), not levels this codebase already had, since none of the
      * other physical-input paths (keyboard digital-stick, VirtualStick's
      * own touch drag) have any physical rest-position noise to filter. */
-    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (!hasSticksMode || event.action != MotionEvent.ACTION_MOVE ||
             (event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK
         ) {
-            return super.onGenericMotionEvent(event)
+            return super.dispatchGenericMotionEvent(event)
         }
 
         fun axis(code: Int): Float {
