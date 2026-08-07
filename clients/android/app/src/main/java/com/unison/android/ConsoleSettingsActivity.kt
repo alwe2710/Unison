@@ -44,11 +44,16 @@ class ConsoleSettingsActivity : LocalizedActivity() {
 
     private data class ConsoleRow(val streamType: String, val labelRes: Int)
 
+    // Alphabetical by displayed label (3DS, GBA/GC, NDS, Wii U), per
+    // explicit request -- a fixed order rather than a dynamic sort, since
+    // all four console names are untranslated technical/brand terms,
+    // identical across every language (see i18n/strings.json), unlike
+    // LANGUAGES' own endonym-based sort elsewhere.
     private val consoles = listOf(
-        ConsoleRow(GbaStreamClient.STREAM_TYPE_GC_GBA_LINK, R.string.console_gc_gba_link),
-        ConsoleRow("WIIU_GAMEPAD", R.string.console_wiiu_gamepad),
         ConsoleRow("N3DS_BOTTOM_SCREEN", R.string.console_n3ds_bottom_screen),
+        ConsoleRow(GbaStreamClient.STREAM_TYPE_GC_GBA_LINK, R.string.console_gc_gba_link),
         ConsoleRow("NDS_BOTTOM_SCREEN", R.string.console_nds_bottom_screen),
+        ConsoleRow("WIIU_GAMEPAD", R.string.console_wiiu_gamepad),
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {

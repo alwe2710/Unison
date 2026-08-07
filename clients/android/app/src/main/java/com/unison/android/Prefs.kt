@@ -156,14 +156,15 @@ class Prefs(context: Context) {
          * above -- keep in sync with docs/protocol.md's hello_ack.video_mode.
          * Declared in a fixed, deliberate order (VideoModeActivity doesn't
          * sort this list the way LanguageActivity sorts LANGUAGES by label,
-         * since these aren't endonyms): recommended default first, fallback
-         * modes after, in the order a user should reach for them. */
+         * since these aren't endonyms), per explicit request: the two
+         * raw-deflate modes first (legacy/"Raw (Deflate)" before
+         * tiles/"Raw+Tiling (Deflate)"), then h264/h265. */
         data class VideoModeOption(val value: String, val labelRes: Int)
         val VIDEO_MODES = listOf(
+            VideoModeOption("legacy", R.string.video_mode_legacy),
             VideoModeOption(VIDEO_MODE_DEFAULT, R.string.video_mode_tiles),
             VideoModeOption("h264", R.string.video_mode_h264),
-            VideoModeOption("h265", R.string.video_mode_h265),
-            VideoModeOption("legacy", R.string.video_mode_legacy)
+            VideoModeOption("h265", R.string.video_mode_h265)
         )
     }
 }
