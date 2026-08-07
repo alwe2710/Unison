@@ -31,6 +31,10 @@ final class GbaStreamClientTests: XCTestCase {
             XCTFail("a closed port should never report onVideoFrame")
         }
 
+        func onCompressedVideoFrame(width: Int32, height: Int32, isH265: Bool, data: UnsafeRawBufferPointer) {
+            XCTFail("a closed port should never report onCompressedVideoFrame")
+        }
+
         func onAudioFrame(sampleRate: Int32, channels: Int32, pcm: [Int16]) {
             XCTFail("a closed port should never report onAudioFrame")
         }
