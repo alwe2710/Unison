@@ -6,11 +6,14 @@
 # ServiceAccessControl's csnd:SND swapped for dsp::DSP -- this app's
 # audio.cpp uses ndsp (the modern audio API, talks to the dsp::DSP
 # service), not the legacy csnd:SND path the original sample assumed.
-# Every other service/permission in the reference list is left as-is
-# (unused ones don't cause problems) rather than trimmed further,
-# since under-provisioning (missing a service the app actually needs)
-# fails at runtime on real hardware in a way this build can't catch,
-# while over-provisioning is harmless.
+# mvd:STD added on top of the reference list (h264_decoder.cpp's MVD
+# hardware h264 decode, New3DS-exclusive -- libctru's own mvd.c connects
+# to that exact service name string) -- 31 of the 32-entry max, still
+# room to spare. Every other service/permission in the reference list is
+# left as-is (unused ones don't cause problems) rather than trimmed
+# further, since under-provisioning (missing a service the app actually
+# needs) fails at runtime on real hardware in a way this build can't
+# catch, while over-provisioning is harmless.
 BasicInfo:
   Title                   : unison
   ProductCode             : CTR-P-UNSN
@@ -141,6 +144,7 @@ AccessControlInfo:
    - ir:rst
    - ldr:ro
    - mic:u
+   - mvd:STD
    - news:u
    - nfc:u
    - nim:aoc

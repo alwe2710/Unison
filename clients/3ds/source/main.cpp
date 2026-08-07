@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <malloc.h>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -38,6 +39,7 @@
 #include "audio.hpp"
 #include "discovery.hpp"
 #include "gba_buttons.hpp"
+#include "h264_decoder.hpp"
 #include "host_port.hpp"
 #include "language_pref.hpp"
 #include "prefs.hpp"
@@ -196,7 +198,8 @@ std::string promptForHost(const std::string &initial) {
 void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu, BottomScreenState *screenState,
                      GbaSession *session, VideoTex *videoTex, AudioPlayer *audio, std::atomic<bool> *connected,
                      std::string *connectedHost, std::string *connectedStreamType, Prefs *prefs,
-                     std::string *connectedGrantedVideoMode, discovery::BeaconListener *beaconListener) {
+                     std::string *connectedGrantedVideoMode, discovery::BeaconListener *beaconListener,
+                     std::unique_ptr<H264Decoder> *compressedVideoDecoder) {
     // Snapshot under a short lock, then draw/hit-test from local copies --
     // promptForHost() below blocks for as long as the user is typing, and
     // runSearch() spawns a thread that takes menu->mutex itself, so the
@@ -236,6 +239,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
             // See splitHostPort()'s own comment for why this branch exists.
             *connectedHost = hp->host;
             videoTex->reset();
+            compressedVideoDecoder->reset();
             // "" -- manual host:port entry, real stream_type unknown until
             // hello, see Prefs::videoModeFor()'s own comment.
             session->connect(hp->host, hp->port, prefs->videoModeFor(""),
@@ -250,6 +254,25 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                     .onVideoFrame =
                         [videoTex](uint32_t w, uint32_t h, std::vector<uint8_t> rgb) {
                             videoTex->setFrame(w, h, rgb);
+                        },
+                    .onCompressedVideoFrame =
+                        [videoTex, compressedVideoDecoder](uint32_t w, uint32_t h, std::vector<uint8_t> data) {
+                            // Built on first use (not eagerly in
+                            // onConnected) since this is the first point
+                            // the real coded width/height is known --
+                            // H264Decoder's own input/output config is
+                            // fixed for its whole lifetime, see that
+                            // class's own comment.
+                            if (!*compressedVideoDecoder) {
+                                *compressedVideoDecoder = std::make_unique<H264Decoder>(w, h);
+                            }
+                            if (!(*compressedVideoDecoder)->isValid()) {
+                                return;
+                            }
+                            std::vector<uint8_t> rgb565;
+                            if ((*compressedVideoDecoder)->decode(data.data(), data.size(), rgb565)) {
+                                videoTex->setFrame(w, h, rgb565);
+                            }
                         },
                     .onAudioFrame =
                         [audio](uint32_t rate, uint8_t ch, std::vector<int16_t> pcm) {
@@ -283,6 +306,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // last frame until the new one's first (always full) frame
                 // arrives.
                 videoTex->reset();
+                compressedVideoDecoder->reset();
                 session->connect(lastSearchedHost, port, prefs->videoModeFor("GC_GBA_LINK"),
                     GbaSession::Listener {
                         // Written from the session's background thread, in
@@ -301,6 +325,19 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                         .onVideoFrame =
                             [videoTex](uint32_t w, uint32_t h, std::vector<uint8_t> rgb) {
                                 videoTex->setFrame(w, h, rgb);
+                            },
+                        .onCompressedVideoFrame =
+                            [videoTex, compressedVideoDecoder](uint32_t w, uint32_t h, std::vector<uint8_t> data) {
+                                if (!*compressedVideoDecoder) {
+                                    *compressedVideoDecoder = std::make_unique<H264Decoder>(w, h);
+                                }
+                                if (!(*compressedVideoDecoder)->isValid()) {
+                                    return;
+                                }
+                                std::vector<uint8_t> rgb565;
+                                if ((*compressedVideoDecoder)->decode(data.data(), data.size(), rgb565)) {
+                                    videoTex->setFrame(w, h, rgb565);
+                                }
                             },
                         .onAudioFrame =
                             [audio](uint32_t rate, uint8_t ch, std::vector<int16_t> pcm) {
@@ -397,6 +434,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // arrives (same reasoning as the P1-P4 picker's own connect
                 // call below).
                 videoTex->reset();
+                compressedVideoDecoder->reset();
                 session->connect(srv.host, srv.handshakePort, prefs->videoModeFor(srv.streamType),
                     GbaSession::Listener {
                         .onConnected =
@@ -409,6 +447,19 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                         .onVideoFrame =
                             [videoTex](uint32_t w, uint32_t h, std::vector<uint8_t> rgb) {
                                 videoTex->setFrame(w, h, rgb);
+                            },
+                        .onCompressedVideoFrame =
+                            [videoTex, compressedVideoDecoder](uint32_t w, uint32_t h, std::vector<uint8_t> data) {
+                                if (!*compressedVideoDecoder) {
+                                    *compressedVideoDecoder = std::make_unique<H264Decoder>(w, h);
+                                }
+                                if (!(*compressedVideoDecoder)->isValid()) {
+                                    return;
+                                }
+                                std::vector<uint8_t> rgb565;
+                                if ((*compressedVideoDecoder)->decode(data.data(), data.size(), rgb565)) {
+                                    videoTex->setFrame(w, h, rgb565);
+                                }
                             },
                         .onAudioFrame =
                             [audio](uint32_t rate, uint8_t ch, std::vector<int16_t> pcm) {
@@ -584,8 +635,11 @@ void drawAntialiasingScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *
         prefs->save();
     }
 
+    // No "h265" case -- see drawVideoModeScreen()'s own comment on why
+    // this client never offers it; a stale "h265" saved by some earlier
+    // build just falls through to the "tiles" default here, same as any
+    // other unrecognized value already would.
     const char *videoModeLabel = prefs->videoModeFor(streamType) == "h264" ? strings::kVideoModeH264
-                                : prefs->videoModeFor(streamType) == "h265" ? strings::kVideoModeH265
                                 : prefs->videoModeFor(streamType) == "legacy" ? strings::kVideoModeLegacy
                                                                               : strings::kVideoModeTiles;
     std::string videoModeRowLabel = std::string(strings::kSettingsVideoMode) + ": " + videoModeLabel;
@@ -660,12 +714,15 @@ void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pre
     // NOT sorted alphabetically, unlike the language list above --
     // deliberate order, per explicit request: the two raw-deflate modes
     // first (legacy/"Raw (Deflate)" before tiles/"Raw+Tiling (Deflate)"),
-    // then h264/h265, same as Android's Prefs.VIDEO_MODES.
+    // then h264, same as Android's Prefs.VIDEO_MODES. No h265 entry here
+    // at all, unlike every other client -- this one's own H264Decoder
+    // (MVD, New3DS-exclusive hardware) never supported H.265 in the first
+    // place (the 3DS predates HEVC entirely), so offering it would just
+    // request a mode this client can never actually decode.
     VideoModeOption options[] = {
         { "legacy", strings::kVideoModeLegacy },
         { "tiles", strings::kVideoModeTiles },
         { "h264", strings::kVideoModeH264 },
-        { "h265", strings::kVideoModeH265 },
     };
     float y = 40.0f;
     for (const auto &option : options) {
@@ -714,6 +771,12 @@ int main(int argc, char *argv[]) {
     MenuState menu;
     GbaSession session;
     VideoTex videoTex;
+    // Same "one long-lived object shared across every connection this app
+    // makes, reset() on each new connect" lifetime as videoTex itself --
+    // null (not yet built) until the first h264 message of a session that
+    // actually negotiated it arrives, see the .onCompressedVideoFrame
+    // handlers' own comment.
+    std::unique_ptr<H264Decoder> compressedVideoDecoder;
     AudioPlayer audio;
     // No bilinear filter applied here -- unlike the single old global
     // toggle, the preference is per-stream-type now, and no stream_type is
@@ -888,7 +951,7 @@ int main(int argc, char *argv[]) {
         } else if (screenState == BottomScreenState::MENU) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
                            &connectedHost, &connectedStreamType, &prefs, &connectedGrantedVideoMode,
-                           &beaconListener);
+                           &beaconListener, &compressedVideoDecoder);
         } else if (screenState == BottomScreenState::SETTINGS) {
             drawSettingsScreen(textBuf, touch, &prefs, &screenState);
         } else if (screenState == BottomScreenState::CONSOLE_SETTINGS) {

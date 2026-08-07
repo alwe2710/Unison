@@ -31,6 +31,19 @@ class GbaSession {
         // "tiles was granted".
         std::function<void(std::string streamType, std::string grantedVideoMode)> onConnected;
         std::function<void(uint32_t width, uint32_t height, std::vector<uint8_t> rgb565)> onVideoFrame;
+        // UNISON_VIDEO_FORMAT_H264 only (mutually exclusive with
+        // onVideoFrame above) -- there's no UNISON_VIDEO_FORMAT_H265
+        // counterpart on this client: the 3DS's MVD hardware decoder
+        // (New3DS-exclusive, see h264_decoder.hpp) only ever supported
+        // H.264, since the console predates HEVC entirely, and software
+        // HEVC decode on the 3DS's ARM11 CPU isn't remotely practical.
+        // data is a raw Annex-B NAL stream straight from the server's
+        // encoder, not raw-deflate, copied into this vector the same way
+        // onVideoFrame's rgb565/onAudioFrame's pcm already are. width/height
+        // are the encoder's *coded* dimensions -- see
+        // SoftwareVideoEncoder::CodedWidth()'s own comment on the host
+        // repos.
+        std::function<void(uint32_t width, uint32_t height, std::vector<uint8_t> data)> onCompressedVideoFrame;
         std::function<void(uint32_t sampleRate, uint8_t channels, std::vector<int16_t> pcm)> onAudioFrame;
         std::function<void(std::string reason)> onDisconnected;
     };
