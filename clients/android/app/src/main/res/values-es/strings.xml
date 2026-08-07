@@ -44,10 +44,11 @@
     <string name="settings_on_screen_controls">Mostrar controles en pantalla</string>
     <string name="settings_antialiasing">Filtrado bilineal</string>
     <string name="settings_video_mode">Modo de vídeo</string>
-    <string name="video_mode_tiles">Estándar (comprimido)</string>
+    <string name="settings_console_specific">Ajustes específicos por consola</string>
+    <string name="video_mode_tiles">Tiling (Deflate)</string>
     <string name="video_mode_h264">H.264</string>
     <string name="video_mode_h265">H.265</string>
-    <string name="video_mode_legacy">Clásico (sin comprimir)</string>
+    <string name="video_mode_legacy">Raw (Deflate)</string>
     <string name="video_mode_fallback_title">Modo de vídeo diferente</string>
     <string name="video_mode_fallback_message">El servidor no admite «%1$s» y usa «%2$s» en su lugar.</string>
     <string name="video_mode_fallback_continue">Continuar</string>
@@ -67,10 +68,10 @@
     <string name="language_french">Français</string>
     <string name="language_italian">Italiano</string>
     <string name="language_spanish">Español</string>
-    <string name="console_gc_gba_link">GameCube (enlace GBA)</string>
-    <string name="console_wiiu_gamepad">Wii U GamePad</string>
+    <string name="console_gc_gba_link">GBA/GC</string>
+    <string name="console_wiiu_gamepad">Wii U</string>
     <string name="console_n3ds_bottom_screen">3DS</string>
-    <string name="console_nds_bottom_screen">DS</string>
+    <string name="console_nds_bottom_screen">NDS</string>
     <string name="key_bindings_standard_section">Botones estándar</string>
     <string name="key_bindings_extended_section">Botones extendidos</string>
     <string name="key_bindings_extended_hint">Solo necesario para ciertos emuladores (p. ej. Cemu): stick analógico, ZL, ZR.</string>

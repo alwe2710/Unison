@@ -44,10 +44,11 @@
 "settings_on_screen_controls" = "Afficher les commandes à l'écran";
 "settings_antialiasing" = "Filtrage bilinéaire";
 "settings_video_mode" = "Mode vidéo";
-"video_mode_tiles" = "Standard (compressé)";
+"settings_console_specific" = "Paramètres spécifiques à la console";
+"video_mode_tiles" = "Tiling (Deflate)";
 "video_mode_h264" = "H.264";
 "video_mode_h265" = "H.265";
-"video_mode_legacy" = "Classique (non compressé)";
+"video_mode_legacy" = "Raw (Deflate)";
 "video_mode_fallback_title" = "Mode vidéo différent";
 "video_mode_fallback_message" = "Le serveur ne prend pas en charge « %1$@ » et utilise « %2$@ » à la place.";
 "video_mode_fallback_continue" = "Continuer";
@@ -67,10 +68,10 @@
 "language_french" = "Français";
 "language_italian" = "Italiano";
 "language_spanish" = "Español";
-"console_gc_gba_link" = "GameCube (câble GBA)";
-"console_wiiu_gamepad" = "Wii U GamePad";
+"console_gc_gba_link" = "GBA/GC";
+"console_wiiu_gamepad" = "Wii U";
 "console_n3ds_bottom_screen" = "3DS";
-"console_nds_bottom_screen" = "DS";
+"console_nds_bottom_screen" = "NDS";
 "key_bindings_standard_section" = "Touches standard";
 "key_bindings_extended_section" = "Touches étendues";
 "key_bindings_extended_hint" = "Nécessaire seulement pour certains émulateurs (p. ex. Cemu) : stick analogique, ZL, ZR.";

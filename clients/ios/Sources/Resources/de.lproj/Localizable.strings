@@ -44,10 +44,11 @@
 "settings_on_screen_controls" = "On-Screen-Controls anzeigen";
 "settings_antialiasing" = "Bilineare Filterung";
 "settings_video_mode" = "Videomodus";
-"video_mode_tiles" = "Standard (komprimiert)";
+"settings_console_specific" = "Konsolenspezifische Einstellungen";
+"video_mode_tiles" = "Tiling (Deflate)";
 "video_mode_h264" = "H.264";
 "video_mode_h265" = "H.265";
-"video_mode_legacy" = "Alter Modus (unkomprimiert)";
+"video_mode_legacy" = "Raw (Deflate)";
 "video_mode_fallback_title" = "Anderer Videomodus";
 "video_mode_fallback_message" = "Der Server unterstützt „%1$@“ nicht und nutzt stattdessen „%2$@“.";
 "video_mode_fallback_continue" = "Fortsetzen";
@@ -67,10 +68,10 @@
 "language_french" = "Français";
 "language_italian" = "Italiano";
 "language_spanish" = "Español";
-"console_gc_gba_link" = "GameCube (GBA-Link)";
-"console_wiiu_gamepad" = "Wii U GamePad";
+"console_gc_gba_link" = "GBA/GC";
+"console_wiiu_gamepad" = "Wii U";
 "console_n3ds_bottom_screen" = "3DS";
-"console_nds_bottom_screen" = "DS";
+"console_nds_bottom_screen" = "NDS";
 "key_bindings_standard_section" = "Standard-Tasten";
 "key_bindings_extended_section" = "Erweiterte Tasten";
 "key_bindings_extended_hint" = "Nur für einzelne Emulatoren nötig (z. B. Cemu): Analog-Stick, ZL, ZR.";
