@@ -530,19 +530,18 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
 // rather than the inline toggle this used to be -- see that function's own
 // comment for why. selectedStreamType is *this* function's caller-owned
 // output, not read here.
-void drawConsoleSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState,
+void drawConsoleSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, BottomScreenState *screenState,
                                 std::string *selectedStreamType) {
     ui::drawText(textBuf, strings::kSettingsConsoleSpecific, 8, 8, 0.55f, ui::kColorText);
 
+    // Plain console name only, no video-mode subtitle here (an earlier
+    // revision showed one, reverted per explicit request) -- the video
+    // mode itself is only ever shown/changed one screen further in, on
+    // drawAntialiasingScreen().
     float y = 40.0f;
     for (const auto &entry : kKnownStreamTypes) {
-        const char *videoModeLabel = prefs->videoModeFor(entry.streamType) == "h264" ? strings::kVideoModeH264
-                                    : prefs->videoModeFor(entry.streamType) == "h265" ? strings::kVideoModeH265
-                                    : prefs->videoModeFor(entry.streamType) == "legacy" ? strings::kVideoModeLegacy
-                                                                                        : strings::kVideoModeTiles;
-        std::string label = std::string(labelForStreamType(entry.streamType)) + ": " + videoModeLabel;
         ui::Rect r { 8, y, 304, 32 };
-        if (ui::button(textBuf, touch, r, label.c_str())) {
+        if (ui::button(textBuf, touch, r, labelForStreamType(entry.streamType))) {
             *selectedStreamType = entry.streamType;
             *screenState = BottomScreenState::ANTIALIASING;
         }
@@ -888,7 +887,7 @@ int main(int argc, char *argv[]) {
         } else if (screenState == BottomScreenState::SETTINGS) {
             drawSettingsScreen(textBuf, touch, &prefs, &screenState);
         } else if (screenState == BottomScreenState::CONSOLE_SETTINGS) {
-            drawConsoleSettingsScreen(textBuf, touch, &prefs, &screenState, &selectedConsoleStreamType);
+            drawConsoleSettingsScreen(textBuf, touch, &screenState, &selectedConsoleStreamType);
         } else if (screenState == BottomScreenState::VIDEO_MODE) {
             drawVideoModeScreen(textBuf, touch, &prefs, &screenState, selectedConsoleStreamType);
         } else if (screenState == BottomScreenState::ANTIALIASING) {
