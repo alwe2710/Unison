@@ -73,11 +73,16 @@ constexpr int kExitHoldTicksRequired = 36;
 struct StreamTypeEntry {
     const char *streamType;
 };
+// Alphabetical by displayed label (3DS, GBA/GC, NDS, Wii U), per explicit
+// request -- a fixed order rather than a dynamic sort, since all four
+// console names are untranslated technical/brand terms, identical across
+// every language (see i18n/strings.json), unlike drawLanguageScreen()'s
+// own endonym-based sort elsewhere.
 constexpr StreamTypeEntry kKnownStreamTypes[] = {
-    { "GC_GBA_LINK" },
-    { "WIIU_GAMEPAD" },
     { "N3DS_BOTTOM_SCREEN" },
+    { "GC_GBA_LINK" },
     { "NDS_BOTTOM_SCREEN" },
+    { "WIIU_GAMEPAD" },
 };
 
 const char *labelForStreamType(const char *streamType) {
@@ -653,14 +658,14 @@ void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pre
         const char *label;
     };
     // NOT sorted alphabetically, unlike the language list above --
-    // deliberate order (default first, then the two stronger/lossier
-    // compressed options, legacy last as the explicit-opt-out fallback),
-    // same as Android's Prefs.VIDEO_MODES.
+    // deliberate order, per explicit request: the two raw-deflate modes
+    // first (legacy/"Raw (Deflate)" before tiles/"Raw+Tiling (Deflate)"),
+    // then h264/h265, same as Android's Prefs.VIDEO_MODES.
     VideoModeOption options[] = {
+        { "legacy", strings::kVideoModeLegacy },
         { "tiles", strings::kVideoModeTiles },
         { "h264", strings::kVideoModeH264 },
         { "h265", strings::kVideoModeH265 },
-        { "legacy", strings::kVideoModeLegacy },
     };
     float y = 40.0f;
     for (const auto &option : options) {
