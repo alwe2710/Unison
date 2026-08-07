@@ -1,15 +1,17 @@
 #pragma once
 
-#include <array>
-
 #include <borealis.hpp>
 
 #include "prefs.hpp"
 
-// Just the per-console video filter toggles -- no on-screen-controls
-// toggle and no per-button key rebinding here (unlike clients/android/.../
-// SettingsActivity.kt), removed at the user's request since every GBA
-// button already has a sensible default physical-controller mapping.
+// No on-screen-controls toggle and no per-button key rebinding here (unlike
+// clients/android/.../SettingsActivity.kt), removed at the user's request
+// since every GBA button already has a sensible default physical-controller
+// mapping. Used to also have its own per-console bilinear-filter toggle
+// list and a "Videomodus" cell (a single value shared by every console) --
+// both moved into ConsoleSettingsActivity's per-console detail screens
+// instead (see that class's own comment), so this top level only needs one
+// nav cell down to that list now.
 class SettingsActivity : public brls::Activity {
   public:
     brls::View *createContentView() override;
@@ -25,24 +27,15 @@ class SettingsActivity : public brls::Activity {
 
   private:
     Prefs prefs;
-    // One row per docs/protocol.md stream_type (kKnownStreamTypes, .cpp) --
-    // antialiasing is a per-console preference (Prefs::bilinearFor()), not
-    // one global toggle, since GBA/DS pixel art and a Wii U GamePad's
-    // higher-effective-resolution render suit different filtering. This
-    // screen has no notion of "the current" stream_type (PlayerActivity,
-    // which does, reads whatever was configured here in advance instead --
-    // see its own constructor), so every known type gets its own row.
-    std::array<brls::DetailCell *, 4> filterCells {};
 
     // Navigates to LanguageActivity's plain list on click, current value
     // shown as this cell's detail text (refreshed in onResume() above).
     brls::DetailCell *languageCell = nullptr;
-    // Same, for VideoModeActivity -- cloned wholesale from languageCell.
-    brls::DetailCell *videoModeCell = nullptr;
-    brls::Label *header = nullptr;
+    // Navigates to ConsoleSettingsActivity's 4-console list -- no detail
+    // text of its own (there's no single "current" value across all four
+    // consoles to summarize here), same as KeyBindingsActivity's own row.
+    brls::DetailCell *consoleSettingsCell = nullptr;
     brls::AppletFrame *frame = nullptr;
 
-    void updateFilterCellUI(int index);
     void updateLanguageCellUI();
-    void updateVideoModeCellUI();
 };

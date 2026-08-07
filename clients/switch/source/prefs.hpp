@@ -42,8 +42,19 @@ class Prefs {
     // Sent verbatim as hello_ack.video_mode during the handshake (see
     // session.cpp's performAppHandshake()) -- one of the wire-format
     // strings Unison's docs/protocol.md defines ("tiles"/"legacy"/"h264"/
-    // "h265"), not a client-side enum, same as Android's Prefs.videoMode.
-    std::string videoMode = "tiles";
+    // "h265"), not a client-side enum, same as Android's
+    // Prefs.videoModeFor(). Per stream_type, same reasoning/shape as
+    // bilinearFor()/setBilinearFor() above -- used to be one single global
+    // value shared by every console, which meant picking e.g. H.264 for
+    // Cemu also silently requested H.264 the next time you connected to
+    // Dolphin (which never honors it anyway, but still). "" (manual
+    // host:port entry, real stream_type unknown until the handshake's
+    // hello) falls back to kVideoModeDefault, same as any other
+    // not-yet-configured console.
+    std::string videoModeFor(const std::string &streamType) const;
+    void setVideoModeFor(const std::string &streamType, const std::string &value);
+
+    static constexpr const char *kVideoModeDefault = "tiles";
 
   private:
     std::map<std::string, std::string> values;

@@ -16,6 +16,9 @@ constexpr const char *kFile = "sdmc:/switch/unison/settings.cfg";
 // a server introducing a new stream_type doesn't need a client code change
 // just to remember its filter preference.
 constexpr const char *kBilinearKeyPrefix = "bilinear_video_filter.";
+// Same per-stream-type round-trip shape as kBilinearKeyPrefix above, for
+// Prefs::videoModeFor()/setVideoModeFor().
+constexpr const char *kVideoModeKeyPrefix = "video_mode.";
 } // namespace
 
 std::string Prefs::path() const {
@@ -38,6 +41,18 @@ void Prefs::setBilinearFor(const std::string &streamType, bool value) {
     values[kBilinearKeyPrefix + streamType] = value ? "1" : "0";
 }
 
+std::string Prefs::videoModeFor(const std::string &streamType) const {
+    auto it = values.find(kVideoModeKeyPrefix + streamType);
+    if (it != values.end()) {
+        return it->second;
+    }
+    return kVideoModeDefault;
+}
+
+void Prefs::setVideoModeFor(const std::string &streamType, const std::string &value) {
+    values[kVideoModeKeyPrefix + streamType] = value;
+}
+
 void Prefs::load() {
     std::ifstream in(path());
     if (!in.is_open()) {
@@ -57,10 +72,6 @@ void Prefs::load() {
         language = languagePrefFromCode(it->second);
     }
 
-    auto videoModeIt = values.find("video_mode");
-    if (videoModeIt != values.end()) {
-        videoMode = videoModeIt->second;
-    }
 }
 
 void Prefs::save() {
@@ -74,7 +85,6 @@ void Prefs::save() {
         out << key << "=" << value << "\n";
     }
     out << "language=" << languagePrefCode(language) << "\n";
-    out << "video_mode=" << videoMode << "\n";
 }
 
 // Prefs::LanguagePref::SYSTEM resolves to whichever of DE/FR/IT/ES the

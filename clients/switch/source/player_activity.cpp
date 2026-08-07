@@ -72,7 +72,7 @@ brls::View *PlayerActivity::createContentView() {
     auto *poller = new FramePoller([this]() { onFrameTick(); });
     root->addView(poller);
 
-    session.connect(host, port, prefs.videoMode,
+    session.connect(host, port, prefs.videoModeFor(streamType),
         GbaSession::Listener {
             .onConnected =
                 [this](std::string grantedVideoMode) {
@@ -84,8 +84,9 @@ brls::View *PlayerActivity::createContentView() {
                         // comparison rather than assuming "tiles" was
                         // granted, see docs/protocol.md "Video-mode
                         // fallback" and GbaSession::Listener's own comment.
-                        if (!grantedVideoMode.empty() && grantedVideoMode != prefs.videoMode) {
-                            showVideoModeFallbackDialog(prefs.videoMode, grantedVideoMode);
+                        const std::string requested = prefs.videoModeFor(streamType);
+                        if (!grantedVideoMode.empty() && grantedVideoMode != requested) {
+                            showVideoModeFallbackDialog(requested, grantedVideoMode);
                         }
                     });
                 },

@@ -10,6 +10,8 @@ struct VideoModeOption {
 };
 } // namespace
 
+VideoModeActivity::VideoModeActivity(std::string streamType) : streamType(std::move(streamType)) {}
+
 brls::View *VideoModeActivity::createContentView() {
     auto *column = new brls::Box();
     column->setAxis(brls::Axis::COLUMN);
@@ -29,14 +31,14 @@ brls::View *VideoModeActivity::createContentView() {
     for (const auto &option : options) {
         auto *cell = new brls::DetailCell();
         cell->setText(option.label);
-        cell->registerClickAction([value = option.value](brls::View *) {
+        cell->registerClickAction([this, value = option.value](brls::View *) {
             Prefs prefs;
-            prefs.videoMode = value;
+            prefs.setVideoModeFor(streamType, value);
             prefs.save();
-            // SettingsActivity's own onResume() (called by popActivity() on
-            // the activity revealed underneath) reloads Prefs and refreshes
-            // its text -- see its own comment (LanguageActivity relies on
-            // the exact same mechanism).
+            // ConsoleDetailActivity's own onResume() (called by
+            // popActivity() on the activity revealed underneath) reloads
+            // Prefs and refreshes its text -- see its own comment
+            // (LanguageActivity relies on the exact same mechanism).
             brls::Application::popActivity();
             return true;
         });
