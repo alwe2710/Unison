@@ -117,16 +117,29 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         return false;
     }
 
+    // mvdstdProcessVideoFrame()'s own doc comment is explicit: "Input
+    // NAL-unit starting with the 3-byte '00 00 01' prefix." The Annex-B
+    // splitter above deliberately strips start codes (offset points past
+    // them, for the sibling iOS/web parsers that want bare NAL payloads),
+    // so that prefix has to be reconstructed here -- feeding MVD a buffer
+    // without it isn't just "wrong data", the sysmodule appears to
+    // misparse the resulting bytes as its own internal header/offset
+    // fields, which is what produced the real hardware data-abort crash
+    // inside the "mvd" process itself (not this app's process) that this
+    // fix addresses.
     bool frameReady = false;
     for (const auto &[offset, nalLen] : nalRanges) {
-        if (nalLen == 0 || nalLen > inputBufferCapacity) {
+        if (nalLen == 0 || nalLen + 3 > inputBufferCapacity) {
             continue;
         }
-        std::memcpy(inputBuffer, data + offset, nalLen);
-        GSPGPU_FlushDataCache(inputBuffer, nalLen);
+        static const uint8_t kStartCode[3] = {0, 0, 1};
+        std::memcpy(inputBuffer, kStartCode, 3);
+        std::memcpy(static_cast<uint8_t *>(inputBuffer) + 3, data + offset, nalLen);
+        const size_t bufLen = nalLen + 3;
+        GSPGPU_FlushDataCache(inputBuffer, bufLen);
 
         MVDSTD_ProcessNALUnitOut procOut {};
-        const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(nalLen), 0, &procOut);
+        const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
         if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
             continue;
         }
