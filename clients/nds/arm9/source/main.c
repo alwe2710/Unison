@@ -1113,9 +1113,10 @@ static void languageMenu(void) {
 
 /* Same cursor-navigable "pick a row, land back where you were" flow as
  * languageMenu() above, cloned wholesale. NOT alphabetically sorted,
- * unlike languageMenu()'s options -- deliberate order (default first, then
- * the two stronger/lossier compressed options, legacy last as the
- * explicit-opt-out fallback), same as Android's Prefs.VIDEO_MODES. */
+ * unlike languageMenu()'s options -- deliberate order, per explicit
+ * request: the two raw-deflate modes first (legacy/"Raw (Deflate)" before
+ * tiles/"Raw+Tiling (Deflate)"), then h264/h265, same as Android's
+ * Prefs.VIDEO_MODES. */
 static void videoModeMenu(void) {
     struct VideoModeOption {
         const char *value; /* wire-format string, see unison/docs/protocol.md */
@@ -1123,10 +1124,10 @@ static void videoModeMenu(void) {
     };
     const int kOptionCount = 4;
     struct VideoModeOption options[4] = {
+        { "legacy", STR_VIDEO_MODE_LEGACY },
         { "tiles", STR_VIDEO_MODE_TILES },
         { "h264", STR_VIDEO_MODE_H264 },
         { "h265", STR_VIDEO_MODE_H265 },
-        { "legacy", STR_VIDEO_MODE_LEGACY },
     };
 
     int cursor = 0;
