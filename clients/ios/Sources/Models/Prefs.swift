@@ -190,9 +190,19 @@ final class Prefs {
 
     /// One of Prefs.videoModes' values, sent verbatim as
     /// hello_ack.video_mode during the handshake (see docs/protocol.md).
-    var videoMode: String {
-        get { defaults.string(forKey: Keys.videoMode) ?? Prefs.videoModeDefault }
-        set { defaults.set(newValue, forKey: Keys.videoMode) }
+    /// Per stream_type, same reasoning/shape as bilinear(for:) below --
+    /// used to be one single global value shared by every console, which
+    /// meant picking e.g. H.264 for Cemu also silently requested H.264 the
+    /// next time you connected to Dolphin (which never honors it anyway,
+    /// but still). "" (manual host:port entry, real stream_type unknown
+    /// until hello) falls back to Prefs.videoModeDefault, same as any other
+    /// not-yet-configured console.
+    func videoMode(for streamType: String) -> String {
+        defaults.string(forKey: prefKeyForVideoMode(streamType)) ?? Prefs.videoModeDefault
+    }
+
+    func setVideoMode(_ value: String, for streamType: String) {
+        defaults.set(value, forKey: prefKeyForVideoMode(streamType))
     }
 
     /// true = bilinear filtering (smooth upscale), false = nearest-neighbor
@@ -215,6 +225,7 @@ final class Prefs {
     private func controllerPrefKey(for button: GbaButton) -> String { "controllerbind_\(button.prefKey)" }
     private func controllerPrefKey(for button: ExtButton) -> String { "extcontrollerbind_\(button.prefKey)" }
     private func prefKeyForBilinear(_ streamType: String) -> String { "bilinear_video_filter.\(streamType)" }
+    private func prefKeyForVideoMode(_ streamType: String) -> String { "video_mode.\(streamType)" }
 
     // MARK: - Static data (single source of truth, mirrors Prefs.kt's companion object)
 
@@ -259,6 +270,5 @@ final class Prefs {
     private enum Keys {
         static let onScreenControls = "on_screen_controls"
         static let language = "language"
-        static let videoMode = "video_mode"
     }
 }

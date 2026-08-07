@@ -57,7 +57,7 @@ final class GbaStreamClient {
 
     /// Spawns a background native thread; connect result arrives via
     /// listener.onConnected/onDisconnected. videoMode is sent verbatim as
-    /// hello_ack.video_mode (Prefs.videoMode, one of Prefs.videoModes) --
+    /// hello_ack.video_mode (Prefs.videoMode(for:), one of Prefs.videoModes) --
     /// see docs/protocol.md; servers that don't implement the negotiation
     /// just ignore it.
     func connect(host: String, port: Int32, videoMode: String = GbaStreamClient.videoModeDefault) {

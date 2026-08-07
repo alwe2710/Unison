@@ -1,23 +1,24 @@
 import SwiftUI
 
 /// Direct port of SettingsActivity.kt: on-screen-controls toggle, plus
-/// navigation rows into VideoModeView/LanguageView/AntialiasingView/
-/// KeyBindingsView (their own screens, same split as Android -- see each
-/// Kotlin file's own comment for why). This screen doesn't touch key
-/// bindings or per-console filter state directly at all, same as the
-/// original.
+/// navigation rows into ConsoleSettingsView/LanguageView/KeyBindingsView
+/// (their own screens, same split as Android -- see each Kotlin file's own
+/// comment for why). This screen doesn't touch key bindings or per-console
+/// filter/video-mode state directly at all -- used to have its own
+/// "Bilineare Filterung" and "Videomodus" rows, each a single value shared
+/// by every console; both moved into ConsoleSettingsView's per-console
+/// detail screens instead (see that view's own comment), so this top level
+/// only needs the one nav row down to that list now.
 struct SettingsView: View {
     private let prefs = Prefs()
 
     @State private var onScreenControlsEnabled: Bool
     @State private var language: String
-    @State private var videoMode: String
 
     init() {
         let prefs = Prefs()
         _onScreenControlsEnabled = State(initialValue: prefs.onScreenControlsEnabled)
         _language = State(initialValue: prefs.language)
-        _videoMode = State(initialValue: prefs.videoMode)
     }
 
     var body: some View {
@@ -32,12 +33,8 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink {
-                    VideoModeView()
-                } label: {
-                    settingsRow(
-                        title: "settings_video_mode",
-                        subtitle: Prefs.videoModes.first { $0.value == videoMode }?.labelKey ?? "video_mode_tiles")
+                NavigationLink(LocaleHelper.string("settings_console_specific", prefs: prefs)) {
+                    ConsoleSettingsView()
                 }
 
                 NavigationLink {
@@ -48,25 +45,20 @@ struct SettingsView: View {
                         subtitle: Prefs.languages.first { $0.value == language }?.labelKey ?? "language_system")
                 }
 
-                NavigationLink(LocaleHelper.string("settings_antialiasing", prefs: prefs)) {
-                    AntialiasingView()
-                }
-
                 NavigationLink(LocaleHelper.string("settings_key_bindings", prefs: prefs)) {
                     KeyBindingsView()
                 }
             }
         }
         .navigationTitle(LocaleHelper.string("settings", prefs: prefs))
-        // SettingsActivity.kt's onResume() re-reads Prefs.language/videoMode
-        // directly (see its own comment on why the locale-mismatch
-        // recreate() alone doesn't always catch a "System" pick that
-        // resolves to the same language as before) -- onAppear is this
-        // view's closest equivalent, firing every time this screen becomes
-        // visible again (returning from LanguageView/VideoModeView included).
+        // SettingsActivity.kt's onResume() re-reads Prefs.language directly
+        // (see its own comment on why the locale-mismatch recreate() alone
+        // doesn't always catch a "System" pick that resolves to the same
+        // language as before) -- onAppear is this view's closest
+        // equivalent, firing every time this screen becomes visible again
+        // (returning from LanguageView included).
         .onAppear {
             language = prefs.language
-            videoMode = prefs.videoMode
         }
     }
 

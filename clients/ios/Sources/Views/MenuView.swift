@@ -10,6 +10,14 @@ import SwiftUI
 private struct Connection: Hashable {
     let host: String
     let port: Int32
+    // "" for manual entry (see manualConnection below) -- the real
+    // stream_type isn't known until the handshake's hello in that case,
+    // same not-yet-known fallback Prefs.bilinear(for:)/videoMode(for:)
+    // already handle. Known upfront for a discovered server or a
+    // GC_GBA_LINK slot pick, threaded through to PlayerView so it can
+    // request the right per-console video mode before ever connecting
+    // (see PlayerViewModel.connect's own comment).
+    var streamType: String = ""
 }
 
 /// Mirrors MenuActivity.kt's connect form fields (manual host:port entry),
@@ -171,7 +179,8 @@ struct MenuView: View {
             // the second layer of capping is redundant now, not just
             // visually broken.
             .navigationDestination(for: Connection.self) { connection in
-                PlayerView(host: connection.host, port: connection.port, onActiveChanged: onPlayerActiveChanged)
+                PlayerView(host: connection.host, port: connection.port, knownStreamType: connection.streamType,
+                           onActiveChanged: onPlayerActiveChanged)
             }
             // No gear-icon toolbar link to SettingsView anymore -- Settings
             // is its own top-level sidebar entry now (RootView.swift), same
@@ -196,7 +205,8 @@ struct MenuView: View {
     private func slotButton(_ slot: Int) -> some View {
         let state = lobby.slotStates[slot]
         if state == .free, let searchedHost = lobby.lastSearchedHost {
-            NavigationLink(value: Connection(host: searchedHost, port: GbaStreamClient.playerBasePort + Int32(slot))) {
+            NavigationLink(value: Connection(host: searchedHost, port: GbaStreamClient.playerBasePort + Int32(slot),
+                                              streamType: GbaStreamClient.streamTypeGcGbaLink)) {
                 Text("P\(slot + 1)")
             }
             .buttonStyle(.bordered)
@@ -224,7 +234,7 @@ struct MenuView: View {
             // SwiftUI's own navigation timing. This carries host+port with
             // the navigation value itself instead, so there's nothing to
             // race.
-            NavigationLink(value: Connection(host: server.host, port: server.handshakePort)) {
+            NavigationLink(value: Connection(host: server.host, port: server.handshakePort, streamType: server.streamType)) {
                 discoveredLabel(title: title, subtitle: subtitle)
             }
         } else if server.compatible {

@@ -98,10 +98,10 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     private var playerNode: AVAudioPlayerNode?
     private var audioFormat: AVAudioFormat?
 
-    func connect(host: String, port: Int32) {
+    func connect(host: String, port: Int32, knownStreamType: String) {
         let client = GbaStreamClient(listener: self)
         self.client = client
-        client.connect(host: host, port: port, videoMode: prefs.videoMode)
+        client.connect(host: host, port: port, videoMode: prefs.videoMode(for: knownStreamType))
         controllerHandler = ControllerInputHandler(viewModel: self)
     }
 
@@ -391,6 +391,14 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
 struct PlayerView: View {
     let host: String
     let port: Int32
+    // "" (manual host:port entry, see MenuView's own Connection) means the
+    // real stream_type isn't known until the handshake's hello -- passed
+    // straight through to PlayerViewModel.connect(), which needs it before
+    // that point to request the right per-console video mode (see that
+    // method's own comment); NOT the same thing as viewModel.streamType,
+    // which is only ever set from the live hello response once actually
+    // connected (used for bilinear filtering at render time instead).
+    var knownStreamType: String = ""
     // Lets RootView collapse its NavigationSplitView sidebar for the
     // duration of an actual stream (reported directly after real-iPad
     // testing: the sidebar should disappear once the stream is running,
@@ -468,7 +476,7 @@ struct PlayerView: View {
         }
         .statusBarHidden()
         .onAppear {
-            viewModel.connect(host: host, port: port)
+            viewModel.connect(host: host, port: port, knownStreamType: knownStreamType)
             // Matches Android's PlayerActivity forcing landscape (that
             // Activity's own manifest entry) -- see OrientationLock.swift
             // for why this needs an AppDelegate hook rather than a direct
