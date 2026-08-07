@@ -1119,6 +1119,7 @@ function handleHandshakeMessage(text) {
       showGame();
       statusEl.textContent = t('status_connected');
       sendPing();
+      setInterval(sendPing, 1000);
       // Empty grantedVideoMode means the server predates session_ready.
       // video_mode entirely -- skip the comparison rather than assuming
       // "tiles" was granted (docs/protocol.md "Video-mode fallback"), same
@@ -1187,7 +1188,19 @@ function sendPing() {
   new DataView(msg.buffer).setFloat64(1, performance.now(), true);
   ws.send(msg);
 }
-setInterval(sendPing, 1000);
+// Started once the real session is up (see showGame()'s call site below),
+// NOT here -- this used to run unconditionally from the moment
+// beginSession() started, which meant it kept firing (once ws.readyState
+// reached OPEN) *during* the app-level JSON handshake too, including while
+// a multi-slot lobby (GC_GBA_LINK) sits waiting on its slot picker for the
+// user to click something. That stray 9-byte binary ping frame landed on
+// the same socket the lobby's blocking single-text-frame hello_ack read
+// expects (GBAStreamLobby.cpp's PerformHandshakeAndRedirect) -- a real bug,
+// not hypothetical: confirmed live (temporary Playwright repro, see this
+// commit) that the ping frame reliably beat hello_ack there, the lobby
+// server then discarded the connection outright (frame->opcode != TEXT), and
+// the redirect a user clicked a slot for never arrived at all ("all GBA
+// ports are found, but I can't connect to them").
 
 function handleBinaryMessage(msgBuffer) {
   const view = new DataView(msgBuffer);
