@@ -499,11 +499,16 @@ const wasmModulePromise = UnisonCore();
 // defaultBilinearFor(): nearest for GC_GBA_LINK (native-resolution pixel
 // art), bilinear for the other three (already-upscaled/higher-effective-
 // resolution renders that read better smoothed).
+// Alphabetical by displayed label (3DS, GBA/GC, NDS, Wii U), per explicit
+// request -- a fixed order rather than a dynamic sort, since all four
+// console names are untranslated technical/brand terms, identical across
+// every language (see i18n/strings.json), unlike the language picker's own
+// endonym-based sort elsewhere.
 const KNOWN_STREAM_TYPES = [
-  ['GC_GBA_LINK', t('console_gc_gba_link')],
-  ['WIIU_GAMEPAD', t('console_wiiu_gamepad')],
   ['N3DS_BOTTOM_SCREEN', t('console_n3ds_bottom_screen')],
+  ['GC_GBA_LINK', t('console_gc_gba_link')],
   ['NDS_BOTTOM_SCREEN', t('console_nds_bottom_screen')],
+  ['WIIU_GAMEPAD', t('console_wiiu_gamepad')],
 ];
 // defaultBilinearFor/bilinearFor: settings.js (pure, unit-tested there --
 // see settings_test.mjs).
@@ -629,11 +634,12 @@ let videoModeReturnPanel = null;
 let videoModeReturnStreamType = '';
 
 // NOT sorted alphabetically, unlike LANGUAGE_OPTION_KEYS above -- this order
-// is deliberate (matches Android's Prefs.VIDEO_MODES: default first, then
-// the two stronger/lossier compressed options, legacy last as the
-// explicit-opt-out fallback), not something to "fix" into alphabetical.
+// is deliberate (matches Android's Prefs.VIDEO_MODES, per explicit request:
+// the two raw-deflate modes first, legacy/"Raw (Deflate)" before
+// tiles/"Raw+Tiling (Deflate)", then h264/h265), not something to "fix"
+// into alphabetical.
 const VIDEO_MODE_OPTION_KEYS = {
-  tiles: 'video_mode_tiles', h264: 'video_mode_h264', h265: 'video_mode_h265', legacy: 'video_mode_legacy',
+  legacy: 'video_mode_legacy', tiles: 'video_mode_tiles', h264: 'video_mode_h264', h265: 'video_mode_h265',
 };
 
 function updateVideoModeRowValue() {
