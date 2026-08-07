@@ -19,11 +19,16 @@ namespace {
 struct StreamTypeEntry {
     const char *streamType;
 };
+// Alphabetical by displayed label (3DS, GBA/GC, NDS, Wii U), per explicit
+// request -- a fixed order rather than a dynamic sort, since all four
+// console names are untranslated technical/brand terms, identical across
+// every language (see i18n/strings.json), unlike LanguageActivity's own
+// endonym-based sort elsewhere.
 constexpr StreamTypeEntry kKnownStreamTypes[] = {
-    { "GC_GBA_LINK" },
-    { "WIIU_GAMEPAD" },
     { "N3DS_BOTTOM_SCREEN" },
+    { "GC_GBA_LINK" },
     { "NDS_BOTTOM_SCREEN" },
+    { "WIIU_GAMEPAD" },
 };
 
 const char *labelForStreamType(const char *streamType) {

@@ -19,14 +19,14 @@ brls::View *VideoModeActivity::createContentView() {
     column->setPadding(24, 32, 24, 32);
 
     // NOT sorted alphabetically, unlike LanguageActivity's options --
-    // deliberate order (default first, then the two stronger/lossier
-    // compressed options, legacy last as the explicit-opt-out fallback),
-    // same as Android's Prefs.VIDEO_MODES.
+    // deliberate order, per explicit request: the two raw-deflate modes
+    // first (legacy/"Raw (Deflate)" before tiles/"Raw+Tiling (Deflate)"),
+    // then h264/h265, same as Android's Prefs.VIDEO_MODES.
     VideoModeOption options[] = {
+        { "legacy", strings::kVideoModeLegacy },
         { "tiles", strings::kVideoModeTiles },
         { "h264", strings::kVideoModeH264 },
         { "h265", strings::kVideoModeH265 },
-        { "legacy", strings::kVideoModeLegacy },
     };
     for (const auto &option : options) {
         auto *cell = new brls::DetailCell();
