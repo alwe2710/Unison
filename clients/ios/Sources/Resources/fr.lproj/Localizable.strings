@@ -45,7 +45,7 @@
 "settings_antialiasing" = "Filtrage bilinéaire";
 "settings_video_mode" = "Mode vidéo";
 "settings_console_specific" = "Paramètres spécifiques à la console";
-"video_mode_tiles" = "Tiling (Deflate)";
+"video_mode_tiles" = "Raw+Tiling (Deflate)";
 "video_mode_h264" = "H.264";
 "video_mode_h265" = "H.265";
 "video_mode_legacy" = "Raw (Deflate)";

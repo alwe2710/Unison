@@ -49,7 +49,7 @@ const char *kSettingsOnScreenControls = "On-Screen-Controls anzeigen";
 const char *kSettingsAntialiasing = "Bilineare Filterung";
 const char *kSettingsVideoMode = "Videomodus";
 const char *kSettingsConsoleSpecific = "Konsolenspezifische Einstellungen";
-const char *kVideoModeTiles = "Tiling (Deflate)";
+const char *kVideoModeTiles = "Raw+Tiling (Deflate)";
 const char *kVideoModeH264 = "H.264";
 const char *kVideoModeH265 = "H.265";
 const char *kVideoModeLegacy = "Raw (Deflate)";
@@ -158,7 +158,7 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Bilineare Filterung";
         kSettingsVideoMode = "Videomodus";
         kSettingsConsoleSpecific = "Konsolenspezifische Einstellungen";
-        kVideoModeTiles = "Tiling (Deflate)";
+        kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Raw (Deflate)";
@@ -265,7 +265,7 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Bilinear filtering";
         kSettingsVideoMode = "Video mode";
         kSettingsConsoleSpecific = "Console-specific settings";
-        kVideoModeTiles = "Tiling (Deflate)";
+        kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Raw (Deflate)";
@@ -372,7 +372,7 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtrage bilinéaire";
         kSettingsVideoMode = "Mode vidéo";
         kSettingsConsoleSpecific = "Paramètres spécifiques à la console";
-        kVideoModeTiles = "Tiling (Deflate)";
+        kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Raw (Deflate)";
@@ -479,7 +479,7 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtro bilineare";
         kSettingsVideoMode = "Modalità video";
         kSettingsConsoleSpecific = "Impostazioni specifiche per console";
-        kVideoModeTiles = "Tiling (Deflate)";
+        kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Raw (Deflate)";
@@ -586,7 +586,7 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtrado bilineal";
         kSettingsVideoMode = "Modo de vídeo";
         kSettingsConsoleSpecific = "Ajustes específicos por consola";
-        kVideoModeTiles = "Tiling (Deflate)";
+        kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
         kVideoModeLegacy = "Raw (Deflate)";

@@ -54,7 +54,7 @@
   "settings_antialiasing": {"de": "Bilineare Filterung", "en": "Bilinear filtering", "fr": "Filtrage bilinéaire", "it": "Filtro bilineare", "es": "Filtrado bilineal"},
   "settings_video_mode": {"de": "Videomodus", "en": "Video mode", "fr": "Mode vidéo", "it": "Modalità video", "es": "Modo de vídeo"},
   "settings_console_specific": {"de": "Konsolenspezifische Einstellungen", "en": "Console-specific settings", "fr": "Paramètres spécifiques à la console", "it": "Impostazioni specifiche per console", "es": "Ajustes específicos por consola"},
-  "video_mode_tiles": {"de": "Tiling (Deflate)", "en": "Tiling (Deflate)", "fr": "Tiling (Deflate)", "it": "Tiling (Deflate)", "es": "Tiling (Deflate)"},
+  "video_mode_tiles": {"de": "Raw+Tiling (Deflate)", "en": "Raw+Tiling (Deflate)", "fr": "Raw+Tiling (Deflate)", "it": "Raw+Tiling (Deflate)", "es": "Raw+Tiling (Deflate)"},
   "video_mode_h264": {"de": "H.264", "en": "H.264", "fr": "H.264", "it": "H.264", "es": "H.264"},
   "video_mode_h265": {"de": "H.265", "en": "H.265", "fr": "H.265", "it": "H.265", "es": "H.265"},
   "video_mode_legacy": {"de": "Raw (Deflate)", "en": "Raw (Deflate)", "fr": "Raw (Deflate)", "it": "Raw (Deflate)", "es": "Raw (Deflate)"},

@@ -50,7 +50,7 @@ static const char *STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeige
 static const char *STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
 static const char *STR_SETTINGS_VIDEO_MODE = "Videomodus";
 static const char *STR_SETTINGS_CONSOLE_SPECIFIC = "Konsolenspezifische Einstellungen";
-static const char *STR_VIDEO_MODE_TILES = "Tiling (Deflate)";
+static const char *STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
 static const char *STR_VIDEO_MODE_H264 = "H.264";
 static const char *STR_VIDEO_MODE_H265 = "H.265";
 static const char *STR_VIDEO_MODE_LEGACY = "Raw (Deflate)";
@@ -162,7 +162,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
         STR_SETTINGS_VIDEO_MODE = "Videomodus";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Konsolenspezifische Einstellungen";
-        STR_VIDEO_MODE_TILES = "Tiling (Deflate)";
+        STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Raw (Deflate)";
@@ -269,7 +269,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Bilinear filtering";
         STR_SETTINGS_VIDEO_MODE = "Video mode";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Console-specific settings";
-        STR_VIDEO_MODE_TILES = "Tiling (Deflate)";
+        STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Raw (Deflate)";
@@ -376,7 +376,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtrage bilinéaire";
         STR_SETTINGS_VIDEO_MODE = "Mode vidéo";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Paramètres spécifiques à la console";
-        STR_VIDEO_MODE_TILES = "Tiling (Deflate)";
+        STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Raw (Deflate)";
@@ -483,7 +483,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtro bilineare";
         STR_SETTINGS_VIDEO_MODE = "Modalità video";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Impostazioni specifiche per console";
-        STR_VIDEO_MODE_TILES = "Tiling (Deflate)";
+        STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Raw (Deflate)";
@@ -590,7 +590,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtrado bilineal";
         STR_SETTINGS_VIDEO_MODE = "Modo de vídeo";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Ajustes específicos por consola";
-        STR_VIDEO_MODE_TILES = "Tiling (Deflate)";
+        STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
         STR_VIDEO_MODE_LEGACY = "Raw (Deflate)";

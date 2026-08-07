@@ -45,7 +45,7 @@
     <string name="settings_antialiasing">Filtrado bilineal</string>
     <string name="settings_video_mode">Modo de vídeo</string>
     <string name="settings_console_specific">Ajustes específicos por consola</string>
-    <string name="video_mode_tiles">Tiling (Deflate)</string>
+    <string name="video_mode_tiles">Raw+Tiling (Deflate)</string>
     <string name="video_mode_h264">H.264</string>
     <string name="video_mode_h265">H.265</string>
     <string name="video_mode_legacy">Raw (Deflate)</string>
