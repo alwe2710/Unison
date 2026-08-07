@@ -258,13 +258,15 @@ final class Prefs {
         let value: String
         let labelKey: String
     }
-    /// Fixed, deliberate order (not sorted): recommended default first,
-    /// fallback modes after -- same as Prefs.kt's VIDEO_MODES.
+    /// Fixed, deliberate order (not sorted), per explicit request: the two
+    /// raw-deflate modes first (legacy/"Raw (Deflate)" before
+    /// tiles/"Raw+Tiling (Deflate)"), then h264/h265 -- same as Prefs.kt's
+    /// VIDEO_MODES.
     static let videoModes: [VideoModeOption] = [
+        VideoModeOption(value: "legacy", labelKey: "video_mode_legacy"),
         VideoModeOption(value: videoModeDefault, labelKey: "video_mode_tiles"),
         VideoModeOption(value: "h264", labelKey: "video_mode_h264"),
         VideoModeOption(value: "h265", labelKey: "video_mode_h265"),
-        VideoModeOption(value: "legacy", labelKey: "video_mode_legacy"),
     ]
 
     private enum Keys {

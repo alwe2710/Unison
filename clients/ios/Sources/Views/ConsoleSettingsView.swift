@@ -21,11 +21,16 @@ private struct ConsoleRow: Identifiable {
     var id: String { streamType }
 }
 
+// Alphabetical by displayed label (3DS, GBA/GC, NDS, Wii U), per explicit
+// request -- a fixed order rather than a dynamic sort, since all four
+// console names are untranslated technical/brand terms, identical across
+// every language (see i18n/strings.json), unlike LanguageView's own
+// endonym-based sort elsewhere.
 private let consoleRows: [ConsoleRow] = [
-    ConsoleRow(streamType: GbaStreamClient.streamTypeGcGbaLink, labelKey: "console_gc_gba_link"),
-    ConsoleRow(streamType: "WIIU_GAMEPAD", labelKey: "console_wiiu_gamepad"),
     ConsoleRow(streamType: "N3DS_BOTTOM_SCREEN", labelKey: "console_n3ds_bottom_screen"),
+    ConsoleRow(streamType: GbaStreamClient.streamTypeGcGbaLink, labelKey: "console_gc_gba_link"),
     ConsoleRow(streamType: "NDS_BOTTOM_SCREEN", labelKey: "console_nds_bottom_screen"),
+    ConsoleRow(streamType: "WIIU_GAMEPAD", labelKey: "console_wiiu_gamepad"),
 ]
 
 struct ConsoleSettingsView: View {
