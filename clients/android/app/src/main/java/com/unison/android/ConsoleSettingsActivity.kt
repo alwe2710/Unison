@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,10 +18,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -39,19 +34,25 @@ import androidx.compose.ui.unit.dp
  * see AntialiasingActivity's/VideoModeActivity's own comments on why each
  * setting moved from "one value for every console" to "one value per
  * console".
+ *
+ * Plain console name only, no video-mode subtitle here (an earlier revision
+ * showed one, reverted per explicit request) -- the video mode itself is
+ * only ever shown/changed one screen further in, on AntialiasingActivity.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 class ConsoleSettingsActivity : LocalizedActivity() {
 
-    private data class ConsoleRow(val streamType: String, val labelRes: Int, val videoModeLabelRes: Int)
+    private data class ConsoleRow(val streamType: String, val labelRes: Int)
 
-    private lateinit var prefs: Prefs
-    private var consoles = mutableStateListOf<ConsoleRow>()
+    private val consoles = listOf(
+        ConsoleRow(GbaStreamClient.STREAM_TYPE_GC_GBA_LINK, R.string.console_gc_gba_link),
+        ConsoleRow("WIIU_GAMEPAD", R.string.console_wiiu_gamepad),
+        ConsoleRow("N3DS_BOTTOM_SCREEN", R.string.console_n3ds_bottom_screen),
+        ConsoleRow("NDS_BOTTOM_SCREEN", R.string.console_nds_bottom_screen),
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        prefs = Prefs(this)
-        loadConsoles()
 
         setContent {
             UnisonTheme {
@@ -70,7 +71,6 @@ class ConsoleSettingsActivity : LocalizedActivity() {
                             items(consoles.size) { index ->
                                 val row = consoles[index]
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
@@ -82,14 +82,11 @@ class ConsoleSettingsActivity : LocalizedActivity() {
                                         }
                                         .padding(vertical = 12.dp)
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(stringResource(row.labelRes), style = MaterialTheme.typography.titleMedium)
-                                        Text(
-                                            stringResource(row.videoModeLabelRes),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                    Text(
+                                        stringResource(row.labelRes),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
                                 }
                                 HorizontalDivider()
                             }
@@ -98,30 +95,5 @@ class ConsoleSettingsActivity : LocalizedActivity() {
                 }
             }
         }
-    }
-
-    // Refreshed on return from AntialiasingActivity too (picking a new video
-    // mode there and coming back here shouldn't leave this list's own
-    // subtitles stale), same reasoning as AntialiasingActivity's own
-    // onResume() re-read.
-    override fun onResume() {
-        super.onResume()
-        loadConsoles()
-    }
-
-    private fun loadConsoles() {
-        val rows = listOf(
-            GbaStreamClient.STREAM_TYPE_GC_GBA_LINK to R.string.console_gc_gba_link,
-            "WIIU_GAMEPAD" to R.string.console_wiiu_gamepad,
-            "N3DS_BOTTOM_SCREEN" to R.string.console_n3ds_bottom_screen,
-            "NDS_BOTTOM_SCREEN" to R.string.console_nds_bottom_screen,
-        ).map { (streamType, labelRes) ->
-            val videoMode = prefs.videoModeFor(streamType)
-            val videoModeLabelRes = Prefs.VIDEO_MODES.find { it.value == videoMode }?.labelRes
-                ?: R.string.video_mode_tiles
-            ConsoleRow(streamType, labelRes, videoModeLabelRes)
-        }
-        consoles.clear()
-        consoles.addAll(rows)
     }
 }
