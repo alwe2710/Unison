@@ -33,6 +33,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,6 +54,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -319,7 +321,43 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                 // block below never emits, letting this show through
                 // instead. Either way there's no need to track which mode
                 // is actually active here.
-                VideoSurfaceView(modifier = Modifier.fillMaxSize())
+                //
+                // BoxWithConstraints, not a plain fillMaxSize() SurfaceView
+                // directly: unlike Image (which gets ContentScale.Fit's
+                // letterboxing for free), a raw SurfaceView has no such
+                // concept -- MediaCodec scales its decoded output to fill
+                // whatever bounds the Surface actually has, so a
+                // fillMaxSize() SurfaceView stretched/distorted the picture
+                // to the screen's own aspect ratio whenever it didn't match
+                // the stream's (reported live). This computes the same
+                // "centered, scaled to fit, aspect preserved" box by hand
+                // (same scale = min(containerW/streamW, containerH/streamH)
+                // formula TouchOverlay's own sendMappedTouch() already
+                // uses, see that function's comment) and constrains the
+                // SurfaceView to exactly that size -- which, as a side
+                // effect, also fixes touch input alignment for a touch-mode
+                // h264/h265 session: sendMappedTouch() already assumed this
+                // exact placement, it just didn't match where the video was
+                // actually drawn before this fix.
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val videoModifier = if (streamWidth > 0 && streamHeight > 0) {
+                        val containerW = constraints.maxWidth.toFloat()
+                        val containerH = constraints.maxHeight.toFloat()
+                        val scale = minOf(containerW / streamWidth, containerH / streamHeight)
+                        with(LocalDensity.current) {
+                            Modifier
+                                .size((streamWidth * scale).toDp(), (streamHeight * scale).toDp())
+                                .align(Alignment.Center)
+                        }
+                    } else {
+                        // streamWidth/streamHeight aren't known yet (before
+                        // session_ready) -- nothing is being drawn into the
+                        // Surface at this point anyway, so the exact size
+                        // doesn't matter.
+                        Modifier.fillMaxSize()
+                    }
+                    VideoSurfaceView(modifier = videoModifier)
+                }
 
                 videoBitmap?.let { bitmap ->
                     Image(
