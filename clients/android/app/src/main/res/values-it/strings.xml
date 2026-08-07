@@ -53,6 +53,7 @@
     <string name="video_mode_fallback_message">Il server non supporta &quot;%1$s&quot; e utilizza &quot;%2$s&quot; al suo posto.</string>
     <string name="video_mode_fallback_continue">Continua</string>
     <string name="video_mode_fallback_abort">Interrompi</string>
+    <string name="video_codec_unsupported">Questo browser non riesce a decodificare %1$s. Scegli una modalità video diversa.</string>
     <string name="settings_bilinear_filter_header">Filtro bilineare invece del vicino più prossimo, per console collegata.</string>
     <string name="settings_key_bindings">Associazione tasti</string>
     <string name="settings_bind">Assegna</string>

@@ -57,6 +57,7 @@ const char *kVideoModeFallbackTitle = "Anderer Videomodus";
 const char *kVideoModeFallbackMessage = "Der Server unterstützt „%s“ nicht und nutzt stattdessen „%s“.";
 const char *kVideoModeFallbackContinue = "Fortsetzen";
 const char *kVideoModeFallbackAbort = "Abbrechen";
+const char *kVideoCodecUnsupported = "Dieser Browser kann %s nicht dekodieren. Bitte einen anderen Videomodus wählen.";
 const char *kSettingsBilinearFilterHeader = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
 const char *kSettingsKeyBindings = "Tastenzuweisungen";
 const char *kSettingsBind = "Zuweisen";
@@ -166,6 +167,7 @@ void setLanguage(Lang lang) {
         kVideoModeFallbackMessage = "Der Server unterstützt „%s“ nicht und nutzt stattdessen „%s“.";
         kVideoModeFallbackContinue = "Fortsetzen";
         kVideoModeFallbackAbort = "Abbrechen";
+        kVideoCodecUnsupported = "Dieser Browser kann %s nicht dekodieren. Bitte einen anderen Videomodus wählen.";
         kSettingsBilinearFilterHeader = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
         kSettingsKeyBindings = "Tastenzuweisungen";
         kSettingsBind = "Zuweisen";
@@ -273,6 +275,7 @@ void setLanguage(Lang lang) {
         kVideoModeFallbackMessage = "The server doesn't support \"%s\" and is using \"%s\" instead.";
         kVideoModeFallbackContinue = "Continue";
         kVideoModeFallbackAbort = "Abort";
+        kVideoCodecUnsupported = "This browser can't decode %s. Please choose a different video mode.";
         kSettingsBilinearFilterHeader = "Bilinear filtering instead of nearest-neighbor, per connected console.";
         kSettingsKeyBindings = "Key bindings";
         kSettingsBind = "Bind";
@@ -380,6 +383,7 @@ void setLanguage(Lang lang) {
         kVideoModeFallbackMessage = "Le serveur ne prend pas en charge « %s » et utilise « %s » à la place.";
         kVideoModeFallbackContinue = "Continuer";
         kVideoModeFallbackAbort = "Abandonner";
+        kVideoCodecUnsupported = "Ce navigateur ne peut pas décoder %s. Veuillez choisir un autre mode vidéo.";
         kSettingsBilinearFilterHeader = "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.";
         kSettingsKeyBindings = "Assignation des touches";
         kSettingsBind = "Assigner";
@@ -487,6 +491,7 @@ void setLanguage(Lang lang) {
         kVideoModeFallbackMessage = "Il server non supporta \"%s\" e utilizza \"%s\" al suo posto.";
         kVideoModeFallbackContinue = "Continua";
         kVideoModeFallbackAbort = "Interrompi";
+        kVideoCodecUnsupported = "Questo browser non riesce a decodificare %s. Scegli una modalità video diversa.";
         kSettingsBilinearFilterHeader = "Filtro bilineare invece del vicino più prossimo, per console collegata.";
         kSettingsKeyBindings = "Associazione tasti";
         kSettingsBind = "Assegna";
@@ -594,6 +599,7 @@ void setLanguage(Lang lang) {
         kVideoModeFallbackMessage = "El servidor no admite «%s» y usa «%s» en su lugar.";
         kVideoModeFallbackContinue = "Continuar";
         kVideoModeFallbackAbort = "Cancelar";
+        kVideoCodecUnsupported = "Este navegador no puede decodificar %s. Elige un modo de vídeo diferente.";
         kSettingsBilinearFilterHeader = "Filtrado bilineal en lugar de vecino más cercano, por consola conectada.";
         kSettingsKeyBindings = "Asignación de teclas";
         kSettingsBind = "Asignar";

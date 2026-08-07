@@ -59,6 +59,7 @@ extern const char *kVideoModeFallbackTitle;
 extern const char *kVideoModeFallbackMessage;
 extern const char *kVideoModeFallbackContinue;
 extern const char *kVideoModeFallbackAbort;
+extern const char *kVideoCodecUnsupported;
 extern const char *kSettingsBilinearFilterHeader;
 extern const char *kSettingsKeyBindings;
 extern const char *kSettingsBind;

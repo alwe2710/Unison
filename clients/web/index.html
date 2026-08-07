@@ -992,6 +992,102 @@ function ensureCapacity(ptr, cap, needed) {
   return [wasmModule._malloc(needed), needed];
 }
 
+// UNISON_VIDEO_FORMAT_H264/_H265 (unison/protocol.h, 1<<2/1<<3) -- decoded
+// via the browser's native WebCodecs VideoDecoder, not through WASM at all
+// (same "use what the platform already provides correctly" reasoning as
+// DecompressionStream above, see wasm_bridge.c's own top comment): a real
+// H.264/H.265 software decode has no reason to be reimplemented here when
+// every target browser already ships one. Session-local (rebuilt fresh per
+// connect(), see resetVideoDecoder()), same "never carry decoder reference-
+// frame state across sessions" reasoning as every native client's own
+// SoftwareVideoEncoder-side counterpart.
+let videoDecoder = null;
+let videoDecoderIsH265 = false;
+// Set on a real decoder error (most commonly: this browser has no H.265
+// decode at all -- confirmed via a live isConfigSupported() check that
+// Chromium builds can genuinely lack entirely, a real platform limitation
+// rather than anything wrong with the bitstream/config here) -- once true,
+// handleVideoMessage()'s h264/h265 branch stops calling decode() for the
+// rest of this session rather than spamming a decoder that will only ever
+// keep failing the same way.
+let videoDecoderUnsupported = false;
+
+function resetVideoDecoder() {
+  if (videoDecoder && videoDecoder.state !== 'closed') {
+    videoDecoder.close();
+  }
+  videoDecoder = null;
+  videoDecoderUnsupported = false;
+}
+
+// codec strings are deliberately generic placeholders (Baseline/L3.0 for
+// H.264, matching every host repo's own x264_param_apply_profile(&param,
+// "baseline") -- see e.g. Cemu's SoftwareVideoEncoder.cpp; Main/L3.1 for
+// H.265, x265's own unset-profile default for 8-bit 4:2:0 input) --
+// browsers decode from the bitstream's own actual SPS regardless, the
+// config string is only used for capability negotiation/hardware decoder
+// selection, not strict validation against every frame. `avc`/`hevc`
+// format: 'annexb' is what makes this work directly against the server's
+// raw Annex-B NAL stream (SoftwareVideoEncoder's own b_annexb=1 output on
+// every host repo) with zero repackaging into length-prefixed AVCC/HVCC
+// here -- WebCodecs does that parameter-set/NAL extraction internally in
+// this mode, unlike the native clients' own CompressedVideoDecoder-style
+// code, which has no browser-provided equivalent to lean on.
+function ensureVideoDecoder(isH265) {
+  if (videoDecoder && videoDecoderIsH265 === isH265) return;
+  resetVideoDecoder();
+  videoDecoderIsH265 = isH265;
+  videoDecoder = new VideoDecoder({
+    output(frame) {
+      if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+        canvas.width = frame.displayWidth;
+        canvas.height = frame.displayHeight;
+        resizeDesktopCanvas();
+      }
+      // CanvasRenderingContext2D.drawImage() accepts a VideoFrame
+      // directly (no ImageData/putImageData round-trip needed, unlike the
+      // raw/tiles path below) -- frame.close() releases the underlying
+      // buffer promptly rather than waiting on GC, same reasoning as
+      // every WebCodecs sample's own "always close what you're done
+      // with".
+      ctx.drawImage(frame, 0, 0);
+      frame.close();
+    },
+    error(e) {
+      console.error('Unison video decode error', e);
+      videoDecoderUnsupported = true;
+      statusEl.textContent = t('video_codec_unsupported', isH265 ? 'H.265' : 'H.264');
+    },
+  });
+  videoDecoder.configure({
+    codec: isH265 ? 'hev1.1.6.L93.B0' : 'avc1.42001E',
+    ...(isH265 ? { hevc: { format: 'annexb' } } : { avc: { format: 'annexb' } }),
+    optimizeForLatency: true,
+  });
+}
+
+// A message counts as a keyframe if any of its NALs is a parameter set
+// (H.264 SPS, type 7; H.265 VPS/SPS, type 32/33) -- every host repo's
+// SoftwareVideoEncoder sets b_repeat_headers=1 specifically so those
+// repeat before each forced keyframe (docs/protocol.md's "Keyframe
+// discipline"), not just once at session start, so this is exactly
+// equivalent to checking the actual NAL's own slice type without needing
+// to fully parse it. Only scans for 3-byte (00 00 01) start codes -- a
+// 4-byte (00 00 00 01) one always contains a 3-byte match one byte in, so
+// this still finds every NAL either form produces (same reasoning as the
+// native clients' own Annex-B parsers, just without needing the full
+// per-NAL split here since only the type byte right after each start
+// code is ever read).
+function isAnnexBKeyframe(bytes, isH265) {
+  for (let i = 0; i + 3 < bytes.length; i++) {
+    if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1) {
+      const nalType = isH265 ? (bytes[i + 3] >> 1) & 0x3F : bytes[i + 3] & 0x1F;
+      if (isH265 ? (nalType === 32 || nalType === 33) : nalType === 7) return true;
+    }
+  }
+  return false;
+}
+
 let ws;
 
 function fail(reason) {
@@ -1046,6 +1142,12 @@ document.getElementById('videoModeFallbackAbort').onclick = () => {
 };
 
 function connect(connectHost, connectPort) {
+  // A redirect hop (session_ready.has_redirect below) calls connect()
+  // again on the same page -- never carry a previous session's decoder
+  // reference-frame state (or a stale h264-vs-h265 codec choice) into the
+  // new one, same reasoning as every native client's own per-session
+  // SoftwareVideoEncoder/*Decoder lifetime.
+  resetVideoDecoder();
   ws = new WebSocket('ws://' + connectHost + ':' + connectPort + '/');
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => { connectStatusEl.textContent = t('status_handshake'); statusEl.textContent = t('status_handshake'); };
@@ -1341,6 +1443,29 @@ async function handleVideoMessage(msgBuffer) {
                                              ['number'], [videoMsgPtr]);
   const compressedSize = wasmModule.ccall('unison_wasm_video_compressed_size', 'number', [], []);
   const compressed = bytes.slice(compressedOffset, compressedOffset + compressedSize);
+
+  // UNISON_VIDEO_FORMAT_H264 (1<<2) / _H265 (1<<3), unison/protocol.h --
+  // mutually exclusive with the deflate+tile-diff path below (`compressed`
+  // is a raw Annex-B NAL stream here, not raw-deflate, straight from the
+  // server's SoftwareVideoEncoder) -- see ensureVideoDecoder()'s own
+  // comment.
+  if (format & 4 || format & 8) {
+    const isH265 = (format & 8) !== 0;
+    ensureVideoDecoder(isH265);
+    if (videoDecoderUnsupported || videoDecoder.state !== 'configured') return;
+    videoDecoder.decode(new EncodedVideoChunk({
+      type: isAnnexBKeyframe(compressed, isH265) ? 'key' : 'delta',
+      // No real timestamp from the server (docs/protocol.md carries none) --
+      // a monotonically increasing microsecond clock is all WebCodecs
+      // actually needs (decode order, not real playback pacing -- this
+      // client already displays every frame the instant it decodes,
+      // same as every other client's own real-time-not-paced-playback
+      // video path).
+      timestamp: performance.now() * 1000,
+      data: compressed,
+    }));
+    return;
+  }
 
   // Deflate decompression stays native browser code, not WASM -- see
   // wasm_bridge.c's own top comment for why.

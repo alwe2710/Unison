@@ -53,6 +53,7 @@
 "video_mode_fallback_message" = "Le serveur ne prend pas en charge « %1$@ » et utilise « %2$@ » à la place.";
 "video_mode_fallback_continue" = "Continuer";
 "video_mode_fallback_abort" = "Abandonner";
+"video_codec_unsupported" = "Ce navigateur ne peut pas décoder %1$@. Veuillez choisir un autre mode vidéo.";
 "settings_bilinear_filter_header" = "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.";
 "settings_key_bindings" = "Assignation des touches";
 "settings_bind" = "Assigner";

@@ -53,6 +53,7 @@
 "video_mode_fallback_message" = "Il server non supporta \"%1$@\" e utilizza \"%2$@\" al suo posto.";
 "video_mode_fallback_continue" = "Continua";
 "video_mode_fallback_abort" = "Interrompi";
+"video_codec_unsupported" = "Questo browser non riesce a decodificare %1$@. Scegli una modalità video diversa.";
 "settings_bilinear_filter_header" = "Filtro bilineare invece del vicino più prossimo, per console collegata.";
 "settings_key_bindings" = "Associazione tasti";
 "settings_bind" = "Assegna";

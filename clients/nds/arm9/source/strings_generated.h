@@ -58,6 +58,7 @@ static const char *STR_VIDEO_MODE_FALLBACK_TITLE = "Anderer Videomodus";
 static const char *STR_VIDEO_MODE_FALLBACK_MESSAGE = "Der Server unterstützt „%s“ nicht und nutzt stattdessen „%s“.";
 static const char *STR_VIDEO_MODE_FALLBACK_CONTINUE = "Fortsetzen";
 static const char *STR_VIDEO_MODE_FALLBACK_ABORT = "Abbrechen";
+static const char *STR_VIDEO_CODEC_UNSUPPORTED = "Dieser Browser kann %s nicht dekodieren. Bitte einen anderen Videomodus wählen.";
 static const char *STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
 static const char *STR_SETTINGS_KEY_BINDINGS = "Tastenzuweisungen";
 static const char *STR_SETTINGS_BIND = "Zuweisen";
@@ -170,6 +171,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_VIDEO_MODE_FALLBACK_MESSAGE = "Der Server unterstützt „%s“ nicht und nutzt stattdessen „%s“.";
         STR_VIDEO_MODE_FALLBACK_CONTINUE = "Fortsetzen";
         STR_VIDEO_MODE_FALLBACK_ABORT = "Abbrechen";
+        STR_VIDEO_CODEC_UNSUPPORTED = "Dieser Browser kann %s nicht dekodieren. Bitte einen anderen Videomodus wählen.";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilineare Filterung statt Nearest-Neighbor, je nach angeschlossener Konsole.";
         STR_SETTINGS_KEY_BINDINGS = "Tastenzuweisungen";
         STR_SETTINGS_BIND = "Zuweisen";
@@ -277,6 +279,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_VIDEO_MODE_FALLBACK_MESSAGE = "The server doesn't support \"%s\" and is using \"%s\" instead.";
         STR_VIDEO_MODE_FALLBACK_CONTINUE = "Continue";
         STR_VIDEO_MODE_FALLBACK_ABORT = "Abort";
+        STR_VIDEO_CODEC_UNSUPPORTED = "This browser can't decode %s. Please choose a different video mode.";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Bilinear filtering instead of nearest-neighbor, per connected console.";
         STR_SETTINGS_KEY_BINDINGS = "Key bindings";
         STR_SETTINGS_BIND = "Bind";
@@ -384,6 +387,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_VIDEO_MODE_FALLBACK_MESSAGE = "Le serveur ne prend pas en charge « %s » et utilise « %s » à la place.";
         STR_VIDEO_MODE_FALLBACK_CONTINUE = "Continuer";
         STR_VIDEO_MODE_FALLBACK_ABORT = "Abandonner";
+        STR_VIDEO_CODEC_UNSUPPORTED = "Ce navigateur ne peut pas décoder %s. Veuillez choisir un autre mode vidéo.";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.";
         STR_SETTINGS_KEY_BINDINGS = "Assignation des touches";
         STR_SETTINGS_BIND = "Assigner";
@@ -491,6 +495,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_VIDEO_MODE_FALLBACK_MESSAGE = "Il server non supporta \"%s\" e utilizza \"%s\" al suo posto.";
         STR_VIDEO_MODE_FALLBACK_CONTINUE = "Continua";
         STR_VIDEO_MODE_FALLBACK_ABORT = "Interrompi";
+        STR_VIDEO_CODEC_UNSUPPORTED = "Questo browser non riesce a decodificare %s. Scegli una modalità video diversa.";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtro bilineare invece del vicino più prossimo, per console collegata.";
         STR_SETTINGS_KEY_BINDINGS = "Associazione tasti";
         STR_SETTINGS_BIND = "Assegna";
@@ -598,6 +603,7 @@ static inline void strSetLanguage(StrLang lang) {
         STR_VIDEO_MODE_FALLBACK_MESSAGE = "El servidor no admite «%s» y usa «%s» en su lugar.";
         STR_VIDEO_MODE_FALLBACK_CONTINUE = "Continuar";
         STR_VIDEO_MODE_FALLBACK_ABORT = "Cancelar";
+        STR_VIDEO_CODEC_UNSUPPORTED = "Este navegador no puede decodificar %s. Elige un modo de vídeo diferente.";
         STR_SETTINGS_BILINEAR_FILTER_HEADER = "Filtrado bilineal en lugar de vecino más cercano, por consola conectada.";
         STR_SETTINGS_KEY_BINDINGS = "Asignación de teclas";
         STR_SETTINGS_BIND = "Asignar";
