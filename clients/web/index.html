@@ -710,19 +710,15 @@ function openConsoleDetailPanel(streamType, label) {
   consoleDetailPanel.style.display = 'flex';
 }
 
+// Plain console name only, no video-mode subtitle here (an earlier revision
+// showed one, reverted per explicit request) -- the video mode itself is
+// only ever shown/changed one panel further in, on #consoleDetailPanel.
 function renderConsoleRows() {
   consoleRowsEl.innerHTML = '';
   for (const [streamType, label] of KNOWN_STREAM_TYPES) {
     const row = document.createElement('button');
     row.className = 'menu-row nav-row';
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = label;
-    const valueSpan = document.createElement('span');
-    valueSpan.className = 'nav-row-value';
-    const key = VIDEO_MODE_OPTION_KEYS[videoModeFor(streamType)] || VIDEO_MODE_OPTION_KEYS[VIDEO_MODE_DEFAULT];
-    valueSpan.textContent = t(key);
-    row.appendChild(nameSpan);
-    row.appendChild(valueSpan);
+    row.textContent = label;
     row.onclick = () => openConsoleDetailPanel(streamType, label);
     consoleRowsEl.appendChild(row);
   }
