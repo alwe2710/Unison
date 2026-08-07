@@ -42,6 +42,24 @@ typedef struct {
     // copies into automatically, unlike this raw pointer).
     void (*on_video_frame)(void *user_data, int32_t width, int32_t height, const uint8_t *rgb565,
                             size_t len);
+    // UNISON_VIDEO_FORMAT_H264/_H265 only (mutually exclusive with
+    // on_video_frame above, see handle_video_message()'s own format
+    // branch): data is a raw Annex-B NAL stream straight from the server's
+    // encoder, NOT raw-deflate -- fed directly to a Swift-owned
+    // VTDecompressionSession/AVSampleBufferDisplayLayer instead of through
+    // unison_inflate_raw()/unison_decode_video_frame(), same reasoning as
+    // jni_bridge.c's handle_h264_h265_video_message() feeding MediaCodec
+    // directly. width/height are the encoder's *coded* (padded,
+    // macroblock/CTU-aligned) dimensions, not necessarily the stream's
+    // display size -- see SoftwareVideoEncoder::CodedWidth()'s own comment
+    // on the sibling host repos, this is that same value. is_h265 is 0 for
+    // UNISON_VIDEO_FORMAT_H264, nonzero for UNISON_VIDEO_FORMAT_H265 --
+    // picks CMVideoFormatDescriptionCreateFromH264ParameterSets vs.
+    // ...FromHEVCParameterSets on the Swift side. data is only valid for
+    // the duration of this call, same "copy it if you need to keep it"
+    // contract as on_video_frame's rgb565 above.
+    void (*on_compressed_video_frame)(void *user_data, int32_t width, int32_t height, int is_h265,
+                                       const uint8_t *data, size_t len);
     // pcm is signed 16-bit little-endian host-order samples, interleaved
     // if channels > 1 -- same shape as GbaStreamClient.Listener.onAudioFrame's
     // ShortArray. Same "valid only for this call" contract as rgb565 above.

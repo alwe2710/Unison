@@ -1,13 +1,16 @@
 // MVP subset of clients/android/.../jni_bridge.c, stripped to what this
 // client's first vertical slice actually needs (see clients/ios/README.md's
-// "Phasing" section): gba_buttons input only (no touch/extended-input, no
-// mic, no text-input-request), raw/tiles video decode only (no h264/h265 --
-// no VideoToolbox integration yet), no video-window/Surface concept at all
-// (Swift owns rendering, driven by the on_video_frame callback -- there's
-// no MediaCodec-equivalent "decode straight into a window" fast path to
-// bypass here). All of that is deferred, not forgotten -- ported back in
-// once this MVP proves the connect/handshake/decode/input loop itself
-// works end-to-end (see UnisonNativeBridgeTests.swift for that proof).
+// "Phasing" section): touch/extended-input is implemented (unlike the
+// original gba_buttons-only MVP), h264/h265 is now handed off raw to
+// Swift's own VideoToolbox decode via on_compressed_video_frame() below
+// (see that callback's own comment) -- still no mic, no text-input-request.
+// No video-window/Surface concept at all (Swift owns rendering, driven by
+// the on_video_frame/on_compressed_video_frame callbacks -- there's no
+// MediaCodec-equivalent "decode straight into a window" fast path to
+// bypass here, AVSampleBufferDisplayLayer plays the same role from the
+// Swift side instead). What's still deferred isn't forgotten -- ported
+// back in once each proves useful (see UnisonNativeBridgeTests.swift for
+// the connect/handshake/decode/input loop's own proof).
 //
 // Same core split as jni_bridge.c: this file is I/O and callback plumbing
 // only, all protocol/codec logic lives in unison_core (core/src/*.c).
@@ -438,9 +441,18 @@ static void handle_video_message(unison_native_client *c, const uint8_t *payload
         return;
     }
 
-    // h264/h265 (VideoToolbox integration) is a later phase -- see this
-    // file's own top comment -- drop the frame rather than mishandle it.
+    // UNISON_VIDEO_FORMAT_H264/_H265: hdr.compressed_data is a raw Annex-B
+    // NAL stream straight from the server's encoder (see docs/protocol.md's
+    // "Keyframe discipline"), not raw-deflate -- handed straight to Swift's
+    // VideoToolbox decode path instead of through unison_inflate_raw()/
+    // unison_decode_video_frame() below, same split jni_bridge.c's
+    // handle_h264_h265_video_message() uses for MediaCodec.
     if (hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)) {
+        if (c->callbacks.on_compressed_video_frame) {
+            c->callbacks.on_compressed_video_frame(
+                c->callbacks.user_data, (int32_t)hdr.width, (int32_t)hdr.height,
+                (hdr.format & UNISON_VIDEO_FORMAT_H265) ? 1 : 0, hdr.compressed_data, hdr.compressed_size);
+        }
         return;
     }
 

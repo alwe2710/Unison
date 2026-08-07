@@ -3,11 +3,12 @@ import SwiftUI
 import UIKit
 
 /// Streaming screen -- direct-enough analog of PlayerActivity.kt. Renders
-/// decoded RGB565 frames, plays PCM audio via AVAudioEngine, and sends
-/// input: plain gba_buttons for GC_GBA_LINK, or touch (+ buttons + analog
-/// sticks, depending on what the session actually negotiated) for
-/// Cemu/Azahar/melonDS. Still no mic or h264/h265 (see clients/ios/
-/// README.md's "Phasing").
+/// decoded RGB565 frames (or, for an h264/h265 session, hands raw NAL data
+/// to CompressedVideoDecoder for VideoToolbox to decode+display directly),
+/// plays PCM audio via AVAudioEngine, and sends input: plain gba_buttons
+/// for GC_GBA_LINK, or touch (+ buttons + analog sticks, depending on what
+/// the session actually negotiated) for Cemu/Azahar/melonDS. Still no mic
+/// (see clients/ios/README.md's "Phasing").
 final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listener {
     enum Status: Equatable {
         case connecting
@@ -36,6 +37,22 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     // defaultBilinear's own "unknown stream type" branch) until a real
     // hello has arrived.
     @Published private(set) var streamType = ""
+    // session_ready.video_mode verbatim, set from onConnected's
+    // grantedVideoMode -- "h264"/"h265" is what PlayerView's body switches
+    // render paths on (CompressedVideoView instead of the plain
+    // Image(uiImage:) below, since currentFrame is never populated for
+    // those, see onVideoFrame's own doc comment on the Listener protocol).
+    @Published private(set) var grantedVideoMode = ""
+
+    // Set once by CompressedVideoView.onLayerReady (see that view's own
+    // comment) -- only relevant for an h264/h265 session. compressedVideoDecoder
+    // is built as soon as both this and grantedVideoMode are known (in
+    // practice always in that order, see setDisplayLayer's own comment),
+    // so the very first frame that arrives after the layer's ready gets
+    // decoded immediately rather than dropped waiting on a decoder that
+    // would otherwise be built lazily one frame late.
+    private var displayLayer: AVSampleBufferDisplayLayer?
+    private var compressedVideoDecoder: CompressedVideoDecoder?
 
     private var client: GbaStreamClient?
     private var keymask: UInt16 = 0
@@ -113,6 +130,12 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         playerNode = nil
         audioFormat = nil
         controllerHandler = nil
+        // Not displayLayer itself (CompressedVideoView's host UIView owns
+        // it, torn down separately by SwiftUI once this view disappears) --
+        // just this view model's own reference and the decoder built
+        // against it, so a later reconnect doesn't reuse either.
+        displayLayer = nil
+        compressedVideoDecoder = nil
     }
 
     /// Called from PlayerView's button views (on-screen taps, a bound
@@ -271,6 +294,11 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
             self.streamWidth = width
             self.streamHeight = height
             self.streamType = streamType
+            self.grantedVideoMode = grantedVideoMode
+            if let layer = self.displayLayer, self.compressedVideoDecoder == nil {
+                self.compressedVideoDecoder = CompressedVideoDecoder(displayLayer: layer,
+                                                                      isH265: grantedVideoMode == "h265")
+            }
         }
     }
 
@@ -280,6 +308,32 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         }
         DispatchQueue.main.async { [weak self] in
             self?.currentFrame = image
+        }
+    }
+
+    /// UNISON_VIDEO_FORMAT_H264/_H265 only -- called on the background
+    /// session thread (same as onVideoFrame above), not hopped to the main
+    /// thread first: AVSampleBufferDisplayLayer.enqueue() is documented
+    /// safe to call off the main thread (Apple's own sample code for this
+    /// exact low-latency-real-time-source pattern does the same), and this
+    /// path is already about as time-sensitive as this app gets -- an
+    /// extra runloop turn of latency here would be a real, visible cost
+    /// for no benefit.
+    func onCompressedVideoFrame(width: Int32, height: Int32, isH265: Bool, data: UnsafeRawBufferPointer) {
+        compressedVideoDecoder?.decode(data: data)
+    }
+
+    /// Called once by CompressedVideoView.onLayerReady when its backing
+    /// AVSampleBufferDisplayLayer is created -- in practice always after
+    /// onConnected already ran (the view only exists once grantedVideoMode
+    /// is known to be h264/h265, see PlayerView.body), but this handles
+    /// either order: builds compressedVideoDecoder here if
+    /// grantedVideoMode is already known, otherwise onConnected above
+    /// finishes the job once it arrives.
+    func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
+        displayLayer = layer
+        if !grantedVideoMode.isEmpty, compressedVideoDecoder == nil {
+            compressedVideoDecoder = CompressedVideoDecoder(displayLayer: layer, isH265: grantedVideoMode == "h265")
         }
     }
 
@@ -420,7 +474,17 @@ struct PlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let frame = viewModel.currentFrame {
+            if viewModel.grantedVideoMode == "h264" || viewModel.grantedVideoMode == "h265" {
+                // AVSampleBufferDisplayLayer does hardware decode+render in
+                // one step -- bilinear/nearest-neighbor filtering (the
+                // Image branch below applies via .interpolation) has no
+                // real equivalent worth wiring up here: videoGravity
+                // (CompressedVideoView's own setup) already does the same
+                // "scaled to fit, aspect preserved" letterboxing the Image
+                // branch's .aspectRatio(contentMode: .fit) does, just via
+                // AVFoundation's own mechanism instead of SwiftUI's.
+                CompressedVideoView { layer in viewModel.setDisplayLayer(layer) }
+            } else if let frame = viewModel.currentFrame {
                 // Was unconditionally .none (nearest-neighbor) here,
                 // ignoring AntialiasingView's own per-stream-type toggle
                 // entirely -- the setting persisted correctly (Prefs.
@@ -650,6 +714,48 @@ private struct ButtonOverlay: View {
             .frame(width: 132, height: 100)
             .overlay(alignment: .bottomLeading) { hold("B") }
             .overlay(alignment: .topTrailing) { hold("A") }
+    }
+}
+
+/// Hosts an AVSampleBufferDisplayLayer for an h264/h265 session --
+/// CompressedVideoDecoder.decode() enqueues straight into the layer this
+/// exposes via onLayerReady, called once when the backing UIView is
+/// created. A dedicated UIView subclass (not a bare CALayer handed to
+/// SwiftUI some other way) since AVSampleBufferDisplayLayer needs to be a
+/// real CALayer in a real view hierarchy to actually composite on screen.
+private struct CompressedVideoView: UIViewRepresentable {
+    let onLayerReady: (AVSampleBufferDisplayLayer) -> Void
+
+    func makeUIView(context: Context) -> DisplayLayerHostView {
+        let view = DisplayLayerHostView()
+        onLayerReady(view.displayLayer)
+        return view
+    }
+
+    func updateUIView(_ uiView: DisplayLayerHostView, context: Context) {}
+
+    final class DisplayLayerHostView: UIView {
+        let displayLayer = AVSampleBufferDisplayLayer()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            // .resizeAspect: scaled to fit, aspect preserved, same
+            // letterboxing the raw/tiles path gets from the Image branch's
+            // own .aspectRatio(contentMode: .fit) -- see PlayerView.body's
+            // comment on why nothing further needs to be wired up here for
+            // that.
+            displayLayer.videoGravity = .resizeAspect
+            layer.addSublayer(displayLayer)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            displayLayer.frame = bounds
+        }
     }
 }
 

@@ -33,6 +33,17 @@ final class GbaStreamClient {
         /// pointer, which is only valid for that call) -- same "safe to
         /// keep" contract as Android's ByteArray.
         func onVideoFrame(width: Int32, height: Int32, rgb565: Data)
+        /// UNISON_VIDEO_FORMAT_H264/_H265 only (mutually exclusive with
+        /// onVideoFrame above) -- data is a raw Annex-B NAL stream, only
+        /// valid for the duration of this call (unlike onVideoFrame's
+        /// rgb565, NOT copied into a fresh Data first: a listener that
+        /// needs to keep it past returning must copy it itself, since the
+        /// whole point of this callback is to hand the bytes to
+        /// CompressedVideoDecoder.decode(data:) synchronously without an
+        /// extra copy on this per-frame hot path). width/height are the
+        /// encoder's *coded* dimensions -- see unison_native_bridge.h's
+        /// own comment on on_compressed_video_frame.
+        func onCompressedVideoFrame(width: Int32, height: Int32, isH265: Bool, data: UnsafeRawBufferPointer)
         /// pcm is a fresh [Int16] copy, same reasoning as rgb565 above.
         func onAudioFrame(sampleRate: Int32, channels: Int32, pcm: [Int16])
         func onDisconnected(reason: String)
@@ -80,6 +91,12 @@ final class GbaStreamClient {
             let client = Unmanaged<GbaStreamClient>.fromOpaque(userData).takeUnretainedValue()
             let data = Data(bytes: rgb565, count: len)
             client.listener?.onVideoFrame(width: width, height: height, rgb565: data)
+        }
+        callbacks.on_compressed_video_frame = { userData, width, height, isH265, data, len in
+            guard let userData, let data else { return }
+            let client = Unmanaged<GbaStreamClient>.fromOpaque(userData).takeUnretainedValue()
+            let buffer = UnsafeRawBufferPointer(start: data, count: len)
+            client.listener?.onCompressedVideoFrame(width: width, height: height, isH265: isH265 != 0, data: buffer)
         }
         callbacks.on_audio_frame = { userData, sampleRate, channels, pcm, sampleCount in
             guard let userData, let pcm else { return }
