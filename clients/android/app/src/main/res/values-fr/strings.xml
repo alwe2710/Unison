@@ -77,6 +77,8 @@
     <string name="key_bindings_gamepad_section">Assignations manette</string>
     <string name="key_bindings_no_gamepad">Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.</string>
     <string name="key_bindings_press_button">Appuyez sur un bouton...</string>
+    <string name="key_bindings_keyboard_column">Clavier</string>
+    <string name="key_bindings_controller_column">Manette</string>
     <string name="exit_hold_hint">Maintenez X+Y pour vous déconnecter.</string>
     <string name="disconnect">Déconnecter</string>
     <string name="waiting_for_image">En attente de l\'image...</string>

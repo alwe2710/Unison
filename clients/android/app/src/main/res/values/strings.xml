@@ -77,6 +77,8 @@
     <string name="key_bindings_gamepad_section">Gamepad bindings</string>
     <string name="key_bindings_no_gamepad">No controller detected -- please connect one and press a button.</string>
     <string name="key_bindings_press_button">Press a button...</string>
+    <string name="key_bindings_keyboard_column">Keyboard</string>
+    <string name="key_bindings_controller_column">Controller</string>
     <string name="exit_hold_hint">Hold X+Y to disconnect.</string>
     <string name="disconnect">Disconnect</string>
     <string name="waiting_for_image">Waiting for image...</string>

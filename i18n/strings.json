@@ -89,6 +89,8 @@
   "key_bindings_gamepad_section": {"de": "Gamecontroller-Belegung", "en": "Gamepad bindings", "fr": "Assignations manette", "it": "Associazioni gamepad", "es": "Asignaciones del mando"},
   "key_bindings_no_gamepad": {"de": "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.", "en": "No controller detected -- please connect one and press a button.", "fr": "Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.", "it": "Nessun controller rilevato -- collegane uno e premi un pulsante.", "es": "No se detectó ningún mando -- conecta uno y pulsa un botón."},
   "key_bindings_press_button": {"de": "Drücke einen Knopf...", "en": "Press a button...", "fr": "Appuyez sur un bouton...", "it": "Premi un pulsante...", "es": "Pulsa un botón..."},
+  "key_bindings_keyboard_column": {"de": "Tastatur", "en": "Keyboard", "fr": "Clavier", "it": "Tastiera", "es": "Teclado"},
+  "key_bindings_controller_column": {"de": "Controller", "en": "Controller", "fr": "Manette", "it": "Controller", "es": "Mando"},
 
   "exit_hold_hint": {"de": "X+Y halten zum Trennen.", "en": "Hold X+Y to disconnect.", "fr": "Maintenez X+Y pour vous déconnecter.", "it": "Tieni premuto X+Y per disconnetterti.", "es": "Mantén X+Y para desconectar."},
   "disconnect": {"de": "Trennen", "en": "Disconnect", "fr": "Déconnecter", "it": "Disconnetti", "es": "Desconectar"},

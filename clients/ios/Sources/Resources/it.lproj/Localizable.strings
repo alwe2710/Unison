@@ -77,6 +77,8 @@
 "key_bindings_gamepad_section" = "Associazioni gamepad";
 "key_bindings_no_gamepad" = "Nessun controller rilevato -- collegane uno e premi un pulsante.";
 "key_bindings_press_button" = "Premi un pulsante...";
+"key_bindings_keyboard_column" = "Tastiera";
+"key_bindings_controller_column" = "Controller";
 "exit_hold_hint" = "Tieni premuto X+Y per disconnetterti.";
 "disconnect" = "Disconnetti";
 "waiting_for_image" = "In attesa dell'immagine...";

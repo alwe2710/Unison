@@ -77,6 +77,8 @@
 "key_bindings_gamepad_section" = "Assignations manette";
 "key_bindings_no_gamepad" = "Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.";
 "key_bindings_press_button" = "Appuyez sur un bouton...";
+"key_bindings_keyboard_column" = "Clavier";
+"key_bindings_controller_column" = "Manette";
 "exit_hold_hint" = "Maintenez X+Y pour vous déconnecter.";
 "disconnect" = "Déconnecter";
 "waiting_for_image" = "En attente de l'image...";

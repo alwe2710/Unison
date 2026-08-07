@@ -77,6 +77,8 @@
     <string name="key_bindings_gamepad_section">Associazioni gamepad</string>
     <string name="key_bindings_no_gamepad">Nessun controller rilevato -- collegane uno e premi un pulsante.</string>
     <string name="key_bindings_press_button">Premi un pulsante...</string>
+    <string name="key_bindings_keyboard_column">Tastiera</string>
+    <string name="key_bindings_controller_column">Controller</string>
     <string name="exit_hold_hint">Tieni premuto X+Y per disconnetterti.</string>
     <string name="disconnect">Disconnetti</string>
     <string name="waiting_for_image">In attesa dell\'immagine...</string>

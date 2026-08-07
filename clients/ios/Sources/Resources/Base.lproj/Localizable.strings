@@ -77,6 +77,8 @@
 "key_bindings_gamepad_section" = "Gamepad bindings";
 "key_bindings_no_gamepad" = "No controller detected -- please connect one and press a button.";
 "key_bindings_press_button" = "Press a button...";
+"key_bindings_keyboard_column" = "Keyboard";
+"key_bindings_controller_column" = "Controller";
 "exit_hold_hint" = "Hold X+Y to disconnect.";
 "disconnect" = "Disconnect";
 "waiting_for_image" = "Waiting for image...";

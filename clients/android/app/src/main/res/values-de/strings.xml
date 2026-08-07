@@ -77,6 +77,8 @@
     <string name="key_bindings_gamepad_section">Gamecontroller-Belegung</string>
     <string name="key_bindings_no_gamepad">Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.</string>
     <string name="key_bindings_press_button">Drücke einen Knopf...</string>
+    <string name="key_bindings_keyboard_column">Tastatur</string>
+    <string name="key_bindings_controller_column">Controller</string>
     <string name="exit_hold_hint">X+Y halten zum Trennen.</string>
     <string name="disconnect">Trennen</string>
     <string name="waiting_for_image">Warte auf Bild...</string>

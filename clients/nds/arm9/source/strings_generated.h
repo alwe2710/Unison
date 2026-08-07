@@ -82,6 +82,8 @@ static const char *STR_KEY_BINDINGS_EXTENDED_HINT = "Nur für einzelne Emulatore
 static const char *STR_KEY_BINDINGS_GAMEPAD_SECTION = "Gamecontroller-Belegung";
 static const char *STR_KEY_BINDINGS_NO_GAMEPAD = "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.";
 static const char *STR_KEY_BINDINGS_PRESS_BUTTON = "Drücke einen Knopf...";
+static const char *STR_KEY_BINDINGS_KEYBOARD_COLUMN = "Tastatur";
+static const char *STR_KEY_BINDINGS_CONTROLLER_COLUMN = "Controller";
 static const char *STR_EXIT_HOLD_HINT = "X+Y halten zum Trennen.";
 static const char *STR_DISCONNECT = "Trennen";
 static const char *STR_WAITING_FOR_IMAGE = "Warte auf Bild...";
@@ -191,6 +193,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_KEY_BINDINGS_GAMEPAD_SECTION = "Gamecontroller-Belegung";
         STR_KEY_BINDINGS_NO_GAMEPAD = "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.";
         STR_KEY_BINDINGS_PRESS_BUTTON = "Drücke einen Knopf...";
+        STR_KEY_BINDINGS_KEYBOARD_COLUMN = "Tastatur";
+        STR_KEY_BINDINGS_CONTROLLER_COLUMN = "Controller";
         STR_EXIT_HOLD_HINT = "X+Y halten zum Trennen.";
         STR_DISCONNECT = "Trennen";
         STR_WAITING_FOR_IMAGE = "Warte auf Bild...";
@@ -295,6 +299,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_KEY_BINDINGS_GAMEPAD_SECTION = "Gamepad bindings";
         STR_KEY_BINDINGS_NO_GAMEPAD = "No controller detected -- please connect one and press a button.";
         STR_KEY_BINDINGS_PRESS_BUTTON = "Press a button...";
+        STR_KEY_BINDINGS_KEYBOARD_COLUMN = "Keyboard";
+        STR_KEY_BINDINGS_CONTROLLER_COLUMN = "Controller";
         STR_EXIT_HOLD_HINT = "Hold X+Y to disconnect.";
         STR_DISCONNECT = "Disconnect";
         STR_WAITING_FOR_IMAGE = "Waiting for image...";
@@ -399,6 +405,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_KEY_BINDINGS_GAMEPAD_SECTION = "Assignations manette";
         STR_KEY_BINDINGS_NO_GAMEPAD = "Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.";
         STR_KEY_BINDINGS_PRESS_BUTTON = "Appuyez sur un bouton...";
+        STR_KEY_BINDINGS_KEYBOARD_COLUMN = "Clavier";
+        STR_KEY_BINDINGS_CONTROLLER_COLUMN = "Manette";
         STR_EXIT_HOLD_HINT = "Maintenez X+Y pour vous déconnecter.";
         STR_DISCONNECT = "Déconnecter";
         STR_WAITING_FOR_IMAGE = "En attente de l'image...";
@@ -503,6 +511,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_KEY_BINDINGS_GAMEPAD_SECTION = "Associazioni gamepad";
         STR_KEY_BINDINGS_NO_GAMEPAD = "Nessun controller rilevato -- collegane uno e premi un pulsante.";
         STR_KEY_BINDINGS_PRESS_BUTTON = "Premi un pulsante...";
+        STR_KEY_BINDINGS_KEYBOARD_COLUMN = "Tastiera";
+        STR_KEY_BINDINGS_CONTROLLER_COLUMN = "Controller";
         STR_EXIT_HOLD_HINT = "Tieni premuto X+Y per disconnetterti.";
         STR_DISCONNECT = "Disconnetti";
         STR_WAITING_FOR_IMAGE = "In attesa dell'immagine...";
@@ -607,6 +617,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_KEY_BINDINGS_GAMEPAD_SECTION = "Asignaciones del mando";
         STR_KEY_BINDINGS_NO_GAMEPAD = "No se detectó ningún mando -- conecta uno y pulsa un botón.";
         STR_KEY_BINDINGS_PRESS_BUTTON = "Pulsa un botón...";
+        STR_KEY_BINDINGS_KEYBOARD_COLUMN = "Teclado";
+        STR_KEY_BINDINGS_CONTROLLER_COLUMN = "Mando";
         STR_EXIT_HOLD_HINT = "Mantén X+Y para desconectar.";
         STR_DISCONNECT = "Desconectar";
         STR_WAITING_FOR_IMAGE = "Esperando la imagen...";

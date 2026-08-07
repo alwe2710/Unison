@@ -165,8 +165,12 @@
             max-width:320px;background:var(--surface);border:var(--border);
             border-radius:var(--radius);padding:10px 14px;font-size:13px;box-sizing:border-box;
             cursor:default}
-  #gamepadBindingsList{display:flex;flex-direction:column;gap:8px;width:100%;align-items:center}
-  #gamepadBindingsList .hint{font-size:12px;color:var(--muted);max-width:280px}
+  /* Was #gamepadBindingsList's own scoped rule -- that whole separate list
+     is gone now (merged into #settingsTable, one row per button covering
+     both keyboard and controller instead of a second, fully duplicated
+     button-name list), but the same "no controller" hint text is still
+     shown, now once above the unified table. */
+  .hint{font-size:12px;color:var(--muted);max-width:320px;text-align:center}
   .filter-rows{display:flex;flex-direction:column;gap:8px;width:100%;align-items:center}
   .pill{font-family:var(--font-body);font-size:11.5px;font-weight:700;border:none;cursor:pointer;
         padding:7px 14px;border-radius:999px;background:var(--accent);color:var(--accent-ink)}
@@ -243,17 +247,28 @@
                  flex-direction:column;align-items:center;justify-content:center;
                  gap:14px;padding:20px;box-sizing:border-box}
   #settingsPanel h3{font-family:var(--font-display);margin:0;font-size:19px}
+  /* One row per button now covers both its keyboard binding (columns 2-3)
+     and its controller binding (columns 4-5) -- used to be two entirely
+     separate lists (the keyboard table, then a second full pass over every
+     button name again for its controller binding), each column pair the
+     same "current value, then a Bind button" shape #settingsTable already
+     had for keyboard alone. .table-scroll lets the now-wider table scroll
+     horizontally on its own within the fixed-width panel instead of the
+     panel (or the page) ever scrolling sideways. */
+  .table-scroll{width:100%;max-width:480px;overflow-x:auto}
   #settingsTable{border-collapse:collapse;background:var(--surface);border:var(--border);
-                 border-radius:var(--radius);overflow:hidden;font-size:13.5px}
-  #settingsTable th,#settingsTable td{padding:9px 16px;text-align:left}
+                 border-radius:var(--radius);overflow:hidden;font-size:13.5px;width:100%}
+  #settingsTable th,#settingsTable td{padding:9px 14px;text-align:left;white-space:nowrap}
   #settingsTable th{color:var(--muted);font-size:11px;text-transform:uppercase;
                     letter-spacing:0.05em;font-weight:600;border-bottom:var(--border)}
   #settingsTable tr:not(:last-child) td{border-bottom:1px solid rgba(255,255,255,0.06)}
   #settingsTable td:first-child{font-weight:600}
-  #settingsTable td:nth-child(2){color:var(--muted);font-variant-numeric:tabular-nums}
+  #settingsTable td:nth-child(2),#settingsTable td:nth-child(4){color:var(--muted);
+                    font-variant-numeric:tabular-nums}
   #settingsTable button{font-family:var(--font-body);font-size:11.5px;font-weight:700;
                         border:none;cursor:pointer;padding:6px 12px;border-radius:999px;
                         background:var(--accent);color:var(--accent-ink)}
+  #settingsTable button:disabled{background:var(--surface-2);color:var(--muted);cursor:default}
   #closeSettings{background:transparent;border:var(--border);color:var(--muted);
                  font-family:var(--font-body);font-size:12.5px;font-weight:600;
                  padding:9px 20px;border-radius:999px;cursor:pointer}
@@ -335,12 +350,17 @@
      explicit back button instead of returning automatically. -->
 <div id="keyBindingsPanel">
   <h3 id="keyBindingsPanelTitle"></h3>
-  <table id="settingsTable">
-    <thead><tr><th>Taste</th><th>Belegung</th><th></th></tr></thead>
-    <tbody id="settingsTableBody"></tbody>
-  </table>
-  <div class="menu-label" id="gamepadSectionLabel"></div>
-  <div id="gamepadBindingsList"></div>
+  <div id="gamepadHint" class="hint"></div>
+  <div class="table-scroll">
+    <table id="settingsTable">
+      <thead><tr>
+        <th>Taste</th>
+        <th id="keyboardColHeader"></th><th></th>
+        <th id="gamepadColHeader"></th><th></th>
+      </tr></thead>
+      <tbody id="settingsTableBody"></tbody>
+    </table>
+  </div>
   <button id="closeKeyBindings"></button>
 </div>
 <div id="bilinearPanel">
@@ -662,9 +682,9 @@ updateVideoModeRowValues();
 // above -- it's static per-language text, no connection needed to know it.
 // The panels' actual open/close wiring, though, lives inside beginSession()
 // further down (not here) -- unlike #languagePanel/#videoModePanel,
-// opening #keyBindingsPanel calls renderSettings()/renderGamepadBindingsList(),
-// both of which are only meaningful (and only defined) once a session is
-// live, same reason the old inline settingsTable/gamepadBindingsList
+// opening #keyBindingsPanel calls renderSettings() (which renders both the
+// keyboard and controller binding columns), only meaningful (and only
+// defined) once a session is live, same reason the old inline settingsTable
 // rendering always lived inside beginSession() too.
 function updateKeyBindingsRowValues() {
   const label = t('settings_key_bindings');
@@ -1459,45 +1479,11 @@ const touchControlsEl = document.getElementById('touchControls');
 // --- Shared (used to be split across the isMobile/!isMobile blocks below,
 // one half each -- both now live in #keyBindingsPanel, reachable from either
 // #settingsPanel (desktop) or #menuPanel (mobile), see openKeyBindingsPanel()
-// above): the keyboard-rebind table and the gamepad-binding list. Neither
-// has anything device-specific about its own logic -- BUTTONS, bindings,
-// keyState, sendKeys() are all already shared globals -- the old split was
-// purely an artifact of where each list used to be *displayed*, not
-// anything about how either works. ---
-const settingsTableBody = document.getElementById('settingsTableBody');
-
-function renderSettings() {
-  settingsTableBody.innerHTML = '';
-  for (const [name, bit] of BUTTONS) {
-    const row = document.createElement('tr');
-    const nameCell = document.createElement('td');
-    nameCell.textContent = name;
-    const keyCell = document.createElement('td');
-    keyCell.textContent = bindings[name];
-    const actionCell = document.createElement('td');
-    const btn = document.createElement('button');
-    btn.textContent = t('settings_bind');
-    btn.onclick = () => {
-      btn.textContent = t('settings_press_key');
-      const onKey = (e) => {
-        e.preventDefault();
-        Object.assign(bindings, assignBinding(bindings, name, e.code));
-        saveBindings();
-        rebuildCodeMap();
-        renderSettings();
-        window.removeEventListener('keydown', onKey, true);
-      };
-      window.addEventListener('keydown', onKey, true);
-    };
-    actionCell.appendChild(btn);
-    row.appendChild(nameCell);
-    row.appendChild(keyCell);
-    row.appendChild(actionCell);
-    settingsTableBody.appendChild(row);
-  }
-}
-renderSettings();
-
+// below): gamepad-binding state, and the unified keyboard+controller
+// bindings table. Neither has anything device-specific about its own logic
+// -- BUTTONS, bindings, keyState, sendKeys() are all already shared globals
+// -- the old split was purely an artifact of where each used to be
+// *displayed*, not anything about how either works. ---
 const GAMEPAD_DEFAULTS = {A: 0, B: 1, Select: 8, Start: 9, Up: 12, Down: 13, Left: 14,
                           Right: 15, L: 4, R: 5};
 const gamepadBindings =
@@ -1554,43 +1540,79 @@ function rebindGamepadButton(name, onDone) {
   requestAnimationFrame(check);
 }
 
-const gamepadListEl = document.getElementById('gamepadBindingsList');
-function renderGamepadBindingsList() {
-  gamepadListEl.innerHTML = '';
-  if (activeGamepadIndex === null) {
-    const hint = document.createElement('div');
-    hint.className = 'hint';
-    hint.textContent = t('key_bindings_no_gamepad');
-    gamepadListEl.appendChild(hint);
-  }
-  for (const [name] of BUTTONS) {
-    const row = document.createElement('div');
-    row.className = 'menu-row';
-    const label = document.createElement('span');
-    label.textContent = name + ': ' +
-        (gamepadBindings[name] !== undefined ? ('Knopf ' + gamepadBindings[name]) :
-                                                t('settings_unbound'));
-    const btn = document.createElement('button');
-    btn.className = 'pill';
-    btn.textContent = t('settings_bind');
-    btn.onclick = () => {
-      btn.textContent = t('key_bindings_press_button');
-      rebindGamepadButton(name, renderGamepadBindingsList);
+// One row per button, covering both its keyboard binding and its
+// controller binding side by side -- used to be two entirely separate lists
+// (#settingsTable for keyboard, then a second full #gamepadBindingsList
+// pass over every button name again for its controller binding), which
+// duplicated every button name and made it easy to lose track of which list
+// a given row's "Bind" button even belonged to. gamepadHintEl shows the
+// "no controller" hint once, above the table, rather than repeating a
+// per-row placeholder -- the per-row controller Bind button is simply
+// disabled while nothing is connected instead (mirrors iOS's own
+// .disabled(controllerObserver.controllers.isEmpty), see KeyBindingsView.swift).
+const settingsTableBody = document.getElementById('settingsTableBody');
+const gamepadHintEl = document.getElementById('gamepadHint');
+
+function renderSettings() {
+  document.getElementById('keyboardColHeader').textContent = t('key_bindings_keyboard_column');
+  document.getElementById('gamepadColHeader').textContent = t('key_bindings_controller_column');
+  gamepadHintEl.textContent = activeGamepadIndex === null ? t('key_bindings_no_gamepad') : '';
+
+  settingsTableBody.innerHTML = '';
+  for (const [name, bit] of BUTTONS) {
+    const row = document.createElement('tr');
+    const nameCell = document.createElement('td');
+    nameCell.textContent = name;
+
+    const keyCell = document.createElement('td');
+    keyCell.textContent = bindings[name];
+    const keyActionCell = document.createElement('td');
+    const keyBtn = document.createElement('button');
+    keyBtn.textContent = t('settings_bind');
+    keyBtn.onclick = () => {
+      keyBtn.textContent = t('settings_press_key');
+      const onKey = (e) => {
+        e.preventDefault();
+        Object.assign(bindings, assignBinding(bindings, name, e.code));
+        saveBindings();
+        rebuildCodeMap();
+        renderSettings();
+        window.removeEventListener('keydown', onKey, true);
+      };
+      window.addEventListener('keydown', onKey, true);
     };
-    row.appendChild(label);
-    row.appendChild(btn);
-    gamepadListEl.appendChild(row);
+    keyActionCell.appendChild(keyBtn);
+
+    const padCell = document.createElement('td');
+    padCell.textContent = gamepadBindings[name] !== undefined ?
+        ('Knopf ' + gamepadBindings[name]) : t('settings_unbound');
+    const padActionCell = document.createElement('td');
+    const padBtn = document.createElement('button');
+    padBtn.textContent = t('settings_bind');
+    padBtn.disabled = activeGamepadIndex === null;
+    padBtn.onclick = () => {
+      padBtn.textContent = t('key_bindings_press_button');
+      rebindGamepadButton(name, renderSettings);
+    };
+    padActionCell.appendChild(padBtn);
+
+    row.appendChild(nameCell);
+    row.appendChild(keyCell);
+    row.appendChild(keyActionCell);
+    row.appendChild(padCell);
+    row.appendChild(padActionCell);
+    settingsTableBody.appendChild(row);
   }
 }
 
 // Own overlay (#keyBindingsPanel), opened from either settings panel's
 // "Tastenzuweisungen" row -- same returnPanel pattern #languagePanel/
 // #videoModePanel use (see those two above, outside beginSession -- this one
-// has to live in here instead, since it calls renderSettings()/
-// renderGamepadBindingsList() just above, both beginSession-scoped). Unlike
-// language/video-mode's single-tap-and-done pickers, there's no one value to
-// pick here (it's a whole interactive screen), so it needs its own explicit
-// back button instead of returning automatically.
+// has to live in here instead, since it calls renderSettings() just above,
+// beginSession-scoped). Unlike language/video-mode's single-tap-and-done
+// pickers, there's no one value to pick here (it's a whole interactive
+// screen), so it needs its own explicit back button instead of returning
+// automatically.
 const keyBindingsPanel = document.getElementById('keyBindingsPanel');
 let keyBindingsReturnPanel = null;
 
@@ -1598,10 +1620,8 @@ function openKeyBindingsPanel(returnPanel) {
   keyBindingsReturnPanel = returnPanel;
   returnPanel.style.display = 'none';
   document.getElementById('keyBindingsPanelTitle').textContent = t('settings_key_bindings');
-  document.getElementById('gamepadSectionLabel').textContent = t('key_bindings_gamepad_section');
   document.getElementById('closeKeyBindings').textContent = t('back');
   renderSettings();
-  renderGamepadBindingsList();
   keyBindingsPanel.style.display = 'flex';
 }
 

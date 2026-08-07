@@ -83,6 +83,8 @@ extern const char *kKeyBindingsExtendedHint;
 extern const char *kKeyBindingsGamepadSection;
 extern const char *kKeyBindingsNoGamepad;
 extern const char *kKeyBindingsPressButton;
+extern const char *kKeyBindingsKeyboardColumn;
+extern const char *kKeyBindingsControllerColumn;
 extern const char *kExitHoldHint;
 extern const char *kDisconnect;
 extern const char *kWaitingForImage;

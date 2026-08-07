@@ -77,6 +77,8 @@
 "key_bindings_gamepad_section" = "Gamecontroller-Belegung";
 "key_bindings_no_gamepad" = "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.";
 "key_bindings_press_button" = "Drücke einen Knopf...";
+"key_bindings_keyboard_column" = "Tastatur";
+"key_bindings_controller_column" = "Controller";
 "exit_hold_hint" = "X+Y halten zum Trennen.";
 "disconnect" = "Trennen";
 "waiting_for_image" = "Warte auf Bild...";

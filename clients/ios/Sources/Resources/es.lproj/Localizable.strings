@@ -77,6 +77,8 @@
 "key_bindings_gamepad_section" = "Asignaciones del mando";
 "key_bindings_no_gamepad" = "No se detectó ningún mando -- conecta uno y pulsa un botón.";
 "key_bindings_press_button" = "Pulsa un botón...";
+"key_bindings_keyboard_column" = "Teclado";
+"key_bindings_controller_column" = "Mando";
 "exit_hold_hint" = "Mantén X+Y para desconectar.";
 "disconnect" = "Desconectar";
 "waiting_for_image" = "Esperando la imagen...";

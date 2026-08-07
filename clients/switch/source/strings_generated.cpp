@@ -81,6 +81,8 @@ const char *kKeyBindingsExtendedHint = "Nur für einzelne Emulatoren nötig (z. 
 const char *kKeyBindingsGamepadSection = "Gamecontroller-Belegung";
 const char *kKeyBindingsNoGamepad = "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.";
 const char *kKeyBindingsPressButton = "Drücke einen Knopf...";
+const char *kKeyBindingsKeyboardColumn = "Tastatur";
+const char *kKeyBindingsControllerColumn = "Controller";
 const char *kExitHoldHint = "X+Y halten zum Trennen.";
 const char *kDisconnect = "Trennen";
 const char *kWaitingForImage = "Warte auf Bild...";
@@ -187,6 +189,8 @@ void setLanguage(Lang lang) {
         kKeyBindingsGamepadSection = "Gamecontroller-Belegung";
         kKeyBindingsNoGamepad = "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.";
         kKeyBindingsPressButton = "Drücke einen Knopf...";
+        kKeyBindingsKeyboardColumn = "Tastatur";
+        kKeyBindingsControllerColumn = "Controller";
         kExitHoldHint = "X+Y halten zum Trennen.";
         kDisconnect = "Trennen";
         kWaitingForImage = "Warte auf Bild...";
@@ -291,6 +295,8 @@ void setLanguage(Lang lang) {
         kKeyBindingsGamepadSection = "Gamepad bindings";
         kKeyBindingsNoGamepad = "No controller detected -- please connect one and press a button.";
         kKeyBindingsPressButton = "Press a button...";
+        kKeyBindingsKeyboardColumn = "Keyboard";
+        kKeyBindingsControllerColumn = "Controller";
         kExitHoldHint = "Hold X+Y to disconnect.";
         kDisconnect = "Disconnect";
         kWaitingForImage = "Waiting for image...";
@@ -395,6 +401,8 @@ void setLanguage(Lang lang) {
         kKeyBindingsGamepadSection = "Assignations manette";
         kKeyBindingsNoGamepad = "Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.";
         kKeyBindingsPressButton = "Appuyez sur un bouton...";
+        kKeyBindingsKeyboardColumn = "Clavier";
+        kKeyBindingsControllerColumn = "Manette";
         kExitHoldHint = "Maintenez X+Y pour vous déconnecter.";
         kDisconnect = "Déconnecter";
         kWaitingForImage = "En attente de l'image...";
@@ -499,6 +507,8 @@ void setLanguage(Lang lang) {
         kKeyBindingsGamepadSection = "Associazioni gamepad";
         kKeyBindingsNoGamepad = "Nessun controller rilevato -- collegane uno e premi un pulsante.";
         kKeyBindingsPressButton = "Premi un pulsante...";
+        kKeyBindingsKeyboardColumn = "Tastiera";
+        kKeyBindingsControllerColumn = "Controller";
         kExitHoldHint = "Tieni premuto X+Y per disconnetterti.";
         kDisconnect = "Disconnetti";
         kWaitingForImage = "In attesa dell'immagine...";
@@ -603,6 +613,8 @@ void setLanguage(Lang lang) {
         kKeyBindingsGamepadSection = "Asignaciones del mando";
         kKeyBindingsNoGamepad = "No se detectó ningún mando -- conecta uno y pulsa un botón.";
         kKeyBindingsPressButton = "Pulsa un botón...";
+        kKeyBindingsKeyboardColumn = "Teclado";
+        kKeyBindingsControllerColumn = "Mando";
         kExitHoldHint = "Mantén X+Y para desconectar.";
         kDisconnect = "Desconectar";
         kWaitingForImage = "Esperando la imagen...";
