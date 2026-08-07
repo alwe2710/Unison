@@ -21,21 +21,31 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Same "own sub-screen, tap a row, pick and return" shape as
- * LanguageActivity -- split out here rather than kept as SettingsActivity's
- * own inline Switch, since Prefs.VIDEO_MODES is meant to grow (more codecs
- * later, see docs/protocol.md's hello_ack.video_mode), and a picker list
- * scales to that the way a boolean toggle wouldn't have.
+ * LanguageActivity -- split out here rather than kept as an inline Switch,
+ * since Prefs.VIDEO_MODES is meant to grow (more codecs later, see
+ * docs/protocol.md's hello_ack.video_mode), and a picker list scales to
+ * that the way a boolean toggle wouldn't have.
  *
  * Unlike LanguageActivity, this does NOT sort Prefs.VIDEO_MODES by label --
  * these aren't endonyms, and the declared order (recommended default first)
  * is deliberate.
+ *
+ * Per-console (EXTRA_STREAM_TYPE, always launched from AntialiasingActivity
+ * now) rather than one global choice -- see Prefs.videoModeFor()'s own
+ * comment on why (picking H.264 for Cemu used to silently also request it
+ * from Dolphin next time, which never honors it anyway, but still).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 class VideoModeActivity : LocalizedActivity() {
 
+    companion object {
+        const val EXTRA_STREAM_TYPE = "stream_type"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = Prefs(this)
+        val streamType = intent.getStringExtra(EXTRA_STREAM_TYPE) ?: ""
 
         setContent {
             UnisonTheme {
@@ -56,7 +66,7 @@ class VideoModeActivity : LocalizedActivity() {
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            prefs.videoMode = option.value
+                                            prefs.setVideoModeFor(streamType, option.value)
                                             finish()
                                         }
                                         .padding(horizontal = 16.dp, vertical = 14.dp)

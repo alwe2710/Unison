@@ -35,10 +35,10 @@ class GbaStreamClient(private val listener: Listener) {
         //
         // grantedVideoMode is session_ready.video_mode verbatim -- empty if
         // the server predates that field entirely (see docs/protocol.md
-        // "Video-mode fallback"). Compare against Prefs.videoMode (what was
-        // actually requested, see connect()'s own videoMode param) to decide
-        // whether to prompt: skip the comparison entirely if this is blank,
-        // don't treat blank as "tiles was granted".
+        // "Video-mode fallback"). Compare against Prefs.videoModeFor() (what
+        // was actually requested, see connect()'s own videoMode param) to
+        // decide whether to prompt: skip the comparison entirely if this is
+        // blank, don't treat blank as "tiles was granted".
         fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
@@ -70,8 +70,9 @@ class GbaStreamClient(private val listener: Listener) {
     private var nativeHandle: Long = 0
 
     /** Spawns a background native thread; connect result arrives via onConnected/onDisconnected.
-     * videoMode is sent verbatim as hello_ack.video_mode (Prefs.videoMode, one of Prefs.VIDEO_MODES) --
-     * see docs/protocol.md; servers that don't implement the negotiation just ignore it. */
+     * videoMode is sent verbatim as hello_ack.video_mode (Prefs.videoModeFor(streamType), one of
+     * Prefs.VIDEO_MODES) -- see docs/protocol.md; servers that don't implement the negotiation
+     * just ignore it. */
     fun connect(host: String, port: Int, videoMode: String = Prefs.VIDEO_MODE_DEFAULT) {
         nativeHandle = nativeConnect(host, port, videoMode, listener)
     }

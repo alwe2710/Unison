@@ -87,6 +87,16 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
 
     private lateinit var prefs: Prefs
 
+    // "" (manual host:port entry, see MenuActivity) means the real
+    // stream_type isn't known until the handshake's hello message --
+    // Prefs.bilinearFor("")/videoModeFor("") both fall back to their
+    // not-yet-configured defaults in that case, same limitation every other
+    // client's manual-entry path already has. Read once here (not inline at
+    // each call site) since it's now needed in three places: the initial
+    // bilinear filter, the video mode requested at connect(), and the
+    // fallback-dialog comparison once connected.
+    private val streamType: String by lazy { intent.getStringExtra(EXTRA_STREAM_TYPE) ?: "" }
+
     private var client: GbaStreamClient? = null
     private var audioTrack: AudioTrack? = null
 
@@ -276,12 +286,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         extKeyCodeToButton = prefs.extKeyBindingsByKeyCode()
         keyCodeToExtBitFromGba = prefs.sharedExtButtonBitsByKeyCode()
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
-        // "" (manual host:port entry, see MenuActivity) reads as
-        // Prefs.bilinearFor("")'s own not-yet-configured default (false,
-        // nearest-neighbor) -- the real stream_type isn't known until the
-        // handshake's hello message in that case, same limitation every
-        // other client's manual-entry path already has.
-        bilinearVideoFilter = prefs.bilinearFor(intent.getStringExtra(EXTRA_STREAM_TYPE) ?: "")
+        bilinearVideoFilter = prefs.bilinearFor(streamType)
 
         setContent {
             UnisonTheme {
@@ -1263,7 +1268,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         val c = GbaStreamClient(this)
         client = c
         statusText = getString(R.string.status_connecting)
-        c.connect(host, port, prefs.videoMode)
+        c.connect(host, port, prefs.videoModeFor(streamType))
     }
 
     private fun disconnect() {
@@ -1308,7 +1313,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
             // rather than assuming "tiles" was granted, see
             // docs/protocol.md "Video-mode fallback" and this field's own
             // comment in GbaStreamClient.Listener.
-            val requested = prefs.videoMode
+            val requested = prefs.videoModeFor(streamType)
             if (grantedVideoMode.isNotBlank() && requested != grantedVideoMode) {
                 videoModeFallback = requested to grantedVideoMode
             }

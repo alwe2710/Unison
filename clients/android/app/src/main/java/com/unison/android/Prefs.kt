@@ -81,12 +81,21 @@ class Prefs(context: Context) {
 
     /** One of VIDEO_MODES' values, sent verbatim as hello_ack.video_mode
      * during the handshake (see docs/protocol.md) -- a manual override from
-     * the Settings video mode picker, same shape as `language` above.
+     * the per-console settings screen (ConsoleDetailActivity). Per
+     * stream_type, same reasoning/shape as bilinearFor() below (and same
+     * "" == manual host:port entry, real stream_type unknown until hello,
+     * falls back to VIDEO_MODE_DEFAULT) -- used to be one single global
+     * value shared by every console, which meant picking e.g. H.264 for
+     * Cemu also silently requested H.264 the next time you connected to
+     * Dolphin (which never supports it, always falls back, but still).
      * Servers that don't implement the negotiation at all just ignore the
      * field either way. */
-    var videoMode: String
-        get() = prefs.getString(PREF_VIDEO_MODE, VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
-        set(value) = prefs.edit().putString(PREF_VIDEO_MODE, value).apply()
+    fun videoModeFor(streamType: String): String =
+        prefs.getString(prefKeyForVideoMode(streamType), VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
+
+    fun setVideoModeFor(streamType: String, value: String) {
+        prefs.edit().putString(prefKeyForVideoMode(streamType), value).apply()
+    }
 
     /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
      * filtering (crisp/pixelated upscale). Per stream_type ("GC_GBA_LINK",
@@ -109,6 +118,7 @@ class Prefs(context: Context) {
     private fun prefKeyFor(button: GbaButton) = "keybind_${button.prefKey}"
     private fun prefKeyFor(button: ExtButton) = "extkeybind_${button.prefKey}"
     private fun prefKeyForBilinear(streamType: String) = "bilinear_video_filter.$streamType"
+    private fun prefKeyForVideoMode(streamType: String) = "video_mode.$streamType"
 
     companion object {
         /** See bilinearFor()'s own comment. Anything not in this set
@@ -122,7 +132,6 @@ class Prefs(context: Context) {
 
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
         private const val PREF_LANGUAGE = "language"
-        private const val PREF_VIDEO_MODE = "video_mode"
         private const val NO_KEYCODE = -1
 
         const val LANGUAGE_SYSTEM = "system"

@@ -58,6 +58,10 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
+            android:name=".ConsoleSettingsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity
             android:name=".AntialiasingActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />

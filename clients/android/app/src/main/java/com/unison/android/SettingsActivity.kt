@@ -28,9 +28,14 @@ import androidx.compose.ui.unit.dp
 
 /**
  * On-screen-controls toggle and navigation entries into KeyBindingsActivity
- * and AntialiasingActivity (their own screens now -- see those classes for
- * why they were split out of here). This screen no longer touches key
- * bindings or per-console filter state directly at all.
+ * and ConsoleSettingsActivity (their own screens now -- see those classes
+ * for why they were split out of here). This screen no longer touches key
+ * bindings or per-console filter/video-mode state directly at all -- used
+ * to have its own "Bilineare Filterung" and "Videomodus" rows, each a
+ * single value shared by every console; both moved into
+ * ConsoleSettingsActivity's per-console detail screens instead (see that
+ * class's own comment), so this top level only needs the one nav row down
+ * to that list now.
  *
  * No fixed orientation (see AndroidManifest.xml): this is a form, so it
  * should follow however the device is actually held.
@@ -41,14 +46,12 @@ class SettingsActivity : LocalizedActivity() {
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var language by mutableStateOf(Prefs.LANGUAGE_SYSTEM)
-    private var videoMode by mutableStateOf(Prefs.VIDEO_MODE_DEFAULT)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         language = prefs.language
-        videoMode = prefs.videoMode
 
         setContent {
             UnisonTheme {
@@ -79,37 +82,6 @@ class SettingsActivity : LocalizedActivity() {
                                         prefs.onScreenControlsEnabled = it
                                     }
                                 )
-                            }
-
-                            HorizontalDivider()
-
-                            // Own sub-screen (VideoModeActivity), same
-                            // whole-row-navigates treatment as the language
-                            // row below -- sent to the server as
-                            // hello_ack.video_mode at the next connection's
-                            // handshake (see docs/protocol.md). Only
-                            // WIIU_GAMEPAD (Cemu) honors it today; servers
-                            // that don't recognize the field just ignore it.
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        startActivity(Intent(this@SettingsActivity, VideoModeActivity::class.java))
-                                    }
-                                    .padding(vertical = 12.dp)
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(stringResource(R.string.settings_video_mode), style = MaterialTheme.typography.titleMedium)
-                                    Text(
-                                        stringResource(
-                                            Prefs.VIDEO_MODES.find { it.value == videoMode }?.labelRes
-                                                ?: R.string.video_mode_tiles
-                                        ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
                             }
 
                             HorizontalDivider()
@@ -147,22 +119,23 @@ class SettingsActivity : LocalizedActivity() {
 
                             HorizontalDivider()
 
-                            // Whole-row tap target (system-settings-list-item
+                            // Own sub-screen (ConsoleSettingsActivity) --
+                            // whole-row tap target (system-settings-list-item
                             // style), not a separate "open" button off to the
                             // side -- the row's own click, not just an inner
                             // element's, is what navigates. Same treatment
-                            // for both sub-screens.
+                            // for every other sub-screen row here.
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        startActivity(Intent(this@SettingsActivity, AntialiasingActivity::class.java))
+                                        startActivity(Intent(this@SettingsActivity, ConsoleSettingsActivity::class.java))
                                     }
                                     .padding(vertical = 12.dp)
                             ) {
                                 Text(
-                                    stringResource(R.string.settings_antialiasing),
+                                    stringResource(R.string.settings_console_specific),
                                     style = MaterialTheme.typography.titleMedium,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -204,6 +177,5 @@ class SettingsActivity : LocalizedActivity() {
     override fun onResume() {
         super.onResume()
         language = prefs.language
-        videoMode = prefs.videoMode
     }
 }
