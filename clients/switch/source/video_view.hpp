@@ -24,6 +24,15 @@ class VideoView : public brls::View {
     // the actual GL/NanoVG upload happens on the render thread inside draw().
     void setFrame(uint32_t width, uint32_t height, const std::vector<uint8_t> &rgb565);
 
+    // RGBA8 counterpart to setFrame() above -- H264Decoder's own output
+    // format, so this skips the RGB565->RGBA8 conversion setFrame() does
+    // internally for that path (raw/tiles sessions decode to RGB565, see
+    // unison_decode_video_frame()) rather than pointlessly requantizing an
+    // 8-bit-per-channel decode down through 565 first. Same thread-safety
+    // contract as setFrame(): called from the session's background thread,
+    // only stores the frame.
+    void setFrameRGBA(uint32_t width, uint32_t height, const std::vector<uint8_t> &rgba);
+
     void setBilinearFilter(bool bilinear);
 
   private:

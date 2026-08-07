@@ -56,7 +56,16 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/source)
 target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections)
-target_link_libraries(${PROJECT_NAME} PRIVATE borealis unison_core Threads::Threads)
+
+# h264_decoder.cpp's h264/h265 software decode path -- switch-ffmpeg (a
+# normal devkitPro pacman package: pacman -S switch-ffmpeg), found the same
+# pkg-config way every other devkitPro portlib is; the toolchain's own
+# Switch.cmake already points PKG_CONFIG_PATH at the portlibs prefix these
+# .pc files live under.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE borealis unison_core Threads::Threads PkgConfig::FFMPEG)
 
 add_custom_target(${PROJECT_NAME}.nro DEPENDS ${PROJECT_NAME}
     COMMAND ${NX_NACPTOOL_EXE} --create "Unison" "${PROJECT_AUTHOR}" "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}" ${PROJECT_NAME}.nacp --titleid=${PROJECT_TITLEID}

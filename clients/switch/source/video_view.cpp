@@ -27,10 +27,14 @@ void VideoView::setFrame(uint32_t width, uint32_t height, const std::vector<uint
         rgba[i * 4 + 3] = 255;
     }
 
+    setFrameRGBA(width, height, rgba);
+}
+
+void VideoView::setFrameRGBA(uint32_t width, uint32_t height, const std::vector<uint8_t> &rgba) {
     std::lock_guard<std::mutex> lock(frameMutex);
     pendingWidth = width;
     pendingHeight = height;
-    pendingRgba = std::move(rgba);
+    pendingRgba = rgba;
     frameDirty = true;
 }
 

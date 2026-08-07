@@ -43,8 +43,9 @@ system language isn't one of the five supported.
 
 Requires devkitPro with `devkitA64`, `libnx`, `switch-glfw`, `switch-mesa`,
 `switch-libdrm_nouveau`, `switch-pkg-config`, `switch-zlib`, `switch-cmake`,
-`switch-tools`, `dkp-cmake-common-utils`, and `dkp-toolchain-vars` installed
-under `$DEVKITPRO`.
+`switch-tools`, `switch-ffmpeg` (h264_decoder.cpp's software h264/h265
+decode, via libavcodec/libswscale), `dkp-cmake-common-utils`, and
+`dkp-toolchain-vars` installed under `$DEVKITPRO`.
 
 ```sh
 export DEVKITPRO=/opt/devkitpro

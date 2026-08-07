@@ -1,12 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <borealis.hpp>
 #include <switch.h>
 
+#include "h264_decoder.hpp"
 #include "prefs.hpp"
 #include "session.hpp"
 #include "video_view.hpp"
@@ -49,6 +51,11 @@ class PlayerActivity : public brls::Activity {
     GbaSession session;
     VideoView *videoView = nullptr;
     brls::Label *statusLabel = nullptr;
+    // Built lazily in the .onCompressedVideoFrame handler once the first
+    // such message actually arrives (only ever needed for an h264/h265
+    // session) -- see that handler's own comment for why isH265 doesn't
+    // need to be known any earlier than that.
+    std::unique_ptr<H264Decoder> compressedVideoDecoder;
 
     bool connected = false;
     uint16_t physicalMask = 0;

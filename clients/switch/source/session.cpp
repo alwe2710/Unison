@@ -433,9 +433,26 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
 
             unison_msg_type type;
             if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
-                if (type == UNISON_MSG_VIDEO && listener.onVideoFrame) {
+                if (type == UNISON_MSG_VIDEO) {
                     unison_video_header hdr;
-                    if (unison_parse_video_header(frame.payload, frame.payload_size, &hdr) == UNISON_OK) {
+                    if (unison_parse_video_header(frame.payload, frame.payload_size, &hdr) != UNISON_OK) {
+                        // fall through to the audio branch below, same as
+                        // an unparseable header always has
+                    } else if (hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)) {
+                        // hdr.compressed_data is a raw Annex-B NAL stream
+                        // here, not raw-deflate -- handed straight to
+                        // H264Decoder instead of through
+                        // unison_inflate_raw()/unison_decode_video_frame()
+                        // below, same split every other client's own
+                        // compressed-video path uses.
+                        if (listener.onCompressedVideoFrame) {
+                            std::vector<uint8_t> data(hdr.compressed_data,
+                                                       hdr.compressed_data + hdr.compressed_size);
+                            listener.onCompressedVideoFrame(hdr.width, hdr.height,
+                                                             (hdr.format & UNISON_VIDEO_FORMAT_H265) != 0,
+                                                             std::move(data));
+                        }
+                    } else if (listener.onVideoFrame) {
                         // rgb565_out is the PERSISTENT framebuffer: resizing
                         // it to the same size every frame (width/height
                         // don't change mid-stream) is a no-op that leaves

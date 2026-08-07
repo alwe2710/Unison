@@ -96,6 +96,33 @@ brls::View *PlayerActivity::createContentView() {
                         videoView->setFrame(width, height, rgb565);
                     }
                 },
+            .onCompressedVideoFrame =
+                [this](uint32_t /*width*/, uint32_t /*height*/, bool isH265, std::vector<uint8_t> data) {
+                    // Built on first use, not eagerly in onConnected --
+                    // this handler is the first point isH265 is actually
+                    // needed, and building it here means a session that
+                    // negotiated h264/h265 but (for whatever reason) never
+                    // gets a compressed frame at all never pays for a
+                    // decoder it never used. Same thread as onVideoFrame
+                    // above (the session's own background thread, not the
+                    // render thread) -- H264Decoder::decode() and
+                    // VideoView::setFrameRGBA() are both safe to call
+                    // directly from here, no brls::sync() needed, same
+                    // reasoning as onVideoFrame's own direct
+                    // videoView->setFrame() call.
+                    if (!compressedVideoDecoder) {
+                        compressedVideoDecoder = std::make_unique<H264Decoder>(isH265);
+                    }
+                    if (!compressedVideoDecoder->isValid() || !videoView) {
+                        return;
+                    }
+                    std::vector<uint8_t> rgba;
+                    uint32_t decodedWidth = 0, decodedHeight = 0;
+                    if (compressedVideoDecoder->decode(data.data(), data.size(), rgba, decodedWidth,
+                                                        decodedHeight)) {
+                        videoView->setFrameRGBA(decodedWidth, decodedHeight, rgba);
+                    }
+                },
             .onAudioFrame =
                 [this](uint32_t sampleRate, uint8_t channels, std::vector<int16_t> pcm) {
                     playAudio(sampleRate, channels, std::move(pcm));
