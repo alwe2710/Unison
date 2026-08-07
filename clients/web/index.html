@@ -181,21 +181,22 @@
      label left, current value right, whole row tappable. */
   .nav-row{cursor:pointer;font:inherit;color:inherit}
   .nav-row-value{color:var(--muted);font-size:12px}
-  /* #keyBindingsPanel/#bilinearPanel join this same shared-overlay rule --
+  /* #keyBindingsPanel/#consoleSettingsPanel/#consoleDetailPanel join this same shared-overlay rule --
      both are new sub-panels opened from #settingsPanel/#menuPanel's nav rows
      the same way #languagePanel/#videoModePanel already were (see those two
      panels' own JS wiring, openLanguagePanel()/openVideoModePanel(), and the
-     analogous openKeyBindingsPanel()/openBilinearPanel() below it). overflow-y
+     analogous openKeyBindingsPanel()/openConsoleSettingsPanel()/
+     openConsoleDetailPanel() below it). overflow-y
      auto here (new) since #keyBindingsPanel in particular can now get taller
      than the viewport once both the keyboard table and the gamepad list live
      in it together -- language/video-mode's own short lists never needed it,
      but it's harmless for those too. */
-  #languagePanel,#videoModePanel,#keyBindingsPanel,#bilinearPanel{
+  #languagePanel,#videoModePanel,#keyBindingsPanel,#consoleSettingsPanel,#consoleDetailPanel{
                  display:none;position:fixed;inset:0;background:rgba(20,15,26,0.94);
                  color:var(--ink);font-family:var(--font-body);z-index:40;flex-direction:column;
                  align-items:center;justify-content:center;gap:10px;padding:20px;box-sizing:border-box;
                  overflow-y:auto}
-  #languagePanel h3,#videoModePanel h3,#keyBindingsPanel h3,#bilinearPanel h3{
+  #languagePanel h3,#videoModePanel h3,#keyBindingsPanel h3,#consoleSettingsPanel h3,#consoleDetailPanel h3{
                  font-family:var(--font-display);margin:0 0 4px;font-size:18px}
   .language-list{display:flex;flex-direction:column;gap:8px;width:100%;max-width:320px}
   .language-list button{font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer;
@@ -222,12 +223,14 @@
   input.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
                       border-radius:50%;background:var(--muted)}
   input.switch:checked::after{left:16px;background:var(--accent)}
-  /* #closeKeyBindings/#closeBilinear (new) reuse this same look -- visually
-     they're the identical "muted pill at the bottom" whether the label ends
-     up being "Schließen" (top-level panels, back to the game) or "Zurück"
-     (these two sub-panels, back to whichever of #settingsPanel/#menuPanel
-     opened them -- see openKeyBindingsPanel()/openBilinearPanel()). */
-  #closeMenu,#closeKeyBindings,#closeBilinear{margin-top:10px;background:transparent;border:var(--border);
+  /* #closeKeyBindings/#closeConsoleSettings/#closeConsoleDetail (new) reuse
+     this same look -- visually they're the identical "muted pill at the
+     bottom" whether the label ends up being "Schließen" (top-level panels,
+     back to the game) or "Zurück" (these sub-panels, back to whichever
+     panel opened them -- see openKeyBindingsPanel()/openConsoleSettingsPanel()/
+     openConsoleDetailPanel()). */
+  #closeMenu,#closeKeyBindings,#closeConsoleSettings,#closeConsoleDetail{
+             margin-top:10px;background:transparent;border:var(--border);
              color:var(--muted);font-family:var(--font-body);font-size:12.5px;font-weight:600;
              padding:9px 20px;border-radius:999px;cursor:pointer}
 
@@ -319,16 +322,12 @@
   <button class="menu-row nav-row" id="keyBindingsRowDesktop">
     <span id="keyBindingsLabelDesktop"></span>
   </button>
-  <button class="menu-row nav-row" id="bilinearRowDesktop">
-    <span id="bilinearLabelDesktop"></span>
+  <button class="menu-row nav-row" id="consoleSettingsRowDesktop">
+    <span id="consoleSettingsLabelDesktop"></span>
   </button>
   <button class="menu-row nav-row" id="languageRowDesktop">
     <span>Sprache</span>
     <span id="languageValueDesktop" class="nav-row-value"></span>
-  </button>
-  <button class="menu-row nav-row" id="videoModeRowDesktop">
-    <span id="videoModeLabelDesktop"></span>
-    <span id="videoModeValueDesktop" class="nav-row-value"></span>
   </button>
   <button id="closeSettings">Schließen</button>
 </div>
@@ -363,10 +362,29 @@
   </div>
   <button id="closeKeyBindings"></button>
 </div>
-<div id="bilinearPanel">
-  <h3 id="bilinearPanelTitle"></h3>
-  <div id="filterRows" class="filter-rows"></div>
-  <button id="closeBilinear"></button>
+<!-- Replaces the old #bilinearPanel (one flat list of 4 consoles, an inline
+     bilinear toggle each, and nothing else) -- #consoleSettingsPanel is now
+     just the console picker; each row pushes #consoleDetailPanel scoped to
+     that one console, which holds both the bilinear toggle AND a video-mode
+     nav row (used to be its own separate top-level #videoModePanel entry
+     point, one shared value for every console -- see openVideoModePanel()'s
+     own comment). -->
+<div id="consoleSettingsPanel">
+  <h3 id="consoleSettingsPanelTitle"></h3>
+  <div id="consoleRows" class="filter-rows"></div>
+  <button id="closeConsoleSettings"></button>
+</div>
+<div id="consoleDetailPanel">
+  <h3 id="consoleDetailPanelTitle"></h3>
+  <label class="menu-row" id="consoleDetailBilinearRow">
+    <span id="consoleDetailBilinearLabel"></span>
+    <input type="checkbox" class="switch" id="consoleDetailBilinearToggle">
+  </label>
+  <button class="menu-row nav-row" id="consoleDetailVideoModeRow">
+    <span id="videoModeLabel"></span>
+    <span id="videoModeValue" class="nav-row-value"></span>
+  </button>
+  <button id="closeConsoleDetail"></button>
 </div>
 <div id="videoModeFallbackPanel">
   <div class="card">
@@ -412,16 +430,12 @@
   <button class="menu-row nav-row" id="keyBindingsRowMobile">
     <span id="keyBindingsLabelMobile"></span>
   </button>
-  <button class="menu-row nav-row" id="bilinearRowMobile">
-    <span id="bilinearLabelMobile"></span>
+  <button class="menu-row nav-row" id="consoleSettingsRowMobile">
+    <span id="consoleSettingsLabelMobile"></span>
   </button>
   <button class="menu-row nav-row" id="languageRowMobile">
     <span>Sprache</span>
     <span id="languageValueMobile" class="nav-row-value"></span>
-  </button>
-  <button class="menu-row nav-row" id="videoModeRowMobile">
-    <span id="videoModeLabelMobile"></span>
-    <span id="videoModeValueMobile" class="nav-row-value"></span>
   </button>
   <button id="closeMenu">Schließen</button>
 </div>
@@ -498,6 +512,21 @@ function setBilinearFor(streamType, value) {
   filterPrefs[streamType] = value;
   localStorage.setItem('unisonWebBilinearByStreamType', JSON.stringify(filterPrefs));
 }
+
+// Video-mode/compression request, same per-stream_type shape as bilinear
+// just above -- used to be one single global choice (unisonWebVideoMode)
+// shared by every console, which meant picking e.g. H.264 for Cemu also
+// silently requested H.264 the next time you connected to Dolphin (which
+// never honors it anyway, but still) -- see #consoleDetailPanel.
+const videoModePrefs = JSON.parse(localStorage.getItem('unisonWebVideoModeByStreamType') || '{}');
+function videoModeFor(streamType) {
+  return videoModePrefs[streamType] || VIDEO_MODE_DEFAULT;
+}
+function setVideoModeFor(streamType, value) {
+  videoModePrefs[streamType] = value;
+  localStorage.setItem('unisonWebVideoModeByStreamType', JSON.stringify(videoModePrefs));
+}
+const VIDEO_MODE_DEFAULT = 'tiles';
 // Module scope (not beginSession-local): set from the most recent hello
 // once connected, but also read by the settings/menu panels' filter row
 // onchange handlers below, which exist (and are usable) before any
@@ -528,41 +557,6 @@ const gameEl = document.getElementById('game');
 const params = new URLSearchParams(location.search);
 hostInput.value = params.get('host') || localStorage.getItem('unisonLastHost') || '';
 portInput.value = params.get('port') || localStorage.getItem('unisonLastPort') || '6800';
-
-// Configured in advance (before ever connecting), same as the other
-// clients' equivalent settings screens -- there's no "current" stream_type
-// to key a row off before a hello has actually arrived, so every known
-// type gets its own row here, applied automatically once a connection's
-// hello reveals which one it actually is (see currentStreamType/
-// canvas.style.imageRendering below).
-function renderFilterRows(containerId) {
-  const container = document.getElementById(containerId);
-  container.innerHTML = '';
-  for (const [streamType, label] of KNOWN_STREAM_TYPES) {
-    const row = document.createElement('label');
-    row.className = 'menu-row';
-    const span = document.createElement('span');
-    span.textContent = label;
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.className = 'switch';
-    input.checked = bilinearFor(streamType, filterPrefs);
-    input.onchange = () => {
-      setBilinearFor(streamType, input.checked);
-      if (streamType === currentStreamType) {
-        document.getElementById('screen').style.imageRendering = input.checked ? 'auto' : 'pixelated';
-      }
-    };
-    row.appendChild(span);
-    row.appendChild(input);
-    container.appendChild(row);
-  }
-}
-// Was two separate calls (filterRowsDesktop/filterRowsMobile) against two
-// duplicated containers, one inline in each of #settingsPanel/#menuPanel --
-// both now instead nav-row into the single shared #bilinearPanel below, so
-// there's only ever one live #filterRows list to render.
-renderFilterRows('filterRows');
 
 // Own overlay (#languagePanel), opened from either settings panel's
 // "Sprache"/"Language" row -- a plain list, not the previous inline
@@ -623,10 +617,16 @@ updateLanguageRowValues();
 // clone-of-the-language-picker comment there. Persisted in localStorage
 // like every other client-local setting here (no server round-trip needed
 // to know it, unlike Android's Prefs which is read fresh at connect() time
-// but works out to the same thing).
+// but works out to the same thing). Per console now (videoModeReturnStreamType
+// alongside the usual videoModeReturnPanel) -- only ever opened from
+// #consoleDetailPanel these days, itself scoped to one console, so this
+// picker needs to know which one it's setting. Used to be a single global
+// value with its own top-level Settings row; see #consoleSettingsPanel/
+// #consoleDetailPanel below for why that changed.
 const videoModePanel = document.getElementById('videoModePanel');
 const videoModeOptionsList = document.getElementById('videoModeOptionsList');
 let videoModeReturnPanel = null;
+let videoModeReturnStreamType = '';
 
 // NOT sorted alphabetically, unlike LANGUAGE_OPTION_KEYS above -- this order
 // is deliberate (matches Android's Prefs.VIDEO_MODES: default first, then
@@ -635,19 +635,11 @@ let videoModeReturnPanel = null;
 const VIDEO_MODE_OPTION_KEYS = {
   tiles: 'video_mode_tiles', h264: 'video_mode_h264', h265: 'video_mode_h265', legacy: 'video_mode_legacy',
 };
-const VIDEO_MODE_DEFAULT = 'tiles';
-let videoModePref = localStorage.getItem('unisonWebVideoMode') || VIDEO_MODE_DEFAULT;
-function setVideoModePref(mode) {
-  videoModePref = mode;
-  localStorage.setItem('unisonWebVideoMode', mode);
-}
 
-function updateVideoModeRowValues() {
-  document.getElementById('videoModeLabelDesktop').textContent = t('settings_video_mode');
-  document.getElementById('videoModeLabelMobile').textContent = t('settings_video_mode');
-  const key = VIDEO_MODE_OPTION_KEYS[videoModePref] || VIDEO_MODE_OPTION_KEYS[VIDEO_MODE_DEFAULT];
-  document.getElementById('videoModeValueDesktop').textContent = t(key);
-  document.getElementById('videoModeValueMobile').textContent = t(key);
+function updateVideoModeRowValue() {
+  document.getElementById('videoModeLabel').textContent = t('settings_video_mode');
+  const key = VIDEO_MODE_OPTION_KEYS[videoModeFor(videoModeReturnStreamType)] || VIDEO_MODE_OPTION_KEYS[VIDEO_MODE_DEFAULT];
+  document.getElementById('videoModeValue').textContent = t(key);
 }
 
 function renderVideoModeOptions() {
@@ -657,27 +649,107 @@ function renderVideoModeOptions() {
     const btn = document.createElement('button');
     btn.textContent = t(key);
     btn.onclick = () => {
-      setVideoModePref(mode);
-      updateVideoModeRowValues();
+      setVideoModeFor(videoModeReturnStreamType, mode);
       videoModePanel.style.display = 'none';
-      if (videoModeReturnPanel) videoModeReturnPanel.style.display = 'flex';
+      if (videoModeReturnPanel) {
+        updateVideoModeRowValue();
+        videoModeReturnPanel.style.display = 'flex';
+      }
     };
     videoModeOptionsList.appendChild(btn);
   }
 }
 
-function openVideoModePanel(returnPanel) {
+function openVideoModePanel(returnPanel, streamType) {
   videoModeReturnPanel = returnPanel;
+  videoModeReturnStreamType = streamType;
   returnPanel.style.display = 'none';
   renderVideoModeOptions();
   videoModePanel.style.display = 'flex';
 }
 
-document.getElementById('videoModeRowDesktop').onclick = () => openVideoModePanel(document.getElementById('settingsPanel'));
-document.getElementById('videoModeRowMobile').onclick = () => openVideoModePanel(document.getElementById('menuPanel'));
-updateVideoModeRowValues();
+document.getElementById('consoleDetailVideoModeRow').onclick =
+    () => openVideoModePanel(document.getElementById('consoleDetailPanel'), videoModeReturnStreamType);
 
-// #keyBindingsPanel's/#bilinearPanel's own row-label text (e.g. "Tastenzuweisungen")
+// Replaces the old #bilinearPanel (see that div's own removal comment in
+// index.html) -- #consoleSettingsPanel lists the four consoles as nav rows
+// (used to be an inline bilinear-toggle-per-row list), each pushing
+// #consoleDetailPanel scoped to that one console. Both are opened from
+// either #settingsPanel (desktop) or #menuPanel (mobile) via the same
+// returnPanel-parameterized pattern the other sub-panels use.
+const consoleSettingsPanel = document.getElementById('consoleSettingsPanel');
+const consoleRowsEl = document.getElementById('consoleRows');
+let consoleSettingsReturnPanel = null;
+
+const consoleDetailPanel = document.getElementById('consoleDetailPanel');
+let consoleDetailReturnStreamType = '';
+
+function updateConsoleSettingsRowValues() {
+  const label = t('settings_console_specific');
+  document.getElementById('consoleSettingsLabelDesktop').textContent = label;
+  document.getElementById('consoleSettingsLabelMobile').textContent = label;
+}
+updateConsoleSettingsRowValues();
+
+function openConsoleDetailPanel(streamType, label) {
+  consoleDetailReturnStreamType = streamType;
+  videoModeReturnStreamType = streamType;
+  consoleSettingsPanel.style.display = 'none';
+  document.getElementById('consoleDetailPanelTitle').textContent = label;
+  document.getElementById('consoleDetailBilinearLabel').textContent = t('settings_antialiasing');
+  document.getElementById('closeConsoleDetail').textContent = t('back');
+  const toggle = document.getElementById('consoleDetailBilinearToggle');
+  toggle.checked = bilinearFor(streamType, filterPrefs);
+  toggle.onchange = () => {
+    setBilinearFor(streamType, toggle.checked);
+    if (streamType === currentStreamType) {
+      document.getElementById('screen').style.imageRendering = toggle.checked ? 'auto' : 'pixelated';
+    }
+  };
+  updateVideoModeRowValue();
+  consoleDetailPanel.style.display = 'flex';
+}
+
+function renderConsoleRows() {
+  consoleRowsEl.innerHTML = '';
+  for (const [streamType, label] of KNOWN_STREAM_TYPES) {
+    const row = document.createElement('button');
+    row.className = 'menu-row nav-row';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = label;
+    const valueSpan = document.createElement('span');
+    valueSpan.className = 'nav-row-value';
+    const key = VIDEO_MODE_OPTION_KEYS[videoModeFor(streamType)] || VIDEO_MODE_OPTION_KEYS[VIDEO_MODE_DEFAULT];
+    valueSpan.textContent = t(key);
+    row.appendChild(nameSpan);
+    row.appendChild(valueSpan);
+    row.onclick = () => openConsoleDetailPanel(streamType, label);
+    consoleRowsEl.appendChild(row);
+  }
+}
+
+function openConsoleSettingsPanel(returnPanel) {
+  consoleSettingsReturnPanel = returnPanel;
+  returnPanel.style.display = 'none';
+  document.getElementById('consoleSettingsPanelTitle').textContent = t('settings_console_specific');
+  document.getElementById('closeConsoleSettings').textContent = t('back');
+  renderConsoleRows();
+  consoleSettingsPanel.style.display = 'flex';
+}
+
+document.getElementById('consoleSettingsRowDesktop').onclick = () => openConsoleSettingsPanel(document.getElementById('settingsPanel'));
+document.getElementById('consoleSettingsRowMobile').onclick = () => openConsoleSettingsPanel(document.getElementById('menuPanel'));
+document.getElementById('closeConsoleSettings').onclick = () => {
+  consoleSettingsPanel.style.display = 'none';
+  if (consoleSettingsReturnPanel) consoleSettingsReturnPanel.style.display = 'flex';
+};
+document.getElementById('closeConsoleDetail').onclick = () => {
+  consoleDetailPanel.style.display = 'none';
+  renderConsoleRows();  // subtitle-equivalent (video mode label) may have changed
+  consoleSettingsPanel.style.display = 'flex';
+};
+
+// #keyBindingsPanel's own row-label text (e.g. "Tastenzuweisungen")
 // is set here, unconditionally, same as language/video-mode's rows just
 // above -- it's static per-language text, no connection needed to know it.
 // The panels' actual open/close wiring, though, lives inside beginSession()
@@ -692,13 +764,6 @@ function updateKeyBindingsRowValues() {
   document.getElementById('keyBindingsLabelMobile').textContent = label;
 }
 updateKeyBindingsRowValues();
-
-function updateBilinearRowValues() {
-  const label = t('settings_antialiasing');
-  document.getElementById('bilinearLabelDesktop').textContent = label;
-  document.getElementById('bilinearLabelMobile').textContent = label;
-}
-updateBilinearRowValues();
 
 // This client's own real answer to "no discovery beacon" (README.md's own
 // section on it) -- a browser has no way to receive the UDP broadcast
@@ -1025,16 +1090,16 @@ let pendingAck = null;
 // What the last hello_ack actually requested -- compared against
 // session_ready.video_mode once it arrives (see the msgType === 2 handler
 // below), docs/protocol.md "Video-mode fallback". Set at send time, not
-// read back out of videoModePref later, so a mode change in Settings mid-
-// session (before the *next* connection) can't retroactively change what
-// this comparison thinks was asked for.
+// read back out of videoModeFor() later, so a mode change in Settings
+// mid-session (before the *next* connection) can't retroactively change
+// what this comparison thinks was asked for.
 let requestedVideoMode = null;
 
 function sendHelloAck(requestedSlot) {
   const { wantsAudio, nativeWidth, nativeHeight, nativeFps, sampleRate, channels } = pendingAck;
   const ackCap = 512;
   const ackPtr = wasmModule._malloc(ackCap);
-  requestedVideoMode = videoModePref;
+  requestedVideoMode = videoModeFor(currentStreamType);
   const ackLen = wasmModule.ccall('unison_wasm_build_hello_ack', 'number',
       ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'string', 'number', 'number'],
       [requestedSlot, nativeWidth, nativeHeight, nativeFps, wantsAudio, sampleRate, channels,
@@ -1630,29 +1695,6 @@ document.getElementById('keyBindingsRowMobile').onclick = () => openKeyBindingsP
 document.getElementById('closeKeyBindings').onclick = () => {
   keyBindingsPanel.style.display = 'none';
   if (keyBindingsReturnPanel) keyBindingsReturnPanel.style.display = 'flex';
-};
-
-// Own overlay (#bilinearPanel), same pattern -- doesn't actually need to be
-// inside beginSession (renderFilterRows('filterRows') already ran once,
-// outside, right after it was declared), but kept next to #keyBindingsPanel's
-// wiring here rather than split across the beginSession boundary for no
-// real reason, since both rows live in the same two parent panels.
-const bilinearPanel = document.getElementById('bilinearPanel');
-let bilinearReturnPanel = null;
-
-function openBilinearPanel(returnPanel) {
-  bilinearReturnPanel = returnPanel;
-  returnPanel.style.display = 'none';
-  document.getElementById('bilinearPanelTitle').textContent = t('settings_antialiasing');
-  document.getElementById('closeBilinear').textContent = t('back');
-  bilinearPanel.style.display = 'flex';
-}
-
-document.getElementById('bilinearRowDesktop').onclick = () => openBilinearPanel(document.getElementById('settingsPanel'));
-document.getElementById('bilinearRowMobile').onclick = () => openBilinearPanel(document.getElementById('menuPanel'));
-document.getElementById('closeBilinear').onclick = () => {
-  bilinearPanel.style.display = 'none';
-  if (bilinearReturnPanel) bilinearReturnPanel.style.display = 'flex';
 };
 
 // --- Mobile-only: on-screen touch overlay (drawn on top of the fullscreen
