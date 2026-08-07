@@ -23,6 +23,9 @@ namespace {
 // list of known stream types (a server introducing a new one shouldn't
 // need a client code change just to remember its filter preference).
 constexpr const char *kBilinearKeyPrefix = "bilinear_video_filter.";
+// Same per-stream-type round-trip shape as kBilinearKeyPrefix above, for
+// Prefs::videoModeFor()/setVideoModeFor().
+constexpr const char *kVideoModeKeyPrefix = "video_mode.";
 
 // See Prefs::bilinearFor()'s own comment: GC_GBA_LINK's GBA output is
 // native-resolution pixel art (nearest-neighbor looks right), while
@@ -70,6 +73,18 @@ void Prefs::setBilinearFor(const std::string &streamType, bool value) {
     bilinearVideoFilterByStreamType[streamType] = value;
 }
 
+std::string Prefs::videoModeFor(const std::string &streamType) const {
+    auto it = videoModeByStreamType.find(streamType);
+    if (it != videoModeByStreamType.end()) {
+        return it->second;
+    }
+    return kVideoModeDefault;
+}
+
+void Prefs::setVideoModeFor(const std::string &streamType, const std::string &value) {
+    videoModeByStreamType[streamType] = value;
+}
+
 void Prefs::load() {
     std::ifstream in(kFile);
     if (!in.is_open()) {
@@ -88,6 +103,8 @@ void Prefs::load() {
     for (const auto &[key, value] : values) {
         if (key.rfind(kBilinearKeyPrefix, 0) == 0) {
             bilinearVideoFilterByStreamType[key.substr(strlen(kBilinearKeyPrefix))] = value == "1";
+        } else if (key.rfind(kVideoModeKeyPrefix, 0) == 0) {
+            videoModeByStreamType[key.substr(strlen(kVideoModeKeyPrefix))] = value;
         }
     }
     auto it = values.find("bottom_screen_video");
@@ -100,10 +117,6 @@ void Prefs::load() {
         language = languagePrefFromCode(langIt->second);
     }
 
-    auto videoModeIt = values.find("video_mode");
-    if (videoModeIt != values.end()) {
-        videoMode = videoModeIt->second;
-    }
 }
 
 void Prefs::save() {
@@ -115,7 +128,9 @@ void Prefs::save() {
     for (const auto &[streamType, value] : bilinearVideoFilterByStreamType) {
         out << kBilinearKeyPrefix << streamType << "=" << (value ? "1" : "0") << "\n";
     }
+    for (const auto &[streamType, value] : videoModeByStreamType) {
+        out << kVideoModeKeyPrefix << streamType << "=" << value << "\n";
+    }
     out << "bottom_screen_video=" << (bottomScreenVideo ? "1" : "0") << "\n";
     out << "language=" << languagePrefCode(language) << "\n";
-    out << "video_mode=" << videoMode << "\n";
 }

@@ -93,7 +93,7 @@ const char *labelForStreamType(const char *streamType) {
     return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
 }
 
-enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE, ANTIALIASING };
+enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE, ANTIALIASING, CONSOLE_SETTINGS };
 
 // strings::kStatusError ("Fehler: %s") applied -- small helper since this
 // is needed at both onDisconnected call sites below.
@@ -231,7 +231,9 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
             // See splitHostPort()'s own comment for why this branch exists.
             *connectedHost = hp->host;
             videoTex->reset();
-            session->connect(hp->host, hp->port, prefs->videoMode,
+            // "" -- manual host:port entry, real stream_type unknown until
+            // hello, see Prefs::videoModeFor()'s own comment.
+            session->connect(hp->host, hp->port, prefs->videoModeFor(""),
                 GbaSession::Listener {
                     .onConnected =
                         [connected, connectedStreamType, connectedGrantedVideoMode](
@@ -276,7 +278,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // last frame until the new one's first (always full) frame
                 // arrives.
                 videoTex->reset();
-                session->connect(lastSearchedHost, port, prefs->videoMode,
+                session->connect(lastSearchedHost, port, prefs->videoModeFor("GC_GBA_LINK"),
                     GbaSession::Listener {
                         // Written from the session's background thread, in
                         // this order (streamType/grantedVideoMode before
@@ -390,7 +392,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // arrives (same reasoning as the P1-P4 picker's own connect
                 // call below).
                 videoTex->reset();
-                session->connect(srv.host, srv.handshakePort, prefs->videoMode,
+                session->connect(srv.host, srv.handshakePort, prefs->videoModeFor(srv.streamType),
                     GbaSession::Listener {
                         .onConnected =
                             [connected, connectedStreamType, connectedGrantedVideoMode](
@@ -509,56 +511,88 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
         *screenState = BottomScreenState::LANGUAGE;
     }
 
-    const char *videoModeLabel = prefs->videoMode == "h264" ? strings::kVideoModeH264
-                                : prefs->videoMode == "h265" ? strings::kVideoModeH265
-                                : prefs->videoMode == "legacy" ? strings::kVideoModeLegacy
-                                                                : strings::kVideoModeTiles;
-    std::string videoModeRowLabel = std::string(strings::kSettingsVideoMode) + ": " + videoModeLabel;
-    ui::Rect videoModeRect { 8, 134, 304, 32 };
-    if (ui::button(textBuf, touch, videoModeRect, videoModeRowLabel.c_str())) {
-        *screenState = BottomScreenState::VIDEO_MODE;
+    ui::Rect consoleSettingsRect { 8, 134, 304, 32 };
+    if (ui::button(textBuf, touch, consoleSettingsRect, strings::kSettingsConsoleSpecific)) {
+        *screenState = BottomScreenState::CONSOLE_SETTINGS;
     }
 
-    ui::Rect antialiasingRect { 8, 172, 304, 32 };
-    if (ui::button(textBuf, touch, antialiasingRect, strings::kSettingsAntialiasing)) {
-        *screenState = BottomScreenState::ANTIALIASING;
-    }
-
-    ui::Rect backRect { 8, 210, 304, 26 };
+    ui::Rect backRect { 8, 172, 304, 26 };
     if (ui::button(textBuf, touch, backRect, strings::kBack)) {
         *screenState = BottomScreenState::MENU;
     }
 }
 
-// Antialiasing (bilinear vs. nearest-neighbor upscale), configured per
-// stream_type rather than one global toggle -- GBA/DS pixel art and a
-// Wii U GamePad's higher-effective-resolution render suit different
-// filtering. Listed here (docs/protocol.md's fixed set of stream types)
-// rather than only offering "the current one": this screen is only ever
-// reachable pre-connect (see this file's own top comment), so there's no
-// single "current" stream_type to key off anyway -- whichever type is
-// actually connected to later just reads whatever was configured here in
-// advance (see main()'s onConnected handling). Same per-row-toggle shape
-// the old inline version on drawSettingsScreen() had, just with the room
-// to breathe that moving it to its own screen buys back.
-void drawAntialiasingScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
-    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 8, 0.55f, ui::kColorText);
+// Top of the "Konsolenspezifische Einstellungen" row (drawSettingsScreen)
+// -- lists every stream_type docs/protocol.md defines (this screen is only
+// ever reachable pre-connect, see this file's own top comment, so there's
+// no single "current" stream_type to key off anyway), each a full-width nav
+// row into drawAntialiasingScreen() (now the per-console detail screen)
+// rather than the inline toggle this used to be -- see that function's own
+// comment for why. selectedStreamType is *this* function's caller-owned
+// output, not read here.
+void drawConsoleSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState,
+                                std::string *selectedStreamType) {
+    ui::drawText(textBuf, strings::kSettingsConsoleSpecific, 8, 8, 0.55f, ui::kColorText);
 
     float y = 40.0f;
     for (const auto &entry : kKnownStreamTypes) {
-        ui::drawText(textBuf, labelForStreamType(entry.streamType), 8, y + 8, 0.42f, ui::kColorText);
-        ui::Rect r { 250, y, 62, 28 };
-        bool bilinear = prefs->bilinearFor(entry.streamType);
-        if (ui::toggle(touch, r, bilinear)) {
-            prefs->setBilinearFor(entry.streamType, !bilinear);
-            prefs->save();
+        const char *videoModeLabel = prefs->videoModeFor(entry.streamType) == "h264" ? strings::kVideoModeH264
+                                    : prefs->videoModeFor(entry.streamType) == "h265" ? strings::kVideoModeH265
+                                    : prefs->videoModeFor(entry.streamType) == "legacy" ? strings::kVideoModeLegacy
+                                                                                        : strings::kVideoModeTiles;
+        std::string label = std::string(labelForStreamType(entry.streamType)) + ": " + videoModeLabel;
+        ui::Rect r { 8, y, 304, 32 };
+        if (ui::button(textBuf, touch, r, label.c_str())) {
+            *selectedStreamType = entry.streamType;
+            *screenState = BottomScreenState::ANTIALIASING;
         }
         y += 36.0f;
     }
 
-    ui::Rect backRect { 8, 220, 304, 18 };
+    ui::Rect backRect { 8, y + 4, 304, 18 };
     if (ui::button(textBuf, touch, backRect, strings::kBack)) {
         *screenState = BottomScreenState::SETTINGS;
+    }
+}
+
+// Per-console detail screen, reached from drawConsoleSettingsScreen()'s
+// list above -- used to be that list itself (one row per stream_type, an
+// inline bilinear toggle each and nothing else); moved out so this screen
+// could show more than a single toggle per console without cramming both
+// the antialiasing switch and a video-mode picker into one flat list row.
+// Two settings live here, both keyed by streamType (drawn from the caller's
+// selectedStreamType, set just before entering this state): bilinear-vs-
+// nearest upscale (unchanged from before -- whatever's configured here is
+// applied once connected, see main()'s onConnected handling) and the
+// video-mode/compression picker (own sub-screen, drawVideoModeScreen) --
+// used to be a single global choice shared by every console
+// (drawSettingsScreen's own former "Videomodus" row), moved here per
+// console for the same reason antialiasing already was.
+void drawAntialiasingScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState,
+                             const std::string &streamType) {
+    ui::drawText(textBuf, labelForStreamType(streamType.c_str()), 8, 8, 0.55f, ui::kColorText);
+
+    ui::drawText(textBuf, strings::kSettingsAntialiasing, 8, 48, 0.42f, ui::kColorText);
+    ui::Rect toggleRect { 250, 40, 62, 28 };
+    bool bilinear = prefs->bilinearFor(streamType);
+    if (ui::toggle(touch, toggleRect, bilinear)) {
+        prefs->setBilinearFor(streamType, !bilinear);
+        prefs->save();
+    }
+
+    const char *videoModeLabel = prefs->videoModeFor(streamType) == "h264" ? strings::kVideoModeH264
+                                : prefs->videoModeFor(streamType) == "h265" ? strings::kVideoModeH265
+                                : prefs->videoModeFor(streamType) == "legacy" ? strings::kVideoModeLegacy
+                                                                              : strings::kVideoModeTiles;
+    std::string videoModeRowLabel = std::string(strings::kSettingsVideoMode) + ": " + videoModeLabel;
+    ui::Rect videoModeRect { 8, 86, 304, 32 };
+    if (ui::button(textBuf, touch, videoModeRect, videoModeRowLabel.c_str())) {
+        *screenState = BottomScreenState::VIDEO_MODE;
+    }
+
+    ui::Rect backRect { 8, 220, 304, 18 };
+    if (ui::button(textBuf, touch, backRect, strings::kBack)) {
+        *screenState = BottomScreenState::CONSOLE_SETTINGS;
     }
 }
 
@@ -606,7 +640,13 @@ void drawLanguageScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
 // Same "tap a row, pick from it, land back where you were" flow as
 // drawLanguageScreen() above, cloned wholesale -- only 4 options, so this
 // fits comfortably without needing that screen's tight-spacing tricks.
-void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState) {
+// Per-console (streamType, always entered from drawAntialiasingScreen()'s
+// detail screen now) rather than one global choice -- see
+// Prefs::videoModeFor()'s own comment on why (picking H.264 for Cemu used
+// to silently also request it from Dolphin next time, which never honors
+// it anyway, but still).
+void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *prefs, BottomScreenState *screenState,
+                          const std::string &streamType) {
     ui::drawText(textBuf, strings::kSettingsVideoMode, 8, 8, 0.55f, ui::kColorText);
 
     struct VideoModeOption {
@@ -627,9 +667,9 @@ void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pre
     for (const auto &option : options) {
         ui::Rect r { 8, y, 304, 26 };
         if (ui::button(textBuf, touch, r, option.label)) {
-            prefs->videoMode = option.value;
+            prefs->setVideoModeFor(streamType, option.value);
             prefs->save();
-            *screenState = BottomScreenState::SETTINGS;
+            *screenState = BottomScreenState::ANTIALIASING;
         }
         y += 30.0f;
     }
@@ -679,6 +719,11 @@ int main(int argc, char *argv[]) {
     // yet regardless.
 
     BottomScreenState screenState = BottomScreenState::MENU;
+    // Which console CONSOLE_SETTINGS was last tapped for -- consulted by
+    // ANTIALIASING (now the per-console detail screen) and VIDEO_MODE, both
+    // reached only via that list. See drawConsoleSettingsScreen()'s own
+    // comment.
+    std::string selectedConsoleStreamType;
     // Written from the session's background thread (onConnected/
     // onDisconnected callbacks) and read every frame on the main thread.
     std::atomic<bool> connected { false };
@@ -686,11 +731,12 @@ int main(int argc, char *argv[]) {
     std::string connectedStreamType;
     // session_ready.video_mode, written from onConnected same as
     // connectedStreamType above (before *connected=true). Compared against
-    // prefs.videoMode below to show a fallback prompt -- safe to read
-    // prefs.videoMode directly at render time rather than snapshotting a
-    // separate "requested" copy, since Settings (the only place it can
-    // change) is unreachable while connected (see the dispatch chain
-    // below), so it can't change out from under this comparison mid-session.
+    // prefs.videoModeFor(connectedStreamType) below to show a fallback
+    // prompt -- safe to read that directly at render time rather than
+    // snapshotting a separate "requested" copy, since Settings (the only
+    // place it can change) is unreachable while connected (see the
+    // dispatch chain below), so it can't change out from under this
+    // comparison mid-session.
     std::string connectedGrantedVideoMode;
     uint16_t physicalMask = 0;
     ui::Touch touch;
@@ -785,7 +831,7 @@ int main(int argc, char *argv[]) {
         // than assuming "tiles" was granted, see docs/protocol.md
         // "Video-mode fallback" and connectedGrantedVideoMode's own comment.
         const bool showVideoModeFallback = connected && !videoModeFallbackAcknowledged &&
-            !connectedGrantedVideoMode.empty() && connectedGrantedVideoMode != prefs.videoMode;
+            !connectedGrantedVideoMode.empty() && connectedGrantedVideoMode != prefs.videoModeFor(connectedStreamType);
 
         if (showVideoModeFallback) {
             // Non-blocking in spirit (the stream keeps playing/receiving
@@ -795,10 +841,11 @@ int main(int argc, char *argv[]) {
             // an overlay.
             ui::drawText(textBuf, strings::kVideoModeFallbackTitle, 8, 8, 0.5f, ui::kColorText);
             char message[256];
-            const char *requestedLabel = prefs.videoMode == "h264" ? strings::kVideoModeH264
-                                        : prefs.videoMode == "h265" ? strings::kVideoModeH265
-                                        : prefs.videoMode == "legacy" ? strings::kVideoModeLegacy
-                                                                       : strings::kVideoModeTiles;
+            const std::string requestedVideoMode = prefs.videoModeFor(connectedStreamType);
+            const char *requestedLabel = requestedVideoMode == "h264" ? strings::kVideoModeH264
+                                        : requestedVideoMode == "h265" ? strings::kVideoModeH265
+                                        : requestedVideoMode == "legacy" ? strings::kVideoModeLegacy
+                                                                          : strings::kVideoModeTiles;
             const char *grantedLabel = connectedGrantedVideoMode == "h264" ? strings::kVideoModeH264
                                       : connectedGrantedVideoMode == "h265" ? strings::kVideoModeH265
                                       : connectedGrantedVideoMode == "legacy" ? strings::kVideoModeLegacy
@@ -840,10 +887,12 @@ int main(int argc, char *argv[]) {
                            &beaconListener);
         } else if (screenState == BottomScreenState::SETTINGS) {
             drawSettingsScreen(textBuf, touch, &prefs, &screenState);
+        } else if (screenState == BottomScreenState::CONSOLE_SETTINGS) {
+            drawConsoleSettingsScreen(textBuf, touch, &prefs, &screenState, &selectedConsoleStreamType);
         } else if (screenState == BottomScreenState::VIDEO_MODE) {
-            drawVideoModeScreen(textBuf, touch, &prefs, &screenState);
+            drawVideoModeScreen(textBuf, touch, &prefs, &screenState, selectedConsoleStreamType);
         } else if (screenState == BottomScreenState::ANTIALIASING) {
-            drawAntialiasingScreen(textBuf, touch, &prefs, &screenState);
+            drawAntialiasingScreen(textBuf, touch, &prefs, &screenState, selectedConsoleStreamType);
         } else {
             drawLanguageScreen(textBuf, touch, &prefs, &screenState);
         }
