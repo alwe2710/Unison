@@ -57,7 +57,7 @@ targets:
         # a device already has installed, not from apps.json's size/date
         # alone (see docs/altstore/README.md's own note on this).
         MARKETING_VERSION: "0.2.0-dev"
-        CURRENT_PROJECT_VERSION: "2"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "5.0"
         # No code signing -- CI only ever builds for the Simulator
         # (see .github/workflows/build.yml's `ios` job), which needs no
