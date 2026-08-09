@@ -1,5 +1,6 @@
 #include "h264_decoder.hpp"
 
+#include <cstdio>
 #include <cstring>
 #include <utility>
 
@@ -10,10 +11,38 @@ namespace {
 // project's own encoders, capped well under typical GBA/3DS/DS stream
 // resolutions, comfortably fits well inside this).
 constexpr size_t kInputBufferCapacity = 512 * 1024;
+
+// TEMPORARY diagnostic aid for tracking down a real hardware crash inside
+// the "mvd" sysmodule itself (data abort, reported live on New3DS) that
+// two independent fix attempts (Annex-B start-code prefix; see decode()'s
+// own comment) didn't resolve -- the crash reproduces byte-for-byte
+// identically both times, meaning it happens deterministically, but it's
+// still unknown *which* MVD call is the one actually crashing. Opens,
+// appends one line, flushes, and closes on every call so whatever was
+// logged last is durably on the SD card even if the very next libctru
+// call is the one that takes the whole mvd process down with it -- an
+// in-memory log or a log only flushed at the end would lose exactly the
+// line that matters most. Remove once the real crash site is identified
+// and fixed; this isn't meant to ship as permanent logging.
+void MvdLog(const char *msg) {
+    FILE *f = std::fopen("sdmc:/unison_mvd_log.txt", "a");
+    if (!f) {
+        return;
+    }
+    std::fputs(msg, f);
+    std::fputc('\n', f);
+    std::fflush(f);
+    std::fclose(f);
+}
 } // namespace
 
 H264Decoder::H264Decoder(uint32_t inputWidth, uint32_t inputHeight) : width(inputWidth), height(inputHeight) {
+    char line[128];
+    std::snprintf(line, sizeof(line), "ctor: width=%u height=%u", inputWidth, inputHeight);
+    MvdLog(line);
+
     if (width == 0 || height == 0) {
+        MvdLog("ctor: zero dimension, bailing before mvdstdInit");
         return;
     }
 
@@ -23,8 +52,12 @@ H264Decoder::H264Decoder(uint32_t inputWidth, uint32_t inputHeight) : width(inpu
     // out -- RGB565, not BGR565, so this needs no channel-swap before
     // handing pixels to VideoTex::setFrame(), which already expects
     // citro3d's GPU_RGB565 layout directly (see that class's own comment).
-    if (R_FAILED(mvdstdInit(MVDMODE_VIDEOPROCESSING, MVD_INPUT_H264, MVD_OUTPUT_RGB565, MVD_DEFAULT_WORKBUF_SIZE,
-                            nullptr))) {
+    MvdLog("calling mvdstdInit");
+    const Result initResult =
+        mvdstdInit(MVDMODE_VIDEOPROCESSING, MVD_INPUT_H264, MVD_OUTPUT_RGB565, MVD_DEFAULT_WORKBUF_SIZE, nullptr);
+    std::snprintf(line, sizeof(line), "mvdstdInit returned 0x%08lx", static_cast<unsigned long>(initResult));
+    MvdLog(line);
+    if (R_FAILED(initResult)) {
         // Old 3DS/2DS (no MVD hardware) fails here -- see this class's own
         // header comment on why that's not distinguished from any other
         // init failure.
@@ -34,7 +67,11 @@ H264Decoder::H264Decoder(uint32_t inputWidth, uint32_t inputHeight) : width(inpu
     inputBuffer = linearAlloc(kInputBufferCapacity);
     outputBufferSize = static_cast<size_t>(width) * height * 2;
     outputBuffer = linearAlloc(outputBufferSize);
+    std::snprintf(line, sizeof(line), "linearAlloc: inputBuffer=%p outputBuffer=%p outputBufferSize=%zu",
+                  inputBuffer, outputBuffer, outputBufferSize);
+    MvdLog(line);
     if (!inputBuffer || !outputBuffer) {
+        MvdLog("linearAlloc failed, tearing down");
         if (inputBuffer) {
             linearFree(inputBuffer);
             inputBuffer = nullptr;
@@ -55,13 +92,17 @@ H264Decoder::H264Decoder(uint32_t inputWidth, uint32_t inputHeight) : width(inpu
     // this class's own decode() already copies the result out into
     // outRgb565 before the caller could possibly need a second in-flight
     // buffer).
+    MvdLog("calling mvdstdGenerateDefaultConfig");
     mvdstdGenerateDefaultConfig(&config, width, height, width, height, nullptr,
                                 static_cast<u32 *>(outputBuffer), static_cast<u32 *>(outputBuffer));
+    MvdLog("mvdstdGenerateDefaultConfig returned");
 
     initialized = true;
+    MvdLog("ctor: initialized = true");
 }
 
 H264Decoder::~H264Decoder() {
+    MvdLog("dtor: start");
     if (inputBuffer) {
         linearFree(inputBuffer);
     }
@@ -71,6 +112,7 @@ H264Decoder::~H264Decoder() {
     if (initialized) {
         mvdstdExit();
     }
+    MvdLog("dtor: done");
 }
 
 bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &outRgb565) {
