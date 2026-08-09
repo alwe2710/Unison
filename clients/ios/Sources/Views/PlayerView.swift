@@ -453,14 +453,6 @@ struct PlayerView: View {
     // which is only ever set from the live hello response once actually
     // connected (used for bilinear filtering at render time instead).
     var knownStreamType: String = ""
-    // Lets RootView collapse its NavigationSplitView sidebar for the
-    // duration of an actual stream (reported directly after real-iPad
-    // testing: the sidebar should disappear once the stream is running,
-    // not stay docked next to a fullscreen game) without PlayerView needing
-    // to know RootView/NavigationSplitView exist at all -- a plain closure
-    // rather than @Binding<Bool> so this view stays trivially constructible
-    // on its own (#Preview, tests) with nothing to wire up.
-    var onActiveChanged: ((Bool) -> Void)? = nil
 
     @StateObject private var viewModel = PlayerViewModel()
     @Environment(\.dismiss) private var dismiss
@@ -550,13 +542,11 @@ struct PlayerView: View {
             // comment).
             OrientationLock.mask = .landscape
             UIViewController.attemptRotationToDeviceOrientation()
-            onActiveChanged?(true)
         }
         .onDisappear {
             viewModel.disconnect()
             OrientationLock.mask = .all
             UIViewController.attemptRotationToDeviceOrientation()
-            onActiveChanged?(false)
         }
     }
 

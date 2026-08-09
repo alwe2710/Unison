@@ -28,11 +28,6 @@ private struct Connection: Hashable {
 /// PlayerActivity with host/port extras, PlayerActivity does the actual
 /// connecting" split as Android.
 struct MenuView: View {
-    // Forwarded to every PlayerView this screen ever pushes -- see that
-    // property's own comment (PlayerView.swift). Not consulted here at
-    // all, just threaded through.
-    var onPlayerActiveChanged: ((Bool) -> Void)? = nil
-
     @State private var host: String = ""
     @State private var port: String = "6800"
     @StateObject private var beacon = BeaconListener()
@@ -164,27 +159,34 @@ struct MenuView: View {
                 }
             }
             .padding()
-            // No maxWidth cap here anymore (there used to be one, 500pt
-            // centered) -- reported as a visible "gray frame" on iPad's
-            // wide landscape layout: capping this screen's own content
-            // left a plain-background margin on both sides of the capped
-            // Form, and Form's own inset-grouped background (a distinct
-            // gray) meeting that plain margin read as an unwanted border/
-            // frame right at the cap's edges, worse the wider the
-            // surrounding space was. That cap predates RootView's
-            // NavigationSplitView, back when this screen was shown
-            // full-screen-wide with no sidebar constraining it at all --
-            // the sidebar's own detail pane already keeps this screen from
-            // ever being absurdly, phone-form-on-a-cinema-screen wide, so
-            // the second layer of capping is redundant now, not just
-            // visually broken.
+            // No maxWidth cap here (there used to be one, 500pt centered,
+            // removed as a visible "gray frame" on iPad's wide landscape
+            // layout: capping this screen's own content left a
+            // plain-background margin on both sides of the capped Form,
+            // and Form's own inset-grouped background -- a distinct gray
+            // -- meeting that plain margin read as an unwanted border/
+            // frame right at the cap's edges, worse the wider the screen).
             .navigationDestination(for: Connection.self) { connection in
-                PlayerView(host: connection.host, port: connection.port, knownStreamType: connection.streamType,
-                           onActiveChanged: onPlayerActiveChanged)
+                PlayerView(host: connection.host, port: connection.port, knownStreamType: connection.streamType)
             }
-            // No gear-icon toolbar link to SettingsView anymore -- Settings
-            // is its own top-level sidebar entry now (RootView.swift), same
-            // level as Connect rather than nested a screen below it.
+            .toolbar {
+                // Used to be a NavigationSplitView sidebar entry
+                // (RootView.swift, since removed) instead -- added for
+                // iPad's sake per Apple's own HIG on a NavigationStack-only
+                // app "looking like an upscaled iPhone app" there, reverted
+                // after direct feedback that the sidebar wasn't wanted at
+                // all. This gear icon is the original, simpler shape from
+                // before that existed.
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityIdentifier("settingsButton")
+                    .accessibilityLabel(Text(LocaleHelper.string("settings", prefs: prefs)))
+                }
+            }
             .onAppear { beacon.start() }
             .onDisappear { beacon.stop() }
         }
