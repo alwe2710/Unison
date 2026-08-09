@@ -50,9 +50,14 @@ targets:
         # CFBundleShortVersionString (Info.plist's $(MARKETING_VERSION)
         # substitution, see Sources/Info.plist) doesn't byte-for-byte match
         # what the source declared. "-dev" marks this as the rolling
-        # ios-latest build, distinct from the tagged v0.1.0 release.
-        MARKETING_VERSION: "0.1.0-dev"
-        CURRENT_PROJECT_VERSION: "1"
+        # ios-latest build, distinct from any future tagged stable release.
+        # Bump this (and CURRENT_PROJECT_VERSION below) whenever this
+        # rolling build changes -- AltStore/SideStore only offer an update
+        # when the version/buildVersion strings actually differ from what
+        # a device already has installed, not from apps.json's size/date
+        # alone (see docs/altstore/README.md's own note on this).
+        MARKETING_VERSION: "0.2.0-dev"
+        CURRENT_PROJECT_VERSION: "2"
         SWIFT_VERSION: "5.0"
         # No code signing -- CI only ever builds for the Simulator
         # (see .github/workflows/build.yml's `ios` job), which needs no
