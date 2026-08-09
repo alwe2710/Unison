@@ -25,22 +25,44 @@ source).
 
 ## Keeping this current
 
-`apps.json`'s `downloadURL`/`size` point at a GitHub Release asset (tag
-`ios-latest`), not the CI workflow artifact directly -- workflow artifacts
-need a signed-in GitHub session to download, which AltStore can't do; a
-Release asset is a stable, public, unauthenticated URL. After a CI run
-produces a new `Unison.ipa`:
+**Bump the version first, before building anything** --
+`clients/ios/project.yml`'s `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`
+(that file's own comment next to them has the details). This step is easy
+to skip since the build succeeds fine without it, but skipping it is a
+real, silent failure mode: AltStore/SideStore only offer an "Update"
+button when a version/buildVersion string actually differs from what's
+already installed on the device -- refreshing `apps.json`'s `size`/`date`
+alone, or even re-uploading a materially different `.ipa` to the same
+`ios-latest` release asset, does nothing for anyone who already has the
+previous build installed (this bit us for one release: the H.264/H.265
+work shipped and was live on the release asset, but stayed invisible to
+already-installed devices because `MARKETING_VERSION` was untouched).
+
+Then, once CI (triggered by that commit) has produced a new `Unison.ipa`:
 
 ```sh
 gh run download <run-id> --repo alwe2710/Unison --name Unison-ipa --dir /tmp/unison-ipa
 gh release upload ios-latest /tmp/unison-ipa/Unison.ipa --repo alwe2710/Unison --clobber
 ```
 
-then update `apps.json`'s `size` (byte count of the new `.ipa`) and
-`version`/`date` to match.
+`apps.json`'s `downloadURL`/`size` point at that GitHub Release asset (tag
+`ios-latest`), not the CI workflow artifact directly -- workflow artifacts
+need a signed-in GitHub session to download, which AltStore can't do; a
+Release asset is a stable, public, unauthenticated URL. Update
+`versions[0]`'s `version`/`buildVersion` to **exactly** match what
+`project.yml` now declares (AltStore rejects the download outright on any
+mismatch against the `.ipa`'s real `CFBundleShortVersionString`/
+`CFBundleVersion` -- see that file's own comment), plus `size` (byte count
+of the new `.ipa`) and `date`. This is a single rolling channel, not a
+version history -- `versions` should only ever hold the one current entry,
+since the shared `ios-latest` asset URL is clobbered on every update and
+couldn't actually serve an older entry's declared bytes anyway.
 
 ## Status
 
-This is still the MVP scaffold (see `clients/ios/README.md`'s "Phasing"
-section) -- installable, but there's no real streaming session, video, or
-audio behind it yet, just the connect-form placeholder screen.
+Past the MVP scaffold now: touch input, extended input (buttons/sticks),
+audio, and H.264/H.265 video decode (`VideoToolbox`/
+`AVSampleBufferDisplayLayer`, see `clients/ios/Sources/Models/
+CompressedVideoDecoder.swift`) are all implemented. Still missing: mic
+input and on-screen text input (both still MVP-deferred, see
+`unison_native_bridge.c`'s own top-of-file comment).

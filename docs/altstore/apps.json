@@ -16,10 +16,11 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "0.1.0-dev",
-          "date": "2026-08-06T16:19:05Z",
+          "version": "0.2.0-dev",
+          "buildVersion": "2",
+          "date": "2026-08-09T20:49:37Z",
           "downloadURL": "https://github.com/alwe2710/Unison/releases/download/ios-latest/Unison.ipa",
-          "size": 542794,
+          "size": 557190,
           "minOSVersion": "17.0"
         }
       ]
