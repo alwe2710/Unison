@@ -919,12 +919,26 @@ int main(int argc, char *argv[]) {
                                                                                : strings::kVideoModeTiles;
             snprintf(message, sizeof(message), strings::kVideoModeFallbackMessage, requestedLabel, grantedLabel);
             ui::drawText(textBuf, message, 8, 40, 0.4f, ui::kColorTextDim);
+            // A/B physical-button equivalents for Fortsetzen/Abbrechen --
+            // reported directly (real hardware + azahar): this dialog draws
+            // onto uiTarget same as everything else here, which is the TOP
+            // screen whenever useBottomForVideo is true (WIIU_GAMEPAD/
+            // N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN) -- see this file's own
+            // top comment on why touch never reaches whatever's drawn
+            // there. The "Trennen" button already has an escape hatch for
+            // exactly this (kExitHoldTicksRequired's X+Y hold) but this
+            // dialog didn't, leaving no way to ever dismiss it in that
+            // configuration. hidKeysDown() (edge-triggered, not held) since
+            // this mirrors a single tap on the equally single-tap touch
+            // buttons below, not the disconnect flow's deliberately harder
+            // to trigger by accident hold gesture.
+            const u32 fallbackKeysDown = hidKeysDown();
             ui::Rect continueRect { 8, 100, 304, 26 };
-            if (ui::button(textBuf, touch, continueRect, strings::kVideoModeFallbackContinue)) {
+            if ((fallbackKeysDown & KEY_A) || ui::button(textBuf, touch, continueRect, strings::kVideoModeFallbackContinue)) {
                 videoModeFallbackAcknowledged = true;
             }
             ui::Rect abortRect { 8, 134, 304, 26 };
-            if (ui::button(textBuf, touch, abortRect, strings::kVideoModeFallbackAbort)) {
+            if ((fallbackKeysDown & KEY_B) || ui::button(textBuf, touch, abortRect, strings::kVideoModeFallbackAbort)) {
                 session.disconnect();
                 connected = false;
             }
