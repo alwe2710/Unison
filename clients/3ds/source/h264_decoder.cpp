@@ -116,6 +116,11 @@ H264Decoder::~H264Decoder() {
 }
 
 bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &outRgb565) {
+    {
+        char line[64];
+        std::snprintf(line, sizeof(line), "decode: entered, initialized=%d len=%zu", initialized ? 1 : 0, len);
+        MvdLog(line);
+    }
     if (!initialized || len == 0) {
         return false;
     }
@@ -169,9 +174,20 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
     // fields, which is what produced the real hardware data-abort crash
     // inside the "mvd" process itself (not this app's process) that this
     // fix addresses.
+    {
+        char line[80];
+        std::snprintf(line, sizeof(line), "decode: len=%zu nalCount=%zu", len, nalRanges.size());
+        MvdLog(line);
+    }
+
     bool frameReady = false;
+    int nalIndex = 0;
     for (const auto &[offset, nalLen] : nalRanges) {
+        char line[128];
         if (nalLen == 0 || nalLen + 3 > inputBufferCapacity) {
+            std::snprintf(line, sizeof(line), "nal[%d]: skipped, nalLen=%zu", nalIndex, nalLen);
+            MvdLog(line);
+            nalIndex++;
             continue;
         }
         static const uint8_t kStartCode[3] = {0, 0, 1};
@@ -180,9 +196,15 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         const size_t bufLen = nalLen + 3;
         GSPGPU_FlushDataCache(inputBuffer, bufLen);
 
+        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu", nalIndex, bufLen);
+        MvdLog(line);
         MVDSTD_ProcessNALUnitOut procOut {};
         const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
+        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx", nalIndex,
+                      static_cast<unsigned long>(processResult));
+        MvdLog(line);
         if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
+            nalIndex++;
             continue;
         }
         // MVD_STATUS_PARAMSET: this NAL was just SPS/PPS, no picture data
@@ -192,20 +214,32 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         // (including the ordinary success case) means this NAL completed
         // a picture, matching the official mvd example's own check.
         if (processResult == MVD_STATUS_PARAMSET || processResult == MVD_STATUS_INCOMPLETEPROCESSING) {
+            nalIndex++;
             continue;
         }
-        if (R_FAILED(mvdstdRenderVideoFrame(&config, true))) {
+        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdRenderVideoFrame", nalIndex);
+        MvdLog(line);
+        const Result renderResult = mvdstdRenderVideoFrame(&config, true);
+        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdRenderVideoFrame returned 0x%08lx", nalIndex,
+                      static_cast<unsigned long>(renderResult));
+        MvdLog(line);
+        if (R_FAILED(renderResult)) {
+            nalIndex++;
             continue;
         }
         frameReady = true;
+        nalIndex++;
     }
 
     if (!frameReady) {
+        MvdLog("decode: no frame ready, returning false");
         return false;
     }
 
+    MvdLog("decode: invalidating cache + copying out");
     GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
     outRgb565.resize(outputBufferSize);
     std::memcpy(outRgb565.data(), outputBuffer, outputBufferSize);
+    MvdLog("decode: done, returning true");
     return true;
 }
