@@ -46,6 +46,13 @@ final class GbaStreamClient {
         func onCompressedVideoFrame(width: Int32, height: Int32, isH265: Bool, data: UnsafeRawBufferPointer)
         /// pcm is a fresh [Int16] copy, same reasoning as rgb565 above.
         func onAudioFrame(sampleRate: Int32, channels: Int32, pcm: [Int16])
+        /// Server wants its own on-screen software keyboard shown (e.g.
+        /// Cemu's WiiU swkbd) -- see unison_native_bridge.h's own comment
+        /// on on_text_input_request for why the video stream never
+        /// captures this itself. maxLength is 0 for "no limit enforced by
+        /// the server". Reply with sendTextInputResponse() once the user
+        /// submits or cancels, same GbaStreamClient.kt-mirrored contract.
+        func onTextInputRequest(maxLength: Int32, initialText: String)
         func onDisconnected(reason: String)
     }
 
@@ -104,6 +111,24 @@ final class GbaStreamClient {
             let buffer = UnsafeBufferPointer(start: pcm, count: sampleCount)
             client.listener?.onAudioFrame(sampleRate: sampleRate, channels: channels, pcm: Array(buffer))
         }
+        callbacks.on_text_input_request = { userData, maxLength, text, textLen in
+            guard let userData else { return }
+            let client = Unmanaged<GbaStreamClient>.fromOpaque(userData).takeUnretainedValue()
+            // text isn't NUL-terminated (points straight at the WS payload
+            // buffer, only valid for this call) -- String(cString:) would
+            // assume NUL-termination and either read out of bounds or stop
+            // early on an embedded NUL, so this decodes the explicit-length
+            // buffer directly instead.
+            let initialText: String
+            if let text, textLen > 0 {
+                let buffer = UnsafeRawBufferPointer(start: text, count: textLen)
+                initialText = String(decoding: buffer, as: UTF8.self)
+            } else {
+                initialText = ""
+            }
+            client.listener?.onTextInputRequest(maxLength: Int32(truncatingIfNeeded: maxLength),
+                                                 initialText: initialText)
+        }
         callbacks.on_disconnected = { userData, reason in
             guard let userData else { return }
             let client = Unmanaged<GbaStreamClient>.fromOpaque(userData).takeUnretainedValue()
@@ -138,6 +163,20 @@ final class GbaStreamClient {
     /// header comment for why this doesn't itself trigger a send.
     func sendExtendedInput(buttons: UInt32, leftX: Int16, leftY: Int16, rightX: Int16, rightY: Int16) {
         unison_native_send_extended_input(handle, buttons, leftX, leftY, rightX, rightY)
+    }
+
+    /// Reply to listener.onTextInputRequest() -- confirmed=false (user
+    /// cancelled) sends an empty text regardless of `text`, matching the C
+    /// bridge's own convention. Only meaningful right after that callback
+    /// fires, same one-shot contract as GbaStreamClient.kt's own
+    /// sendTextInputResponse.
+    func sendTextInputResponse(confirmed: Bool, text: String) {
+        // `text` bridges to `const char *` automatically here, same as
+        // host/videoMode already do in connect() above (a temporary
+        // NUL-terminated UTF-8 buffer valid for the duration of this one
+        // call) -- text.utf8.count is the explicit length the C side
+        // actually uses (it doesn't rely on the NUL terminator).
+        unison_native_send_text_input_response(handle, confirmed ? 1 : 0, text, text.utf8.count)
     }
 
     /// Blocks until the background thread has stopped (unison_native_

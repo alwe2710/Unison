@@ -3,8 +3,10 @@
 // "Phasing" section): touch/extended-input is implemented (unlike the
 // original gba_buttons-only MVP), h264/h265 is now handed off raw to
 // Swift's own VideoToolbox decode via on_compressed_video_frame() below
-// (see that callback's own comment) -- still no mic, no text-input-request.
-// No video-window/Surface concept at all (Swift owns rendering, driven by
+// (see that callback's own comment), and the server's on-screen-keyboard
+// request/response round-trip is implemented via on_text_input_request()/
+// unison_native_send_text_input_response() -- still no mic input. No
+// video-window/Surface concept at all (Swift owns rendering, driven by
 // the on_video_frame/on_compressed_video_frame callbacks -- there's no
 // MediaCodec-equivalent "decode straight into a window" fast path to
 // bypass here, AVSampleBufferDisplayLayer plays the same role from the
@@ -103,6 +105,16 @@ struct unison_native_client {
     atomic_int pending_left_y;
     atomic_int pending_right_x;
     atomic_int pending_right_y;
+    // Text-input response: a one-shot dynamically-sized value (unlike the
+    // fixed-size atomics above), so it needs a mutex rather than plain
+    // atomics -- same shape as jni_bridge.c's own
+    // pending_text_response_text/_len/_confirmed +
+    // pending_text_response_mutex.
+    pthread_mutex_t pending_text_response_mutex;
+    char *pending_text_response_text; // NULL/0 until a response is queued
+    size_t pending_text_response_len;
+    bool pending_text_response_confirmed;
+    atomic_bool text_response_dirty;
 };
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -513,6 +525,71 @@ static void handle_audio_message(unison_native_client *c, const uint8_t *payload
     free(pcm);
 }
 
+// Cemu's on-screen software keyboard (and any future server that does the
+// same) is drawn as a host-side UI overlay, never part of the captured
+// video -- this is the server telling the client to show its own native
+// text input UI instead. req.text isn't NUL-terminated (it points straight
+// into the WS payload buffer) -- passed through with an explicit length
+// rather than handed to Swift as a C string, same "valid only for this
+// call" contract as on_video_frame's rgb565.
+static void handle_text_input_request_message(unison_native_client *c, const uint8_t *payload,
+                                                size_t payload_size) {
+    unison_text_input_request req;
+    if (unison_parse_text_input_request(payload, payload_size, &req) != UNISON_OK) {
+        return;
+    }
+    if (c->callbacks.on_text_input_request) {
+        c->callbacks.on_text_input_request(c->callbacks.user_data, req.max_length, req.text, req.text_len);
+    }
+}
+
+// Text-input counterpart to maybe_send_input/maybe_send_touch, but a
+// one-shot send rather than "resend the latest state every time it
+// changes" -- there's no ongoing state to resend, just a single response to
+// whatever request handle_text_input_request_message() last delivered.
+// Same shape as jni_bridge.c's own maybe_send_text_input_response().
+static void maybe_send_text_input_response(unison_native_client *c) {
+    if (!atomic_exchange(&c->text_response_dirty, false)) {
+        return;
+    }
+
+    pthread_mutex_lock(&c->pending_text_response_mutex);
+    char *text = c->pending_text_response_text;
+    size_t text_len = c->pending_text_response_len;
+    bool confirmed = c->pending_text_response_confirmed;
+    c->pending_text_response_text = NULL;
+    c->pending_text_response_len = 0;
+    pthread_mutex_unlock(&c->pending_text_response_mutex);
+
+    unison_text_input_response resp;
+    resp.confirmed = confirmed ? 1 : 0;
+    resp.text = text ? text : "";
+    resp.text_len = text_len;
+
+    const size_t payload_cap = unison_text_input_response_max_size(text_len);
+    uint8_t *payload = malloc(payload_cap);
+    if (payload) {
+        size_t payload_len = unison_build_text_input_response(&resp, payload, payload_cap);
+        if (payload_len > 0) {
+            uint8_t mask_key[4];
+            arc4random_buf(mask_key, sizeof(mask_key));
+
+            const size_t frame_cap = unison_ws_build_frame_max_size(payload_len);
+            uint8_t *frame_buf = malloc(frame_cap);
+            if (frame_buf) {
+                size_t frame_len = unison_ws_build_frame(UNISON_WS_OPCODE_BINARY, payload, payload_len,
+                                                           mask_key, frame_buf, frame_cap);
+                if (frame_len > 0) {
+                    send_all(c->sockfd, frame_buf, frame_len, &c->stop);
+                }
+                free(frame_buf);
+            }
+        }
+        free(payload);
+    }
+    free(text);
+}
+
 // Sends the current key mask, if it changed since the last send, as a
 // masked WS input frame -- same "poll once per loop iteration, sole owner
 // of the socket fd" reasoning as jni_bridge.c's own maybe_send_input().
@@ -631,9 +708,11 @@ static void run_session_loop(unison_native_client *c, byte_buf *buf) {
                                          &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
                 } else if (type == UNISON_MSG_AUDIO) {
                     handle_audio_message(c, frame.payload, frame.payload_size);
+                } else if (type == UNISON_MSG_TEXT_INPUT_REQUEST) {
+                    handle_text_input_request_message(c, frame.payload, frame.payload_size);
                 }
-                // TEXT_INPUT_REQUEST/MIC_ENABLE: later phase, see this
-                // file's own top comment -- simply not dispatched yet.
+                // MIC_ENABLE: later phase, see this file's own top comment
+                // -- simply not dispatched yet.
             }
 
             byte_buf_consume(buf, frame.frame_size);
@@ -644,6 +723,7 @@ static void run_session_loop(unison_native_client *c, byte_buf *buf) {
 
         maybe_send_input(c);
         maybe_send_touch(c);
+        maybe_send_text_input_response(c);
     }
 
     free(inflate_out);
@@ -722,8 +802,14 @@ unison_native_client *unison_native_connect(const char *host, int port, const ch
     atomic_init(&c->pending_left_y, 0);
     atomic_init(&c->pending_right_x, 0);
     atomic_init(&c->pending_right_y, 0);
+    pthread_mutex_init(&c->pending_text_response_mutex, NULL);
+    c->pending_text_response_text = NULL;
+    c->pending_text_response_len = 0;
+    c->pending_text_response_confirmed = false;
+    atomic_init(&c->text_response_dirty, false);
 
     if (pthread_create(&c->thread, NULL, client_thread_main, c) != 0) {
+        pthread_mutex_destroy(&c->pending_text_response_mutex);
         free(c);
         return NULL;
     }
@@ -764,11 +850,48 @@ void unison_native_send_extended_input(unison_native_client *c, uint32_t buttons
     // on its own (see this function's own header-comment on why).
 }
 
+// Only meaningful right after on_text_input_request() fires -- confirmed=0
+// (the user cancelled) sends an empty text regardless of what text/text_len
+// point at, matching unison_text_input_response's own convention that text
+// is meaningless when not confirmed. Copies text before returning, unlike
+// the fixed-size input setters above (nothing else here needs a copy since
+// nothing else is variable-length).
+void unison_native_send_text_input_response(unison_native_client *c, int confirmed, const char *text,
+                                             size_t text_len) {
+    if (!c) {
+        return;
+    }
+
+    char *text_copy = NULL;
+    if (confirmed && text_len > 0) {
+        text_copy = malloc(text_len);
+        if (text_copy) {
+            memcpy(text_copy, text, text_len);
+        } else {
+            text_len = 0;
+        }
+    } else {
+        text_len = 0;
+    }
+
+    pthread_mutex_lock(&c->pending_text_response_mutex);
+    free(c->pending_text_response_text); // in case a previous response never got sent
+    c->pending_text_response_text = text_copy;
+    c->pending_text_response_len = text_len;
+    c->pending_text_response_confirmed = confirmed != 0;
+    pthread_mutex_unlock(&c->pending_text_response_mutex);
+    atomic_store(&c->text_response_dirty, true);
+}
+
 void unison_native_disconnect(unison_native_client *c) {
     if (!c) {
         return;
     }
     atomic_store(&c->stop, true);
     pthread_join(c->thread, NULL);
+    pthread_mutex_lock(&c->pending_text_response_mutex);
+    free(c->pending_text_response_text);
+    pthread_mutex_unlock(&c->pending_text_response_mutex);
+    pthread_mutex_destroy(&c->pending_text_response_mutex);
     free(c);
 }

@@ -39,6 +39,10 @@ final class GbaStreamClientTests: XCTestCase {
             XCTFail("a closed port should never report onAudioFrame")
         }
 
+        func onTextInputRequest(maxLength: Int32, initialText: String) {
+            XCTFail("a closed port should never report onTextInputRequest")
+        }
+
         func onDisconnected(reason: String) {
             disconnectReason = reason
             disconnectedExpectation.fulfill()

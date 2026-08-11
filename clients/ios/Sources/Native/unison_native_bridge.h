@@ -60,6 +60,17 @@ typedef struct {
     // contract as on_video_frame's rgb565 above.
     void (*on_compressed_video_frame)(void *user_data, int32_t width, int32_t height, int is_h265,
                                        const uint8_t *data, size_t len);
+    // Server wants its own on-screen software keyboard shown (e.g. Cemu's
+    // WiiU swkbd) -- see unison_text_input_request's own comment
+    // (unison/protocol.h) for why the video stream never captures this
+    // itself. text/text_len are the initial/pre-filled text (UTF-8, not
+    // NUL-terminated, text_len may be 0) -- valid only for the duration of
+    // this call, same "copy it if you need to keep it" contract as
+    // on_video_frame's rgb565. Reply via
+    // unison_native_send_text_input_response() once the user submits or
+    // cancels.
+    void (*on_text_input_request)(void *user_data, uint32_t max_length, const char *text,
+                                   size_t text_len);
     // pcm is signed 16-bit little-endian host-order samples, interleaved
     // if channels > 1 -- same shape as GbaStreamClient.Listener.onAudioFrame's
     // ShortArray. Same "valid only for this call" contract as rgb565 above.
@@ -108,6 +119,16 @@ void unison_native_send_touch(unison_native_client *client, int pressed, uint16_
 // jni_bridge.c's own nativeSendExtendedInput/maybe_send_touch split).
 void unison_native_send_extended_input(unison_native_client *client, uint32_t buttons, int16_t left_x,
                                         int16_t left_y, int16_t right_x, int16_t right_y);
+
+// Reply to on_text_input_request() -- only meaningful right after that
+// callback fires, same one-shot (not "resend until changed") contract as
+// jni_bridge.c's own maybe_send_text_input_response. confirmed=0 means the
+// user cancelled; text/text_len are ignored in that case and an empty
+// response is sent regardless (matching unison_text_input_response's own
+// convention). text needn't outlive this call -- copied internally before
+// returning.
+void unison_native_send_text_input_response(unison_native_client *client, int confirmed, const char *text,
+                                             size_t text_len);
 
 // Signals the background thread to stop and blocks until it has (closing
 // the socket, freeing `client`) -- same as GbaStreamClient.disconnect()'s

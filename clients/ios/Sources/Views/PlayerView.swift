@@ -5,10 +5,12 @@ import UIKit
 /// Streaming screen -- direct-enough analog of PlayerActivity.kt. Renders
 /// decoded RGB565 frames (or, for an h264/h265 session, hands raw NAL data
 /// to CompressedVideoDecoder for VideoToolbox to decode+display directly),
-/// plays PCM audio via AVAudioEngine, and sends input: plain gba_buttons
-/// for GC_GBA_LINK, or touch (+ buttons + analog sticks, depending on what
-/// the session actually negotiated) for Cemu/Azahar/melonDS. Still no mic
-/// (see clients/ios/README.md's "Phasing").
+/// plays PCM audio via AVAudioEngine, sends input (plain gba_buttons for
+/// GC_GBA_LINK, or touch + buttons + analog sticks, depending on what the
+/// session actually negotiated, for Cemu/Azahar/melonDS), and shows a
+/// native on-screen keyboard (TextInputView) whenever the server's own
+/// swkbd-equivalent wants text. Still no mic (see clients/ios/README.md's
+/// "Phasing").
 final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listener {
     enum Status: Equatable {
         case connecting
@@ -43,6 +45,10 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     // Image(uiImage:) below, since currentFrame is never populated for
     // those, see onVideoFrame's own doc comment on the Listener protocol).
     @Published private(set) var grantedVideoMode = ""
+    // Set from onTextInputRequest, cleared once the user submits/cancels
+    // (respondToTextInput below) -- drives PlayerView's
+    // .fullScreenCover(item:), see that modifier's own comment.
+    @Published var textInputRequest: TextInputRequest?
 
     // Set once by CompressedVideoView.onLayerReady (see that view's own
     // comment) -- only relevant for an h264/h265 session. compressedVideoDecoder
@@ -136,6 +142,18 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         // against it, so a later reconnect doesn't reuse either.
         displayLayer = nil
         compressedVideoDecoder = nil
+        textInputRequest = nil
+    }
+
+    /// Called by TextInputView's Cancel/OK actions, and defensively from
+    /// its own onDisappear (see that view's own comment) for any other way
+    /// the cover ends up dismissed -- forwards straight to the C bridge
+    /// (GbaStreamClient.sendTextInputResponse's own comment covers the
+    /// confirmed=false/empty-text convention) and clears textInputRequest
+    /// so the cover itself dismisses.
+    func respondToTextInput(confirmed: Bool, text: String) {
+        client?.sendTextInputResponse(confirmed: confirmed, text: text)
+        textInputRequest = nil
     }
 
     /// Called from PlayerView's button views (on-screen taps, a bound
@@ -341,6 +359,12 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
         play(pcm: pcm, sampleRate: sampleRate, channels: channels)
     }
 
+    func onTextInputRequest(maxLength: Int32, initialText: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.textInputRequest = TextInputRequest(maxLength: maxLength, initialText: initialText)
+        }
+    }
+
     func onDisconnected(reason: String) {
         DispatchQueue.main.async { [weak self] in
             self?.status = .disconnected(reason: reason)
@@ -531,6 +555,18 @@ struct PlayerView: View {
             .frame(width: 1, height: 1)
         }
         .statusBarHidden()
+        // Full-screen, not a sheet -- matches TextInputActivity.kt's own
+        // full-Activity (not Dialog) choice: this should feel like an
+        // ordinary full-screen text-entry moment, not a popup fighting the
+        // video underneath for space. item: (not isPresented:) so a fresh
+        // request always gets its own correctly pre-filled view even if
+        // one somehow arrives while another is still showing (see
+        // TextInputRequest's own comment).
+        .fullScreenCover(item: $viewModel.textInputRequest) { request in
+            TextInputView(maxLength: request.maxLength, initialText: request.initialText) { confirmed, text in
+                viewModel.respondToTextInput(confirmed: confirmed, text: text)
+            }
+        }
         .onAppear {
             viewModel.connect(host: host, port: port, knownStreamType: knownStreamType)
             // Matches Android's PlayerActivity forcing landscape (that
