@@ -230,6 +230,28 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
             nalIndex++;
             continue;
         }
+        // Poison the output buffer's four corner bytes before rendering,
+        // same technique Core-2-Extreme/Video_player_for_3DS (a real,
+        // working, community-verified MVD user) uses -- mvdstdRenderVideoFrame()'s
+        // own Result is NOT a reliable signal that a picture was actually
+        // written: real-world reports confirm it can report success while
+        // silently leaving the output buffer untouched (still whatever was
+        // there before, i.e. a stale or partially-overwritten previous
+        // frame). Trusting the Result alone -- what this code did before --
+        // means occasionally uploading exactly that leftover/garbage
+        // buffer content as if it were a real decoded frame, which reads
+        // as stripes/blocks on screen. Checking whether the corners
+        // actually changed is this project's own proven way to tell a real
+        // write apart from a no-op success.
+        static const uint8_t kPoison = 0x11;
+        uint8_t *outBytes = static_cast<uint8_t *>(outputBuffer);
+        const size_t lastRowStart = outputBufferSize - static_cast<size_t>(width) * 2;
+        outBytes[0] = kPoison;
+        outBytes[width * 2 - 1] = kPoison;
+        outBytes[lastRowStart] = kPoison;
+        outBytes[outputBufferSize - 1] = kPoison;
+        GSPGPU_FlushDataCache(outputBuffer, outputBufferSize);
+
         std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdRenderVideoFrame", nalIndex);
         MvdLog(line);
         const Result renderResult = mvdstdRenderVideoFrame(&config, true);
@@ -237,6 +259,15 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
                       static_cast<unsigned long>(renderResult));
         MvdLog(line);
         if (R_FAILED(renderResult)) {
+            nalIndex++;
+            continue;
+        }
+        GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
+        const bool cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
+                                     outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
+        std::snprintf(line, sizeof(line), "nal[%d]: cornersChanged=%d", nalIndex, cornersChanged ? 1 : 0);
+        MvdLog(line);
+        if (!cornersChanged) {
             nalIndex++;
             continue;
         }
