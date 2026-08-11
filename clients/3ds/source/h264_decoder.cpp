@@ -196,7 +196,20 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         const size_t bufLen = nalLen + 3;
         GSPGPU_FlushDataCache(inputBuffer, bufLen);
 
-        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu", nalIndex, bufLen);
+        // NAL header byte (forbidden_zero_bit + nal_ref_idc + nal_unit_type,
+        // standard H.264 Annex-B layout) plus the first handful of payload
+        // bytes -- to check whether our own Annex-B splitter is actually
+        // handing MVD a real, correctly-typed NAL boundary (1=non-IDR
+        // slice, 5=IDR slice, 7=SPS, 8=PPS, 6=SEI, 9=AUD, ...) or something
+        // that looks like mid-slice garbage, which would point at a
+        // splitter bug rather than an MVD/hardware one.
+        const uint8_t nalHeader = nalLen > 0 ? data[offset] : 0;
+        char hex[32] = { 0 };
+        for (size_t i = 0; i < nalLen && i < 8; i++) {
+            std::snprintf(hex + i * 3, sizeof(hex) - i * 3, "%02x ", data[offset + i]);
+        }
+        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu type=%u first=%s",
+                      nalIndex, bufLen, nalHeader & 0x1F, hex);
         MvdLog(line);
         MVDSTD_ProcessNALUnitOut procOut {};
         const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
