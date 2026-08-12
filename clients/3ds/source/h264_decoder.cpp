@@ -43,52 +43,28 @@ H264Decoder::H264Decoder(uint32_t inputWidth, uint32_t inputHeight) : width(inpu
     MvdLog(line);
 
     if (width == 0 || height == 0) {
-        MvdLog("ctor: zero dimension, will never initialize");
+        MvdLog("ctor: zero dimension, bailing before completeInit");
         initFailed = true;
         return;
     }
-    // Real init (mvdstdInit etc.) happens lazily on decode()'s first call --
-    // see completeInit()'s own comment on why the real H.264 level, which
-    // only a real SPS NAL carries, is needed first.
-    MvdLog("ctor: deferring real init to decode()'s first SPS");
+    // Eager init with the fixed MVD_DEFAULT_WORKBUF_SIZE constant, same as
+    // this class always did before this comment. A real
+    // mvdstdCalculateBufferSize()-with-real-level variant (Core-2-Extreme/
+    // Video_player_for_3DS's own approach, see completeInit()'s own
+    // comment) was tried and reverted: real-hardware logging showed
+    // decode() being CALLED but never RETURNING on its very first
+    // invocation (no "decode: entered" line ever reached the SD card,
+    // which LogBatch only flushes on a normal return -- meaning that call
+    // never got that far), immediately followed by the ~10-second
+    // connection-timeout symptom this project already diagnosed once
+    // before for an unrelated reason (excess synchronous logging). The
+    // only genuinely new, never-before-exercised-on-hardware code in that
+    // build was the mvdstdCalculateBufferSize() IPC call and the SPS-level
+    // parsing feeding it -- the prime suspect for a hang, so it was pulled
+    // back out rather than kept alongside the (still unproven either way)
+    // combined-NAL-buffer change decode() still uses.
+    completeInit(MVD_DEFAULT_WORKBUF_SIZE);
 }
-
-namespace {
-// Maps a raw H.264 SPS level_idc byte (the 4th byte of an SPS NAL: 1 byte
-// NAL header + profile_idc + constraint-flags + level_idc) to libctru's
-// MVD_H264_LEVEL_* enum. Values are the literal level_idc byte (level N.M
-// encodes as N*10+M, e.g. level 3.2 -> 32) -- confirmed against
-// Core-2-Extreme/Video_player_for_3DS's own identical switch (that project
-// gets the same numbers from ffmpeg's AVCodecContext::level instead of
-// parsing SPS directly, but for ordinary H.264 that field is just the raw
-// level_idc passed through). Deliberately not special-cased: level_idc=11
-// with constraint_set3_flag=1 technically means "level 1.0b" rather than
-// "level 1.1" -- an antique baseline-profile corner case no encoder in this
-// project's own host repos (x264 at normal streaming resolutions) will
-// ever emit, so it's mapped as plain 1.1 here rather than adding a second
-// SPS byte read to disambiguate it.
-bool mapLevelIdcToMvd(uint8_t levelIdc, u8 *out) {
-    switch (levelIdc) {
-    case 10: *out = MVD_H264_LEVEL_1_0; return true;
-    case 11: *out = MVD_H264_LEVEL_1_1; return true;
-    case 12: *out = MVD_H264_LEVEL_1_2; return true;
-    case 13: *out = MVD_H264_LEVEL_1_3; return true;
-    case 20: *out = MVD_H264_LEVEL_2_0; return true;
-    case 21: *out = MVD_H264_LEVEL_2_1; return true;
-    case 22: *out = MVD_H264_LEVEL_2_2; return true;
-    case 30: *out = MVD_H264_LEVEL_3_0; return true;
-    case 31: *out = MVD_H264_LEVEL_3_1; return true;
-    case 32: *out = MVD_H264_LEVEL_3_2; return true;
-    case 40: *out = MVD_H264_LEVEL_4_0; return true;
-    case 41: *out = MVD_H264_LEVEL_4_1; return true;
-    case 42: *out = MVD_H264_LEVEL_4_2; return true;
-    case 50: *out = MVD_H264_LEVEL_5_0; return true;
-    case 51: *out = MVD_H264_LEVEL_5_1; return true;
-    case 52: *out = MVD_H264_LEVEL_5_2; return true;
-    default: return false;
-    }
-}
-} // namespace
 
 bool H264Decoder::completeInit(uint32_t workBufSize) {
     char line[128];
@@ -209,7 +185,7 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         std::snprintf(line, sizeof(line), "decode: entered, initialized=%d len=%zu", initialized ? 1 : 0, len);
         log.add(line);
     }
-    if (initFailed || len == 0) {
+    if (!initialized || len == 0) {
         return false;
     }
 
@@ -250,75 +226,6 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
     }
     if (nalRanges.empty()) {
         return false;
-    }
-
-    if (!initialized) {
-        // Real init deferred from the constructor to right here -- see
-        // completeInit()'s own comment. Needs a real SPS (nal_unit_type==7)
-        // to read the stream's actual H.264 level (level_idc, the 4th byte
-        // of the NAL: header + profile_idc + constraint-flags + level_idc)
-        // for mvdstdCalculateBufferSize(), matching Core-2-Extreme/
-        // Video_player_for_3DS's own real init -- their project computes a
-        // properly-sized work buffer from the real level rather than using
-        // this class's previous fixed MVD_DEFAULT_WORKBUF_SIZE (libctru's
-        // own comment calls that one a "New3DS Internet Browser" default,
-        // not something tuned for this stream's actual resolution/level).
-        // Per docs/protocol.md's "Keyframe discipline", the very first
-        // message a fresh session ever sees is a keyframe with SPS/PPS
-        // ahead of slice data, so this should succeed on the first call in
-        // practice; if some message genuinely has no SPS yet (mid-stream
-        // reconnect edge case), this just drops it and waits for the next
-        // one, same "next forced keyframe self-heals" spirit as every other
-        // drop path in this function.
-        const uint8_t *spsData = nullptr;
-        size_t spsLen = 0;
-        for (const auto &[offset, nalLen] : nalRanges) {
-            if (nalLen > 0 && (data[offset] & 0x1F) == 7) {
-                spsData = data + offset;
-                spsLen = nalLen;
-                break;
-            }
-        }
-        if (!spsData) {
-            log.add("decode: not yet initialized and no SPS in this message, dropping");
-            return false;
-        }
-
-        u32 workBufSize = MVD_DEFAULT_WORKBUF_SIZE;
-        u8 mvdLevel = 0;
-        if (spsLen > 3 && mapLevelIdcToMvd(spsData[3], &mvdLevel)) {
-            MVDSTD_CalculateWorkBufSizeConfig calcConfig {};
-            calcConfig.level.enable = 1;
-            calcConfig.level.flag = MVD_CALC_WITH_LEVEL_FLAG_ENABLE_CALC | MVD_CALC_WITH_LEVEL_FLAG_ENABLE_EXTRA_OP |
-                                     MVD_CALC_WITH_LEVEL_FLAG_UNK;
-            calcConfig.level.level = mvdLevel;
-            calcConfig.width = width;
-            calcConfig.height = height;
-            u32 calculatedSize = 0;
-            char line[96];
-            std::snprintf(line, sizeof(line), "decode: calling mvdstdCalculateBufferSize levelIdc=%u mvdLevel=%u",
-                          spsData[3], mvdLevel);
-            log.add(line);
-            const Result calcResult = mvdstdCalculateBufferSize(&calcConfig, &calculatedSize);
-            std::snprintf(line, sizeof(line), "mvdstdCalculateBufferSize returned 0x%08lx size=%u",
-                          static_cast<unsigned long>(calcResult), calculatedSize);
-            log.add(line);
-            if (R_SUCCEEDED(calcResult) && calculatedSize > 0) {
-                workBufSize = calculatedSize;
-            } else {
-                log.add("decode: calc failed, falling back to MVD_DEFAULT_WORKBUF_SIZE");
-            }
-        } else {
-            char line[64];
-            std::snprintf(line, sizeof(line), "decode: unrecognized level_idc=%u, using default workbuf size",
-                          spsLen > 3 ? spsData[3] : 0);
-            log.add(line);
-        }
-
-        if (!completeInit(workBufSize)) {
-            log.add("decode: completeInit failed");
-            return false;
-        }
     }
 
     // mvdstdProcessVideoFrame()'s own doc comment is explicit: "Input

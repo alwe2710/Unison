@@ -24,15 +24,20 @@
 // shape (one Annex-B blob in, one RGB565 picture out or none yet) rather
 // than that example's whole-file-up-front batch-decode loop.
 //
-// Real init (mvdstdInit/buffer alloc/mvdstdGenerateDefaultConfig) is
-// deferred to decode()'s first call rather than done in the constructor --
-// see completeInit()'s own comment. Real MVD usage was cross-checked
-// against Core-2-Extreme/Video_player_for_3DS (an actively maintained,
-// real-world working player, github.com/Core-2-Extreme/Video_player_for_3DS,
-// source/system/util/decoder.c), which is also where the corner-poison
-// sentinel technique (decode()'s own comment) and the
-// mvdstdCalculateBufferSize()-with-real-level approach (completeInit()'s
-// own comment) both come from. NOT adopted from that project: its
+// Real MVD usage was cross-checked against Core-2-Extreme/
+// Video_player_for_3DS (an actively maintained, real-world working player,
+// github.com/Core-2-Extreme/Video_player_for_3DS,
+// source/system/util/decoder.c). Adopted from it: the corner-poison
+// sentinel technique (decode()'s own comment) and decode()'s single
+// combined-NAL-buffer mvdstdProcessVideoFrame() call. Tried and reverted:
+// its mvdstdCalculateBufferSize()-with-real-level work-buffer sizing --
+// real-hardware logging showed decode() being called but never returning
+// on its very first invocation once that landed (no trace of it reaching
+// even its own first log line), immediately followed by the same
+// ~10-second connection-timeout symptom this project once diagnosed for an
+// unrelated reason (see LogBatch's own comment) -- so this class went back
+// to eager construction-time init with the fixed MVD_DEFAULT_WORKBUF_SIZE
+// constant (completeInit()'s own comment). Also NOT adopted: their
 // non-blocking mvdstdRenderVideoFrame(NULL, false) retry loop, which its
 // own comment says needs a custom libctru fork
 // (github.com/Core-2-Extreme/libctru_custom) -- stock libctru (what this
@@ -76,21 +81,22 @@ class H264Decoder {
 
   private:
     bool initialized = false;
-    // Set once if completeInit() itself fails (buffer alloc, mvdstdInit) --
-    // distinct from "not initialized yet, still waiting for a first SPS",
-    // so decode() doesn't retry a real failure on every single message.
+    // Set if completeInit() itself fails (buffer alloc, mvdstdInit) or the
+    // constructor bails on a zero dimension -- kept as a separate flag
+    // (rather than just checking !initialized) as a leftover hook from a
+    // since-reverted lazy-init variant of this class; harmless to keep,
+    // isValid() still just checks initialized.
     bool initFailed = false;
     uint32_t width = 0, height = 0;
     MVDSTD_Config config {};
 
-    // Finishes what the constructor used to do unconditionally: real MVD
-    // init (mvdstdInit), buffer allocation, mvdstdGenerateDefaultConfig().
-    // Deferred out of the constructor because it needs workBufSize, and a
-    // properly-computed workBufSize (mvdstdCalculateBufferSize(), see
-    // decode()'s own comment) needs the stream's real H.264 level, which
-    // only exists once decode() has actually seen an SPS NAL -- the
-    // constructor only ever gets width/height. Returns false (and sets
-    // initFailed) on any real failure.
+    // Does the real MVD init (mvdstdInit), buffer allocation, and
+    // mvdstdGenerateDefaultConfig() -- called once from the constructor
+    // with the fixed MVD_DEFAULT_WORKBUF_SIZE constant. Factored out of
+    // the constructor only because a since-reverted variant needed to call
+    // this lazily from decode() instead (see this class's own top
+    // comment); kept as a separate function since there's no longer any
+    // reason to inline it back into the constructor.
     bool completeInit(uint32_t workBufSize);
 
     // Linear (DMA-visible) memory MVD's hardware reads/writes through
