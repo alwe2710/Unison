@@ -293,106 +293,136 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         for (size_t i = 0; i < nalLen && i < 8; i++) {
             std::snprintf(hex + i * 3, sizeof(hex) - i * 3, "%02x ", data[offset + i]);
         }
-        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu type=%u first=%s",
-                      nalIndex, bufLen, nalHeader & 0x1F, hex);
-        log.add(line);
-        MVDSTD_ProcessNALUnitOut procOut {};
-        Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
-        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx remaining=%lu",
-                      nalIndex, static_cast<unsigned long>(processResult),
-                      static_cast<unsigned long>(procOut.remaining_size));
-        log.add(line);
-        // MVD_STATUS_INCOMPLETEPROCESSING doesn't mean "more NALs needed" --
-        // real-hardware logs show the SAME roughly-sized IDR slice NAL
-        // sometimes completing in a single mvdstdProcessVideoFrame() call
-        // and sometimes not (e.g. bufLen=44828 -> FRAMEREADY immediately,
-        // bufLen=44868 -> INCOMPLETEPROCESSING), which rules out "this is
-        // really two separate NALs" (this project's own x264 encoders are
-        // forced single-slice-per-picture, i_threads=1, see
-        // SoftwareVideoEncoder.cpp's own comment) and points at a
-        // per-call internal processing limit instead. libctru's own
-        // MVDSTD_ProcessNALUnitOut doc comment describes remaining_size as
-        // literally "Total remaining unprocessed input data" for exactly
-        // this situation -- so this resubmits the still-unprocessed tail
-        // of the SAME NAL (not the next distinct one) until MVD reports
-        // something other than INCOMPLETEPROCESSING, bounded so a future
-        // case that genuinely makes no progress can't hang instead of
-        // failing loudly (this project has already been burned once this
-        // session by an unbounded MVD-side wait, see this class's own top
-        // comment).
-        size_t curLen = bufLen;
-        uint8_t *curBuf = static_cast<uint8_t *>(inputBuffer);
-        int continuations = 0;
-        while (processResult == MVD_STATUS_INCOMPLETEPROCESSING && procOut.remaining_size > 0 &&
-               procOut.remaining_size < curLen && continuations < 16) {
-            curBuf += curLen - procOut.remaining_size;
-            curLen = procOut.remaining_size;
-            continuations++;
-            std::snprintf(line, sizeof(line), "nal[%d]: continuing #%d, remaining=%zu", nalIndex, continuations,
-                          curLen);
-            log.add(line);
-            processResult = mvdstdProcessVideoFrame(curBuf, static_cast<u32>(curLen), 0, &procOut);
-            std::snprintf(line, sizeof(line), "nal[%d]: continuation mvdstdProcessVideoFrame returned 0x%08lx",
-                          nalIndex, static_cast<unsigned long>(processResult));
-            log.add(line);
-        }
-        if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
-            nalIndex++;
-            continue;
-        }
-        // MVD_STATUS_PARAMSET: this NAL was just SPS/PPS, no picture data
-        // to render yet. MVD_STATUS_INCOMPLETEPROCESSING here (after the
-        // continuation loop above ran out of attempts or genuinely made no
-        // further progress) means it never got resolved -- neither means a
-        // frame is ready. Anything else (including the ordinary success
-        // case) means this NAL completed a picture, matching the official
-        // mvd example's own check.
-        if (processResult == MVD_STATUS_PARAMSET || processResult == MVD_STATUS_INCOMPLETEPROCESSING) {
-            nalIndex++;
-            continue;
-        }
-        // Poison the output buffer's four corner bytes before rendering,
-        // same technique Core-2-Extreme/Video_player_for_3DS (a real,
-        // working, community-verified MVD user) uses -- mvdstdRenderVideoFrame()'s
-        // own Result is NOT a reliable signal that a picture was actually
-        // written: real-world reports confirm it can report success while
-        // silently leaving the output buffer untouched (still whatever was
-        // there before, i.e. a stale or partially-overwritten previous
-        // frame). Trusting the Result alone -- what this code did before --
-        // means occasionally uploading exactly that leftover/garbage
-        // buffer content as if it were a real decoded frame, which reads
-        // as stripes/blocks on screen. Checking whether the corners
-        // actually changed is this project's own proven way to tell a real
-        // write apart from a no-op success.
-        static const uint8_t kPoison = 0x11;
-        uint8_t *outBytes = static_cast<uint8_t *>(outputBuffer);
-        const size_t lastRowStart = outputBufferSize - static_cast<size_t>(width) * 2;
-        outBytes[0] = kPoison;
-        outBytes[width * 2 - 1] = kPoison;
-        outBytes[lastRowStart] = kPoison;
-        outBytes[outputBufferSize - 1] = kPoison;
-        GSPGPU_FlushDataCache(outputBuffer, outputBufferSize);
 
-        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdRenderVideoFrame", nalIndex);
-        log.add(line);
-        const Result renderResult = mvdstdRenderVideoFrame(&config, true);
-        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdRenderVideoFrame returned 0x%08lx", nalIndex,
-                      static_cast<unsigned long>(renderResult));
-        log.add(line);
-        if (R_FAILED(renderResult)) {
-            nalIndex++;
-            continue;
+        // Real-hardware logs show BOTH of the following happen to a slice
+        // NAL, seemingly at random, most often on the first slice
+        // processed after a fresh completeInit() or right after a
+        // keyframe's SPS/PPS/SEI reset MVD's sequence state (this
+        // project's own protocol re-sends SPS/PPS ahead of every
+        // keyframe, not just the first one): (a) INCOMPLETEPROCESSING
+        // with remaining_size == the whole buffer, i.e. MVD accepted zero
+        // bytes; (b) a fully successful process+render (FRAMEREADY, then
+        // MVD_STATUS_OK) that still leaves the corner-poison bytes
+        // unchanged, i.e. no real picture was written despite every
+        // Result claiming success. Both look like MVD's pipeline simply
+        // not being ready yet for that specific call, rather than
+        // anything wrong with the data itself (the exact same bufLen
+        // succeeds outright on other calls). Core-2-Extreme/
+        // Video_player_for_3DS has its own version of this same
+        // real-world observation: an explicit, if uncertain by their own
+        // comment ("Do I need to send same nal data at first frame?"),
+        // resend of the very first frame's data a second time. This
+        // generalizes that into a small bounded retry (whole NAL
+        // resubmitted from scratch, not a mid-NAL continuation) around
+        // the entire process+render+corner-check cycle for ANY NAL that
+        // doesn't produce a real picture on the first attempt, not just
+        // the very first one this decoder ever sees.
+        constexpr int kMaxNalAttempts = 3;
+        bool nalProducedFrame = false;
+        bool nalWasParamsetOnly = false;
+        for (int attempt = 0; attempt < kMaxNalAttempts && !nalProducedFrame && !nalWasParamsetOnly; attempt++) {
+            if (attempt > 0) {
+                std::snprintf(line, sizeof(line), "nal[%d]: retrying, attempt=%d", nalIndex, attempt);
+                log.add(line);
+            }
+            std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu type=%u first=%s",
+                          nalIndex, bufLen, nalHeader & 0x1F, hex);
+            log.add(line);
+            MVDSTD_ProcessNALUnitOut procOut {};
+            Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
+            std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx remaining=%lu",
+                          nalIndex, static_cast<unsigned long>(processResult),
+                          static_cast<unsigned long>(procOut.remaining_size));
+            log.add(line);
+            // MVD_STATUS_INCOMPLETEPROCESSING doesn't always mean "more
+            // NALs needed" -- when remaining_size is strictly less than
+            // what was just submitted, MVD genuinely made partial
+            // progress and wants the still-unprocessed tail of this SAME
+            // NAL (not the next distinct one) resubmitted; libctru's own
+            // MVDSTD_ProcessNALUnitOut doc comment describes remaining_size
+            // as literally "Total remaining unprocessed input data" for
+            // exactly this. Bounded so a case that genuinely makes no
+            // progress can't hang instead of failing loudly (this project
+            // has already been burned once this session by an unbounded
+            // MVD-side wait, see this class's own top comment).
+            size_t curLen = bufLen;
+            uint8_t *curBuf = static_cast<uint8_t *>(inputBuffer);
+            int continuations = 0;
+            while (processResult == MVD_STATUS_INCOMPLETEPROCESSING && procOut.remaining_size > 0 &&
+                   procOut.remaining_size < curLen && continuations < 16) {
+                curBuf += curLen - procOut.remaining_size;
+                curLen = procOut.remaining_size;
+                continuations++;
+                std::snprintf(line, sizeof(line), "nal[%d]: continuing #%d, remaining=%zu", nalIndex, continuations,
+                              curLen);
+                log.add(line);
+                processResult = mvdstdProcessVideoFrame(curBuf, static_cast<u32>(curLen), 0, &procOut);
+                std::snprintf(line, sizeof(line), "nal[%d]: continuation mvdstdProcessVideoFrame returned 0x%08lx",
+                              nalIndex, static_cast<unsigned long>(processResult));
+                log.add(line);
+            }
+            if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
+                // A real rejection, not a "not ready yet" -- retrying the
+                // exact same bytes won't change that.
+                break;
+            }
+            if (processResult == MVD_STATUS_PARAMSET) {
+                // SPS/PPS/SEI: no picture to render, and nothing to retry
+                // either -- this NAL is simply done.
+                nalWasParamsetOnly = true;
+                break;
+            }
+            if (processResult == MVD_STATUS_INCOMPLETEPROCESSING) {
+                // Zero (or unresolved) progress even after the
+                // continuation loop above -- worth an outer retry (see
+                // this loop's own comment), the loop condition handles
+                // that.
+                continue;
+            }
+            // Poison the output buffer's four corner bytes before
+            // rendering, same technique Core-2-Extreme/Video_player_for_3DS
+            // (a real, working, community-verified MVD user) uses --
+            // mvdstdRenderVideoFrame()'s own Result is NOT a reliable
+            // signal that a picture was actually written: real-world
+            // reports confirm it can report success while silently
+            // leaving the output buffer untouched (still whatever was
+            // there before, i.e. a stale or partially-overwritten
+            // previous frame). Trusting the Result alone means
+            // occasionally uploading exactly that leftover/garbage
+            // buffer content as if it were a real decoded frame, which
+            // reads as stripes/blocks on screen. Checking whether the
+            // corners actually changed is this project's own proven way
+            // to tell a real write apart from a no-op success.
+            static const uint8_t kPoison = 0x11;
+            uint8_t *outBytes = static_cast<uint8_t *>(outputBuffer);
+            const size_t lastRowStart = outputBufferSize - static_cast<size_t>(width) * 2;
+            outBytes[0] = kPoison;
+            outBytes[width * 2 - 1] = kPoison;
+            outBytes[lastRowStart] = kPoison;
+            outBytes[outputBufferSize - 1] = kPoison;
+            GSPGPU_FlushDataCache(outputBuffer, outputBufferSize);
+
+            std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdRenderVideoFrame", nalIndex);
+            log.add(line);
+            const Result renderResult = mvdstdRenderVideoFrame(&config, true);
+            std::snprintf(line, sizeof(line), "nal[%d]: mvdstdRenderVideoFrame returned 0x%08lx", nalIndex,
+                          static_cast<unsigned long>(renderResult));
+            log.add(line);
+            if (R_FAILED(renderResult)) {
+                continue;
+            }
+            GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
+            const bool cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
+                                         outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
+            std::snprintf(line, sizeof(line), "nal[%d]: cornersChanged=%d", nalIndex, cornersChanged ? 1 : 0);
+            log.add(line);
+            if (cornersChanged) {
+                nalProducedFrame = true;
+            }
         }
-        GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
-        const bool cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
-                                     outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
-        std::snprintf(line, sizeof(line), "nal[%d]: cornersChanged=%d", nalIndex, cornersChanged ? 1 : 0);
-        log.add(line);
-        if (!cornersChanged) {
-            nalIndex++;
-            continue;
+        if (nalProducedFrame) {
+            frameReady = true;
         }
-        frameReady = true;
         nalIndex++;
     }
 
