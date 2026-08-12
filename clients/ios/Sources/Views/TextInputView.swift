@@ -88,7 +88,22 @@ struct TextInputView: View {
                     Button(LocaleHelper.string("ok", prefs: prefs)) { submit() }
                 }
             }
-            .onAppear { focused = true }
+            .onAppear {
+                // Not set synchronously -- a fullScreenCover's own
+                // presentation animation is still running when this fires,
+                // and @FocusState set before that animation completes is a
+                // known SwiftUI/iOS quirk that silently never raises the
+                // keyboard (the field visibly becomes focused -- cursor
+                // blinking -- but the system keyboard just doesn't appear),
+                // reported live on a real device where Android's equivalent
+                // (TextInputActivity.kt, a real Activity transition, not a
+                // cover animation) had no such problem. A short delay past
+                // the cover's own transition duration is the standard
+                // workaround.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    focused = true
+                }
+            }
             .onDisappear {
                 if !responded {
                     onSubmit(false, "")

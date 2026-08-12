@@ -791,14 +791,17 @@ private struct CompressedVideoView: UIViewRepresentable {
 /// session also has real analog input (hasSticks, Azahar's
 /// N3DS_BOTTOM_SCREEN) -- ZL/ZR (EXT_BUTTONS_LIMITED) and both
 /// VirtualSticks. Corner-anchored, same visual language as ButtonOverlay's
-/// own layout (reported as fixed/working after real-device testing): ZL/ZR
-/// top corners, shared L/Select/Start/R top-center, a D-pad-equivalent
-/// cluster stacked above the left stick, an A/B/X/Y diamond stacked above
-/// the right stick -- replaces the previous single bottom-row layout
-/// (reported as still not correct after that same testing pass, unlike the
-/// plain-buttons case). Without hasSticks (melonDS's touch_and_buttons: a
-/// D-pad but no analog stick), the two clusters just have no stick beneath
-/// them and ZL/ZR don't render at all.
+/// own layout: L stacked directly above ZL in the top-leading corner, R
+/// stacked above ZR in the top-trailing corner (same shape as
+/// PlayerActivity.kt's own ExtHoldButton placement: L/R at top=16.dp,
+/// ZL/ZR at top=60.dp, same start/end padding), Select+Start alone in the
+/// top-center, a D-pad-equivalent cluster stacked above the left stick, an
+/// A/B/X/Y diamond stacked above the right stick. Was L/Select/Start/R all
+/// together in one top-center row until a real-device report caught L/R
+/// sitting in the middle instead of out by ZL/ZR. Without hasSticks
+/// (melonDS's touch_and_buttons: a D-pad but no analog stick), the two
+/// clusters just have no stick beneath them and ZL/ZR don't render at all
+/// (L/R still do, alone in their corners).
 private struct ExtendedControlsOverlay: View {
     let hasSticks: Bool
     @ObservedObject var viewModel: PlayerViewModel
@@ -820,21 +823,27 @@ private struct ExtendedControlsOverlay: View {
     var body: some View {
         Color.clear
             .overlay(alignment: .topLeading) {
-                if hasSticks {
-                    hold("ZL", bit: UInt32(ExtButtonBit.ZL)).padding()
+                VStack(spacing: 8) {
+                    shared("L")
+                    if hasSticks {
+                        hold("ZL", bit: UInt32(ExtButtonBit.ZL))
+                    }
                 }
+                .padding()
             }
             .overlay(alignment: .topTrailing) {
-                if hasSticks {
-                    hold("ZR", bit: UInt32(ExtButtonBit.ZR)).padding()
+                VStack(spacing: 8) {
+                    shared("R")
+                    if hasSticks {
+                        hold("ZR", bit: UInt32(ExtButtonBit.ZR))
+                    }
                 }
+                .padding()
             }
             .overlay(alignment: .top) {
                 HStack(spacing: 12) {
-                    shared("L")
                     shared("Select")
                     shared("Start")
-                    shared("R")
                 }
                 .padding(.top, 8)
             }
@@ -861,16 +870,18 @@ private struct ExtendedControlsOverlay: View {
         }
     }
 
-    /// A/B/X/Y diamond (X top, Y bottom, B leading, A trailing -- same
-    /// shape as PlayerActivity.kt's own ExtActionButtons), stacked directly
-    /// above the right stick when present.
+    /// A/B/X/Y diamond (X top, Y leading, B bottom, A trailing -- same
+    /// shape as PlayerActivity.kt's own ExtActionButtons: X TopCenter, Y
+    /// CenterStart, A CenterEnd, B BottomCenter), stacked directly above
+    /// the right stick when present. Was Y bottom/B leading (B and Y
+    /// swapped relative to Android) until a real-device report caught it.
     private var rightCluster: some View {
         VStack(spacing: 8) {
             Color.clear
                 .frame(width: 132, height: 132)
                 .overlay(alignment: .top) { hold("X", bit: UInt32(ExtButtonBit.X)) }
-                .overlay(alignment: .bottom) { hold("Y", bit: UInt32(ExtButtonBit.Y)) }
-                .overlay(alignment: .leading) { shared("B") }
+                .overlay(alignment: .leading) { hold("Y", bit: UInt32(ExtButtonBit.Y)) }
+                .overlay(alignment: .bottom) { shared("B") }
                 .overlay(alignment: .trailing) { shared("A") }
             if hasSticks {
                 Stick { x, y in viewModel.setRightStick(x: x, y: y) }
