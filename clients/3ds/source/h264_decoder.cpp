@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <utility>
 
 namespace {
@@ -48,13 +49,23 @@ H264Decoder::H264Decoder(uint32_t inputWidth, uint32_t inputHeight) : width(inpu
 
     // MVDMODE_VIDEOPROCESSING (not MVDMODE_COLORFORMATCONV, that mode is
     // for converting an already-decoded YUYV422 buffer, not for decoding a
-    // compressed bitstream at all): MVD_INPUT_H264 in, MVD_OUTPUT_RGB565
-    // out -- RGB565, not BGR565, so this needs no channel-swap before
-    // handing pixels to VideoTex::setFrame(), which already expects
-    // citro3d's GPU_RGB565 layout directly (see that class's own comment).
+    // compressed bitstream at all): MVD_INPUT_H264 in, MVD_OUTPUT_BGR565
+    // out. Was MVD_OUTPUT_RGB565 (this class's original comment here
+    // claimed that needed no channel-swap before VideoTex::setFrame(),
+    // which expects citro3d's GPU_RGB565 layout) -- changed after a real
+    // hardware report of black/gray stripes that a render-result-vs-actual-
+    // write sentinel check didn't fix (meaning MVD genuinely writes data
+    // every call, just wrong-looking data, not a stale-buffer issue).
+    // Every real MVD user found while researching this -- the official
+    // devkitPro/3ds-examples mvd example AND Core-2-Extreme/
+    // Video_player_for_3DS, an actively maintained, real-world working
+    // player -- requests MVD_OUTPUT_BGR565, never RGB565; nothing found
+    // anywhere uses RGB565 in practice. decode()'s own final copy now
+    // swaps R/B per pixel before handing pixels to VideoTex, which still
+    // expects RGB565.
     MvdLog("calling mvdstdInit");
     const Result initResult =
-        mvdstdInit(MVDMODE_VIDEOPROCESSING, MVD_INPUT_H264, MVD_OUTPUT_RGB565, MVD_DEFAULT_WORKBUF_SIZE, nullptr);
+        mvdstdInit(MVDMODE_VIDEOPROCESSING, MVD_INPUT_H264, MVD_OUTPUT_BGR565, MVD_DEFAULT_WORKBUF_SIZE, nullptr);
     std::snprintf(line, sizeof(line), "mvdstdInit returned 0x%08lx", static_cast<unsigned long>(initResult));
     MvdLog(line);
     if (R_FAILED(initResult)) {
@@ -115,11 +126,39 @@ H264Decoder::~H264Decoder() {
     MvdLog("dtor: done");
 }
 
+namespace {
+// Batches this call's whole diagnostic log into one string, flushed to the
+// SD card exactly once (via MvdLog(), still one open/write/flush/close) no
+// matter which of decode()'s several return points fires -- was one
+// separate MvdLog() call (one full file open/write/flush/close each) per
+// logged line, ~15-20 of them per single decode() call once the crash
+// itself was fixed and this function actually reached its per-NAL/per-
+// render logging every frame instead of crashing after 2-3 lines. That
+// much synchronous SD-card I/O on the session's own receive thread was
+// slow enough to fall behind the incoming stream and trip a real
+// connection timeout (reported directly: "bricht nach ca 10 sek ab").
+// Batching keeps the same diagnostic content but costs one SD-card file
+// operation per decoded frame instead of fifteen-plus.
+struct LogBatch {
+    std::string buf;
+    void add(const char *msg) {
+        buf += msg;
+        buf += '\n';
+    }
+    ~LogBatch() {
+        if (!buf.empty()) {
+            MvdLog(buf.c_str());
+        }
+    }
+};
+} // namespace
+
 bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &outRgb565) {
+    LogBatch log;
     {
         char line[64];
         std::snprintf(line, sizeof(line), "decode: entered, initialized=%d len=%zu", initialized ? 1 : 0, len);
-        MvdLog(line);
+        log.add(line);
     }
     if (!initialized || len == 0) {
         return false;
@@ -177,7 +216,7 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
     {
         char line[80];
         std::snprintf(line, sizeof(line), "decode: len=%zu nalCount=%zu", len, nalRanges.size());
-        MvdLog(line);
+        log.add(line);
     }
 
     bool frameReady = false;
@@ -186,7 +225,7 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         char line[128];
         if (nalLen == 0 || nalLen + 3 > inputBufferCapacity) {
             std::snprintf(line, sizeof(line), "nal[%d]: skipped, nalLen=%zu", nalIndex, nalLen);
-            MvdLog(line);
+            log.add(line);
             nalIndex++;
             continue;
         }
@@ -210,12 +249,12 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         }
         std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu type=%u first=%s",
                       nalIndex, bufLen, nalHeader & 0x1F, hex);
-        MvdLog(line);
+        log.add(line);
         MVDSTD_ProcessNALUnitOut procOut {};
         const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
         std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx", nalIndex,
                       static_cast<unsigned long>(processResult));
-        MvdLog(line);
+        log.add(line);
         if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
             nalIndex++;
             continue;
@@ -253,11 +292,11 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         GSPGPU_FlushDataCache(outputBuffer, outputBufferSize);
 
         std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdRenderVideoFrame", nalIndex);
-        MvdLog(line);
+        log.add(line);
         const Result renderResult = mvdstdRenderVideoFrame(&config, true);
         std::snprintf(line, sizeof(line), "nal[%d]: mvdstdRenderVideoFrame returned 0x%08lx", nalIndex,
                       static_cast<unsigned long>(renderResult));
-        MvdLog(line);
+        log.add(line);
         if (R_FAILED(renderResult)) {
             nalIndex++;
             continue;
@@ -266,7 +305,7 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         const bool cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
                                      outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
         std::snprintf(line, sizeof(line), "nal[%d]: cornersChanged=%d", nalIndex, cornersChanged ? 1 : 0);
-        MvdLog(line);
+        log.add(line);
         if (!cornersChanged) {
             nalIndex++;
             continue;
@@ -276,14 +315,28 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
     }
 
     if (!frameReady) {
-        MvdLog("decode: no frame ready, returning false");
+        log.add("decode: no frame ready, returning false");
         return false;
     }
 
-    MvdLog("decode: invalidating cache + copying out");
+    log.add("decode: invalidating cache + copying out");
     GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
     outRgb565.resize(outputBufferSize);
-    std::memcpy(outRgb565.data(), outputBuffer, outputBufferSize);
-    MvdLog("decode: done, returning true");
+    // outputBuffer holds BGR565 pixels (MVD_OUTPUT_BGR565, see the ctor's
+    // own comment) -- VideoTex::setFrame() expects RGB565, so this swaps
+    // each 16-bit little-endian pixel's 5-bit R/B fields (bits 15-11 and
+    // 4-0) while leaving the 6-bit G field (bits 10-5) in the middle
+    // untouched, rather than a plain memcpy.
+    {
+        const uint8_t *src = static_cast<const uint8_t *>(outputBuffer);
+        uint8_t *dst = outRgb565.data();
+        for (size_t i = 0; i + 1 < outputBufferSize; i += 2) {
+            const uint16_t bgr = static_cast<uint16_t>(src[i]) | (static_cast<uint16_t>(src[i + 1]) << 8);
+            const uint16_t rgb = static_cast<uint16_t>((bgr & 0x07E0) | ((bgr & 0xF800) >> 11) | ((bgr & 0x001F) << 11));
+            dst[i] = static_cast<uint8_t>(rgb & 0xFF);
+            dst[i + 1] = static_cast<uint8_t>(rgb >> 8);
+        }
+    }
+    log.add("decode: done, returning true");
     return true;
 }
