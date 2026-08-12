@@ -28,18 +28,29 @@
 // Video_player_for_3DS (an actively maintained, real-world working player,
 // github.com/Core-2-Extreme/Video_player_for_3DS,
 // source/system/util/decoder.c). Adopted from it: the corner-poison
-// sentinel technique (decode()'s own comment) and decode()'s single
-// combined-NAL-buffer mvdstdProcessVideoFrame() call. Tried and reverted:
-// its mvdstdCalculateBufferSize()-with-real-level work-buffer sizing --
-// real-hardware logging showed decode() being called but never returning
-// on its very first invocation once that landed (no trace of it reaching
-// even its own first log line), immediately followed by the same
-// ~10-second connection-timeout symptom this project once diagnosed for an
-// unrelated reason (see LogBatch's own comment) -- so this class went back
-// to eager construction-time init with the fixed MVD_DEFAULT_WORKBUF_SIZE
-// constant (completeInit()'s own comment). Also NOT adopted: their
-// non-blocking mvdstdRenderVideoFrame(NULL, false) retry loop, which its
-// own comment says needs a custom libctru fork
+// sentinel technique (decode()'s own comment). Tried and reverted, both
+// found guilty by real-hardware logging:
+//   - Its mvdstdCalculateBufferSize()-with-real-level work-buffer sizing
+//     (needs init moved out of the constructor into decode()'s first
+//     call): decode() was observed being called but never returning on
+//     its very first invocation (no trace of it reaching even its own
+//     first log line), immediately followed by the same ~10-second
+//     connection-timeout symptom this project once diagnosed for an
+//     unrelated reason (see LogBatch's own comment). Back to eager
+//     construction-time init with the fixed MVD_DEFAULT_WORKBUF_SIZE
+//     constant (completeInit()'s own comment).
+//   - Its pattern of concatenating a whole access unit's NALs into one
+//     buffer for a single mvdstdProcessVideoFrame() call: a keyframe
+//     message's combined SPS+PPS+SEI+slice buffer came back
+//     MVD_STATUS_INCOMPLETEPROCESSING from ONE such call, which this
+//     function's logic (correctly, for the per-NAL case) treats as "no
+//     frame yet" and drops -- silently discarding the IDR slice inside
+//     every keyframe, every time, without ever decoding it. Back to one
+//     mvdstdProcessVideoFrame() call per individual NAL (decode()'s own
+//     comment), which real-hardware logs confirm MVD actually fully
+//     consumes in one call.
+// Also NOT adopted: their non-blocking mvdstdRenderVideoFrame(NULL, false)
+// retry loop, which its own comment says needs a custom libctru fork
 // (github.com/Core-2-Extreme/libctru_custom) -- stock libctru (what this
 // project builds against) returns an immediate error for a NULL config
 // (confirmed by reading libctru's own mvd.c), so this class keeps the

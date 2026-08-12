@@ -239,33 +239,46 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
     // inside the "mvd" process itself (not this app's process) that this
     // fix addresses.
     //
-    // All of this message's NALs are concatenated into ONE buffer (each
-    // still individually prefixed with its own 00 00 01 start code) and
-    // handed to mvdstdProcessVideoFrame() in a SINGLE call, rather than one
-    // call per NAL (this function's own previous approach). This matches
-    // how Core-2-Extreme/Video_player_for_3DS actually drives MVD: one
-    // whole access unit (SPS+PPS+slice for a keyframe, or just a slice for
-    // a delta frame) built into one contiguous buffer, processed in one
-    // call -- not MVD's own per-NAL API description taken literally.
+    // One mvdstdProcessVideoFrame() call per individual NAL -- NOT a
+    // combined multi-NAL buffer processed in one call (a since-reverted
+    // variant tried that, modeled on Core-2-Extreme/Video_player_for_3DS's
+    // own real usage). Real-hardware logging of that variant showed a
+    // keyframe message's combined SPS+PPS+SEI+slice buffer coming back
+    // MVD_STATUS_INCOMPLETEPROCESSING from a SINGLE process call -- "not
+    // all of the input NAL-unit buffer was processed" per that status
+    // code's own doc comment -- which this function's own (then-)logic
+    // treated as "no frame yet, drop it", silently discarding the IDR
+    // slice inside every single keyframe without ever decoding it. Every
+    // later delta frame was then being predicted from no valid reference
+    // at all, which is what actually produced the persistent
+    // gray/blue-drifting stripes report that combined-buffer variant was
+    // meant to fix. Per-NAL calls don't hit this: a single already-whole
+    // NAL is what mvdstdProcessVideoFrame() actually seems built to fully
+    // consume in one call (confirmed in earlier real-hardware logs: a
+    // keyframe's own slice NAL, fed alone, returns MVD_STATUS_FRAMEREADY
+    // and renders successfully).
     {
         char line[80];
         std::snprintf(line, sizeof(line), "decode: len=%zu nalCount=%zu", len, nalRanges.size());
         log.add(line);
     }
 
-    static const uint8_t kStartCode[3] = {0, 0, 1};
-    uint8_t *inBytes = static_cast<uint8_t *>(inputBuffer);
-    size_t combinedLen = 0;
+    bool frameReady = false;
     int nalIndex = 0;
     for (const auto &[offset, nalLen] : nalRanges) {
         char line[128];
-        if (nalLen == 0 || combinedLen + nalLen + 3 > inputBufferCapacity) {
-            std::snprintf(line, sizeof(line), "nal[%d]: skipped, nalLen=%zu combinedLen=%zu", nalIndex, nalLen,
-                          combinedLen);
+        if (nalLen == 0 || nalLen + 3 > inputBufferCapacity) {
+            std::snprintf(line, sizeof(line), "nal[%d]: skipped, nalLen=%zu", nalIndex, nalLen);
             log.add(line);
             nalIndex++;
             continue;
         }
+        static const uint8_t kStartCode[3] = {0, 0, 1};
+        std::memcpy(inputBuffer, kStartCode, 3);
+        std::memcpy(static_cast<uint8_t *>(inputBuffer) + 3, data + offset, nalLen);
+        const size_t bufLen = nalLen + 3;
+        GSPGPU_FlushDataCache(inputBuffer, bufLen);
+
         // NAL header byte (forbidden_zero_bit + nal_ref_idc + nal_unit_type,
         // standard H.264 Annex-B layout) plus the first handful of payload
         // bytes -- to check whether our own Annex-B splitter is actually
@@ -273,120 +286,79 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
         // slice, 5=IDR slice, 7=SPS, 8=PPS, 6=SEI, 9=AUD, ...) or something
         // that looks like mid-slice garbage, which would point at a
         // splitter bug rather than an MVD/hardware one.
+        const uint8_t nalHeader = nalLen > 0 ? data[offset] : 0;
         char hex[32] = { 0 };
         for (size_t i = 0; i < nalLen && i < 8; i++) {
             std::snprintf(hex + i * 3, sizeof(hex) - i * 3, "%02x ", data[offset + i]);
         }
-        std::snprintf(line, sizeof(line), "nal[%d]: appending type=%u first=%s", nalIndex, data[offset] & 0x1F, hex);
+        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdProcessVideoFrame bufLen=%zu type=%u first=%s",
+                      nalIndex, bufLen, nalHeader & 0x1F, hex);
         log.add(line);
-        std::memcpy(inBytes + combinedLen, kStartCode, 3);
-        combinedLen += 3;
-        std::memcpy(inBytes + combinedLen, data + offset, nalLen);
-        combinedLen += nalLen;
-        nalIndex++;
-    }
-    if (combinedLen == 0) {
-        log.add("decode: nothing fit in the combined buffer, returning false");
-        return false;
-    }
-    GSPGPU_FlushDataCache(inputBuffer, combinedLen);
-
-    {
-        char line[64];
-        std::snprintf(line, sizeof(line), "decode: calling mvdstdProcessVideoFrame combinedLen=%zu", combinedLen);
-        log.add(line);
-    }
-
-    // Poison the output buffer's four corner bytes before processing, same
-    // technique Core-2-Extreme/Video_player_for_3DS (a real, working,
-    // community-verified MVD user) uses -- mvdstdProcessVideoFrame() and
-    // mvdstdRenderVideoFrame()'s own Results are NOT a reliable signal that
-    // a picture was actually written: real-world reports confirm they can
-    // report success while silently leaving the output buffer untouched
-    // (still whatever was there before, i.e. a stale or
-    // partially-overwritten previous frame). Trusting the Result alone --
-    // what this code did before -- means occasionally uploading exactly
-    // that leftover/garbage buffer content as if it were a real decoded
-    // frame, which reads as stripes/blocks on screen. Checking whether the
-    // corners actually changed is this project's own proven way to tell a
-    // real write apart from a no-op success. Checked once right after
-    // mvdstdProcessVideoFrame() (a combined multi-NAL buffer can itself
-    // complete a picture, same as Core-2-Extreme's own "got_a_frame after
-    // mvdstdProcessVideoFrame()" fast path) and, only if still unwritten,
-    // again after mvdstdRenderVideoFrame().
-    static const uint8_t kPoison = 0x11;
-    uint8_t *outBytes = static_cast<uint8_t *>(outputBuffer);
-    const size_t lastRowStart = outputBufferSize - static_cast<size_t>(width) * 2;
-    outBytes[0] = kPoison;
-    outBytes[width * 2 - 1] = kPoison;
-    outBytes[lastRowStart] = kPoison;
-    outBytes[outputBufferSize - 1] = kPoison;
-    GSPGPU_FlushDataCache(outputBuffer, outputBufferSize);
-
-    MVDSTD_ProcessNALUnitOut procOut {};
-    const Result processResult =
-        mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(combinedLen), 0, &procOut);
-    {
-        char line[64];
-        std::snprintf(line, sizeof(line), "mvdstdProcessVideoFrame returned 0x%08lx",
+        MVDSTD_ProcessNALUnitOut procOut {};
+        const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
+        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx", nalIndex,
                       static_cast<unsigned long>(processResult));
         log.add(line);
-    }
-    if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
-        log.add("decode: process failed, returning false");
-        return false;
-    }
-    // MVD_STATUS_PARAMSET: this buffer was just SPS/PPS, no picture data to
-    // render yet. MVD_STATUS_INCOMPLETEPROCESSING: doesn't complete a
-    // picture on its own -- neither means a frame is ready.
-    if (processResult == MVD_STATUS_PARAMSET || processResult == MVD_STATUS_INCOMPLETEPROCESSING) {
-        log.add("decode: paramset/incomplete, no frame yet, returning false");
-        return false;
-    }
-
-    GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
-    bool cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
-                           outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
-    {
-        char line[48];
-        std::snprintf(line, sizeof(line), "decode: cornersChanged after process=%d", cornersChanged ? 1 : 0);
-        log.add(line);
-    }
-
-    if (!cornersChanged) {
-        // Not written yet by mvdstdProcessVideoFrame() alone -- fall
-        // through to mvdstdRenderVideoFrame(), same as this function's
-        // previous (per-NAL) behavior. Stays a single blocking call
-        // (wait=true) rather than Core-2-Extreme's non-blocking
-        // mvdstdRenderVideoFrame(NULL, false) retry loop -- see this
-        // class's own header comment on why (stock libctru, which this
-        // project builds against, rejects a NULL config outright; their
-        // retry loop needs a custom libctru fork this project doesn't
-        // use). Stock's blocking call already loops internally
-        // (MVDSTD_ControlFrameRendering()) until done, so this isn't
-        // materially different from their loop, just without a
-        // per-iteration sentinel check in between.
-        log.add("decode: calling mvdstdRenderVideoFrame");
-        const Result renderResult = mvdstdRenderVideoFrame(&config, true);
-        {
-            char line[64];
-            std::snprintf(line, sizeof(line), "mvdstdRenderVideoFrame returned 0x%08lx",
-                          static_cast<unsigned long>(renderResult));
-            log.add(line);
+        if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
+            nalIndex++;
+            continue;
         }
+        // MVD_STATUS_PARAMSET: this NAL was just SPS/PPS, no picture data
+        // to render yet. MVD_STATUS_INCOMPLETEPROCESSING: this NAL alone
+        // doesn't complete a picture (more slice data needed from a
+        // following NAL) -- neither means a frame is ready. Anything else
+        // (including the ordinary success case) means this NAL completed
+        // a picture, matching the official mvd example's own check.
+        if (processResult == MVD_STATUS_PARAMSET || processResult == MVD_STATUS_INCOMPLETEPROCESSING) {
+            nalIndex++;
+            continue;
+        }
+        // Poison the output buffer's four corner bytes before rendering,
+        // same technique Core-2-Extreme/Video_player_for_3DS (a real,
+        // working, community-verified MVD user) uses -- mvdstdRenderVideoFrame()'s
+        // own Result is NOT a reliable signal that a picture was actually
+        // written: real-world reports confirm it can report success while
+        // silently leaving the output buffer untouched (still whatever was
+        // there before, i.e. a stale or partially-overwritten previous
+        // frame). Trusting the Result alone -- what this code did before --
+        // means occasionally uploading exactly that leftover/garbage
+        // buffer content as if it were a real decoded frame, which reads
+        // as stripes/blocks on screen. Checking whether the corners
+        // actually changed is this project's own proven way to tell a real
+        // write apart from a no-op success.
+        static const uint8_t kPoison = 0x11;
+        uint8_t *outBytes = static_cast<uint8_t *>(outputBuffer);
+        const size_t lastRowStart = outputBufferSize - static_cast<size_t>(width) * 2;
+        outBytes[0] = kPoison;
+        outBytes[width * 2 - 1] = kPoison;
+        outBytes[lastRowStart] = kPoison;
+        outBytes[outputBufferSize - 1] = kPoison;
+        GSPGPU_FlushDataCache(outputBuffer, outputBufferSize);
+
+        std::snprintf(line, sizeof(line), "nal[%d]: calling mvdstdRenderVideoFrame", nalIndex);
+        log.add(line);
+        const Result renderResult = mvdstdRenderVideoFrame(&config, true);
+        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdRenderVideoFrame returned 0x%08lx", nalIndex,
+                      static_cast<unsigned long>(renderResult));
+        log.add(line);
         if (R_FAILED(renderResult)) {
-            log.add("decode: render failed, returning false");
-            return false;
+            nalIndex++;
+            continue;
         }
         GSPGPU_InvalidateDataCache(outputBuffer, outputBufferSize);
-        cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
-                          outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
-        char line[48];
-        std::snprintf(line, sizeof(line), "decode: cornersChanged after render=%d", cornersChanged ? 1 : 0);
+        const bool cornersChanged = outBytes[0] != kPoison || outBytes[width * 2 - 1] != kPoison ||
+                                     outBytes[lastRowStart] != kPoison || outBytes[outputBufferSize - 1] != kPoison;
+        std::snprintf(line, sizeof(line), "nal[%d]: cornersChanged=%d", nalIndex, cornersChanged ? 1 : 0);
         log.add(line);
+        if (!cornersChanged) {
+            nalIndex++;
+            continue;
+        }
+        frameReady = true;
+        nalIndex++;
     }
 
-    if (!cornersChanged) {
+    if (!frameReady) {
         log.add("decode: no frame ready, returning false");
         return false;
     }
