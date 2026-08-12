@@ -252,11 +252,13 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
     // later delta frame was then being predicted from no valid reference
     // at all, which is what actually produced the persistent
     // gray/blue-drifting stripes report that combined-buffer variant was
-    // meant to fix. Per-NAL calls don't hit this: a single already-whole
-    // NAL is what mvdstdProcessVideoFrame() actually seems built to fully
-    // consume in one call (confirmed in earlier real-hardware logs: a
-    // keyframe's own slice NAL, fed alone, returns MVD_STATUS_FRAMEREADY
-    // and renders successfully).
+    // meant to fix. Per-NAL calls avoid the specific failure mode above
+    // (a whole separate NAL silently dropped), but a single already-whole
+    // NAL can ITSELF still come back MVD_STATUS_INCOMPLETEPROCESSING from
+    // one call (real-hardware logs show the same roughly-sized IDR slice
+    // sometimes needing this, sometimes not) -- the per-NAL loop below
+    // handles that with its own bounded continuation loop, see its own
+    // comment.
     {
         char line[80];
         std::snprintf(line, sizeof(line), "decode: len=%zu nalCount=%zu", len, nalRanges.size());
@@ -295,20 +297,56 @@ bool H264Decoder::decode(const uint8_t *data, size_t len, std::vector<uint8_t> &
                       nalIndex, bufLen, nalHeader & 0x1F, hex);
         log.add(line);
         MVDSTD_ProcessNALUnitOut procOut {};
-        const Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
-        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx", nalIndex,
-                      static_cast<unsigned long>(processResult));
+        Result processResult = mvdstdProcessVideoFrame(inputBuffer, static_cast<u32>(bufLen), 0, &procOut);
+        std::snprintf(line, sizeof(line), "nal[%d]: mvdstdProcessVideoFrame returned 0x%08lx remaining=%lu",
+                      nalIndex, static_cast<unsigned long>(processResult),
+                      static_cast<unsigned long>(procOut.remaining_size));
         log.add(line);
+        // MVD_STATUS_INCOMPLETEPROCESSING doesn't mean "more NALs needed" --
+        // real-hardware logs show the SAME roughly-sized IDR slice NAL
+        // sometimes completing in a single mvdstdProcessVideoFrame() call
+        // and sometimes not (e.g. bufLen=44828 -> FRAMEREADY immediately,
+        // bufLen=44868 -> INCOMPLETEPROCESSING), which rules out "this is
+        // really two separate NALs" (this project's own x264 encoders are
+        // forced single-slice-per-picture, i_threads=1, see
+        // SoftwareVideoEncoder.cpp's own comment) and points at a
+        // per-call internal processing limit instead. libctru's own
+        // MVDSTD_ProcessNALUnitOut doc comment describes remaining_size as
+        // literally "Total remaining unprocessed input data" for exactly
+        // this situation -- so this resubmits the still-unprocessed tail
+        // of the SAME NAL (not the next distinct one) until MVD reports
+        // something other than INCOMPLETEPROCESSING, bounded so a future
+        // case that genuinely makes no progress can't hang instead of
+        // failing loudly (this project has already been burned once this
+        // session by an unbounded MVD-side wait, see this class's own top
+        // comment).
+        size_t curLen = bufLen;
+        uint8_t *curBuf = static_cast<uint8_t *>(inputBuffer);
+        int continuations = 0;
+        while (processResult == MVD_STATUS_INCOMPLETEPROCESSING && procOut.remaining_size > 0 &&
+               procOut.remaining_size < curLen && continuations < 16) {
+            curBuf += curLen - procOut.remaining_size;
+            curLen = procOut.remaining_size;
+            continuations++;
+            std::snprintf(line, sizeof(line), "nal[%d]: continuing #%d, remaining=%zu", nalIndex, continuations,
+                          curLen);
+            log.add(line);
+            processResult = mvdstdProcessVideoFrame(curBuf, static_cast<u32>(curLen), 0, &procOut);
+            std::snprintf(line, sizeof(line), "nal[%d]: continuation mvdstdProcessVideoFrame returned 0x%08lx",
+                          nalIndex, static_cast<unsigned long>(processResult));
+            log.add(line);
+        }
         if (!MVD_CHECKNALUPROC_SUCCESS(processResult)) {
             nalIndex++;
             continue;
         }
         // MVD_STATUS_PARAMSET: this NAL was just SPS/PPS, no picture data
-        // to render yet. MVD_STATUS_INCOMPLETEPROCESSING: this NAL alone
-        // doesn't complete a picture (more slice data needed from a
-        // following NAL) -- neither means a frame is ready. Anything else
-        // (including the ordinary success case) means this NAL completed
-        // a picture, matching the official mvd example's own check.
+        // to render yet. MVD_STATUS_INCOMPLETEPROCESSING here (after the
+        // continuation loop above ran out of attempts or genuinely made no
+        // further progress) means it never got resolved -- neither means a
+        // frame is ready. Anything else (including the ordinary success
+        // case) means this NAL completed a picture, matching the official
+        // mvd example's own check.
         if (processResult == MVD_STATUS_PARAMSET || processResult == MVD_STATUS_INCOMPLETEPROCESSING) {
             nalIndex++;
             continue;
