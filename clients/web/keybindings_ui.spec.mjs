@@ -133,3 +133,29 @@ test('binding a gamepad-less controller "Bind" button is disabled, and the hint 
   const padBtn = rowFor(page, 'A').locator('button').nth(1);
   await expect(padBtn).toBeDisabled();
 });
+
+// X/Y/ZL/ZR get their own "Extended" section + hint here (renderSettings(),
+// index.html) -- same console-dependent set #touchControls' on-screen .ext
+// group gates (see touch_extended_buttons.spec.mjs), but always listed here
+// regardless of the connected session's actual stream_type: this table is
+// reachable before a stream_type is even known (the pre-connect settings
+// menu), unlike that overlay which only exists once connected.
+test('the key-bindings table splits standard and extended (X/Y/ZL/ZR) buttons into two labeled sections', async ({ page }) => {
+  await connect(page);
+  await openKeyBindings(page);
+
+  const rows = page.locator('#settingsTableBody tr');
+  const sectionRows = rows.filter({ hasNot: page.locator('td:nth-child(2)') });
+  // Two section headers (Standard/Extended) + one hint row under Extended.
+  await expect(sectionRows).toHaveCount(3);
+
+  // Standard section (first) lists A first, no X/Y/ZL/ZR row anywhere
+  // before the "Extended" header -- BUTTONS' own order (index.html) starts
+  // with A.
+  const firstDataRow = rows.filter({ has: page.locator('td:nth-child(2)') }).first();
+  await expect(firstDataRow.locator('td').first()).toHaveText('A');
+
+  for (const name of ['X', 'Y', 'ZL', 'ZR']) {
+    await expect(rowFor(page, name)).toHaveCount(1);
+  }
+});

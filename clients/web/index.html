@@ -116,11 +116,36 @@
   .tshoulder{position:absolute;top:14px;width:52px;height:36px;font-size:13px}
   #touchL{left:14px}
   #touchR{right:14px}
+  /* ZL/ZR + X/Y: only meaningful for a touch_and_buttons/n3ds_touch_and_buttons
+     session (see this file's own top-of-script comment on BUTTONS, and
+     the isMobile block's own currentInputEncoding check further down) --
+     every .ext-btn starts hidden and is only
+     switched to its real display value via #touchControls.ext, set once the
+     session's actual input_encoding is known, same gate the desktop keyboard
+     rebind table has no equivalent need for (every BUTTONS row always shows
+     there, harmless if unused -- an always-visible on-screen button a
+     GC_GBA_LINK session can never trigger a response for is a worse default
+     than a keyboard row that simply does nothing when pressed). */
+  .ext-btn{display:none}
+  #touchControls.ext .ext-btn{display:block}
+  /* Directly below L/R in the same corner, same stacked-pair layout iOS's
+     own PlayerView.swift ZL/ZR overlay already settled on. */
+  .tshoulder.ext{top:58px}
+  #touchZL{left:14px}
+  #touchZR{right:14px}
   #touchDpad{position:absolute;left:20px;bottom:24px;
              display:grid;grid-template-columns:repeat(3, 48px);grid-template-rows:repeat(3, 48px);
              grid-template-areas:". u ." "l . r" ". d ."}
   #touchRight{position:absolute;right:20px;bottom:24px;
               display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+  /* Hidden by default (only shown via #touchControls.ext, same as the
+     shoulder pair above) -- kept as a plain flex row rather than joining
+     the A/B diamond below: X/Y stay reachable without restructuring the
+     GBA-style staggered A/B pair every session (gba_buttons included)
+     still uses. */
+  #touchXY.ext-btn{display:none}
+  #touchControls.ext #touchXY.ext-btn{display:flex}
+  #touchXY{gap:10px}
   #touchStartSelect{display:flex;gap:8px}
   /* A (last child) sits higher than B, like the real GBA's staggered layout. */
   #touchAB{display:flex;align-items:flex-end;gap:10px}
@@ -272,6 +297,16 @@
                         border:none;cursor:pointer;padding:6px 12px;border-radius:999px;
                         background:var(--accent);color:var(--accent-ink)}
   #settingsTable button:disabled{background:var(--surface-2);color:var(--muted);cursor:default}
+  /* Section header ("Standard-Tasten"/"Erweiterte Tasten") + the extended
+     section's own explanatory hint row (buildSettingsSectionRow(),
+     renderSettings()) -- white-space:normal overrides the table's own
+     nowrap default (needed for the hint sentence to actually wrap instead
+     of forcing #settingsTable's horizontal scroll open for no reason). */
+  #settingsTable .section-row td{font-size:11px;color:var(--muted);text-transform:uppercase;
+                    letter-spacing:0.05em;font-weight:600;padding-top:14px;white-space:normal}
+  #settingsTable tr:first-child.section-row td{padding-top:9px}
+  #settingsTable .hint-row td{font-size:11.5px;color:var(--muted);font-weight:400;
+                    padding-top:0;white-space:normal;max-width:320px}
   #closeSettings{background:transparent;border:var(--border);color:var(--muted);
                  font-family:var(--font-body);font-size:12.5px;font-weight:600;
                  padding:9px 20px;border-radius:999px;cursor:pointer}
@@ -399,6 +434,8 @@
 <div id="touchControls">
   <button class="tbtn tshoulder" id="touchL" data-name="L">L</button>
   <button class="tbtn tshoulder" id="touchR" data-name="R">R</button>
+  <button class="tbtn tshoulder ext-btn ext" id="touchZL" data-name="ZL">ZL</button>
+  <button class="tbtn tshoulder ext-btn ext" id="touchZR" data-name="ZR">ZR</button>
   <div id="touchDpad">
     <button class="tbtn" data-name="Up" style="grid-area:u">▲</button>
     <button class="tbtn" data-name="Left" style="grid-area:l">◀︎</button>
@@ -406,6 +443,10 @@
     <button class="tbtn" data-name="Down" style="grid-area:d">▼</button>
   </div>
   <div id="touchRight">
+    <div id="touchXY" class="ext-btn">
+      <button class="tbtn round" data-name="Y">Y</button>
+      <button class="tbtn round" data-name="X">X</button>
+    </div>
     <div id="touchStartSelect">
       <button class="tbtn small" data-name="Select">SEL</button>
       <button class="tbtn small" data-name="Start">STA</button>
@@ -1115,6 +1156,23 @@ function showGame() {
   connectEl.style.display = 'none';
   lobbyEl.style.display = 'none';
   gameEl.style.display = 'flex';
+
+  // X/Y/ZL/ZR (#touchControls.ext, see this file's <style> comment on
+  // .ext-btn): every stream_type but GC_GBA_LINK negotiates
+  // touch_and_buttons or n3ds_touch_and_buttons (docs/protocol.md), both of
+  // which carry these four in their shared `buttons` bitmask -- shown as a
+  // set rather than distinguishing melonDS's touch_and_buttons (has X/Y, no
+  // ZL/ZR: the DS has no such trigger) from n3ds_touch_and_buttons's full
+  // four, same "harmless if this particular console doesn't use it" stance
+  // BUTTONS' own keyboard bindings already take for every session type.
+  // Belongs here, not the isMobile block's one-time-at-load setup further
+  // down: currentInputEncoding is only known once a session's hello has
+  // actually been parsed, and showGame() (unlike that setup) re-runs on
+  // every new session, including the redirect-hop reconnect this same
+  // function's own comment above describes.
+  if (isMobile) {
+    touchControlsEl.classList.toggle('ext', currentInputEncoding !== 'gba_buttons');
+  }
 }
 
 // Non-blocking: the stream is already live in the granted mode by the time
@@ -1745,55 +1803,88 @@ function rebindGamepadButton(name, onDone) {
 const settingsTableBody = document.getElementById('settingsTableBody');
 const gamepadHintEl = document.getElementById('gamepadHint');
 
+// X/Y/ZL/ZR: only present in a touch_and_buttons/n3ds_touch_and_buttons
+// session's `buttons` bitmask (docs/protocol.md) -- not every console has
+// them (melonDS's real DS has no ZL/ZR; GC_GBA_LINK has none of the four at
+// all), same "console-dependent, not console-specific UI" set
+// #touchControls' own .ext-btn group (see this file's <style> block) shows/
+// hides as a unit for the on-screen overlay. Kept bindable here regardless
+// of the connected session's actual stream_type (unlike that overlay,
+// which only exists once connected) -- this panel is reachable from the
+// pre-connect settings menu too, before any session/stream_type is known.
+const EXTENDED_BUTTON_NAMES = new Set(['X', 'Y', 'ZL', 'ZR']);
+
+function buildSettingsRow(name) {
+  const row = document.createElement('tr');
+  const nameCell = document.createElement('td');
+  nameCell.textContent = name;
+
+  const keyCell = document.createElement('td');
+  keyCell.textContent = bindings[name];
+  const keyActionCell = document.createElement('td');
+  const keyBtn = document.createElement('button');
+  keyBtn.textContent = t('settings_bind');
+  keyBtn.onclick = () => {
+    keyBtn.textContent = t('settings_press_key');
+    const onKey = (e) => {
+      e.preventDefault();
+      Object.assign(bindings, assignBinding(bindings, name, e.code));
+      saveBindings();
+      rebuildCodeMap();
+      renderSettings();
+      window.removeEventListener('keydown', onKey, true);
+    };
+    window.addEventListener('keydown', onKey, true);
+  };
+  keyActionCell.appendChild(keyBtn);
+
+  const padCell = document.createElement('td');
+  padCell.textContent = gamepadBindings[name] !== undefined ?
+      ('Knopf ' + gamepadBindings[name]) : t('settings_unbound');
+  const padActionCell = document.createElement('td');
+  const padBtn = document.createElement('button');
+  padBtn.textContent = t('settings_bind');
+  padBtn.disabled = activeGamepadIndex === null;
+  padBtn.onclick = () => {
+    padBtn.textContent = t('key_bindings_press_button');
+    rebindGamepadButton(name, renderSettings);
+  };
+  padActionCell.appendChild(padBtn);
+
+  row.appendChild(nameCell);
+  row.appendChild(keyCell);
+  row.appendChild(keyActionCell);
+  row.appendChild(padCell);
+  row.appendChild(padActionCell);
+  return row;
+}
+
+function buildSettingsSectionRow(text, extraClass) {
+  const row = document.createElement('tr');
+  row.className = extraClass;
+  const cell = document.createElement('td');
+  cell.colSpan = 5;
+  cell.textContent = text;
+  row.appendChild(cell);
+  return row;
+}
+
 function renderSettings() {
   document.getElementById('keyboardColHeader').textContent = t('key_bindings_keyboard_column');
   document.getElementById('gamepadColHeader').textContent = t('key_bindings_controller_column');
   gamepadHintEl.textContent = activeGamepadIndex === null ? t('key_bindings_no_gamepad') : '';
 
   settingsTableBody.innerHTML = '';
-  for (const [name, bit] of BUTTONS) {
-    const row = document.createElement('tr');
-    const nameCell = document.createElement('td');
-    nameCell.textContent = name;
-
-    const keyCell = document.createElement('td');
-    keyCell.textContent = bindings[name];
-    const keyActionCell = document.createElement('td');
-    const keyBtn = document.createElement('button');
-    keyBtn.textContent = t('settings_bind');
-    keyBtn.onclick = () => {
-      keyBtn.textContent = t('settings_press_key');
-      const onKey = (e) => {
-        e.preventDefault();
-        Object.assign(bindings, assignBinding(bindings, name, e.code));
-        saveBindings();
-        rebuildCodeMap();
-        renderSettings();
-        window.removeEventListener('keydown', onKey, true);
-      };
-      window.addEventListener('keydown', onKey, true);
-    };
-    keyActionCell.appendChild(keyBtn);
-
-    const padCell = document.createElement('td');
-    padCell.textContent = gamepadBindings[name] !== undefined ?
-        ('Knopf ' + gamepadBindings[name]) : t('settings_unbound');
-    const padActionCell = document.createElement('td');
-    const padBtn = document.createElement('button');
-    padBtn.textContent = t('settings_bind');
-    padBtn.disabled = activeGamepadIndex === null;
-    padBtn.onclick = () => {
-      padBtn.textContent = t('key_bindings_press_button');
-      rebindGamepadButton(name, renderSettings);
-    };
-    padActionCell.appendChild(padBtn);
-
-    row.appendChild(nameCell);
-    row.appendChild(keyCell);
-    row.appendChild(keyActionCell);
-    row.appendChild(padCell);
-    row.appendChild(padActionCell);
-    settingsTableBody.appendChild(row);
+  settingsTableBody.appendChild(buildSettingsSectionRow(t('key_bindings_standard_section'), 'section-row'));
+  for (const [name] of BUTTONS) {
+    if (EXTENDED_BUTTON_NAMES.has(name)) continue;
+    settingsTableBody.appendChild(buildSettingsRow(name));
+  }
+  settingsTableBody.appendChild(buildSettingsSectionRow(t('key_bindings_extended_section'), 'section-row'));
+  settingsTableBody.appendChild(buildSettingsSectionRow(t('key_bindings_extended_hint'), 'hint-row'));
+  for (const [name] of BUTTONS) {
+    if (!EXTENDED_BUTTON_NAMES.has(name)) continue;
+    settingsTableBody.appendChild(buildSettingsRow(name));
   }
 }
 
