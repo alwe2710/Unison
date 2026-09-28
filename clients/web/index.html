@@ -146,6 +146,31 @@
   #touchXY.ext-btn{display:none}
   #touchControls.ext #touchXY.ext-btn{display:flex}
   #touchXY{gap:10px}
+  /* .stick-btn (left stick): narrower gate than .ext-btn (see the HTML
+     comment above #touchStickL/R) -- touch_and_buttons (melonDS) shows X/Y/
+     ZL/ZR but never a stick. .dualstick-only (right stick) is its own,
+     independent class rather than *also* being .stick-btn -- giving it
+     both would make #touchControls.sticks .stick-btn{display:block} below
+     outrank a same-specificity "hidden unless .dualstick too" rule on
+     #touchStickR (a real bug caught by touch_sticks.spec.mjs: the right
+     stick showed up for azahar, a single-stick console, just from .sticks
+     alone). Kept fully decoupled from .sticks instead: azahar's own
+     stream_type (N3DS_BOTTOM_SCREEN) never sets .dualstick regardless. */
+  .stick-btn{display:none}
+  #touchControls.sticks .stick-btn{display:block}
+  .dualstick-only{display:none}
+  #touchControls.dualstick .dualstick-only{display:block}
+  .stick{position:absolute;bottom:184px;width:96px;height:96px;border-radius:50%;
+         background:rgba(255,255,255,0.06);border:var(--border);touch-action:none;
+         pointer-events:auto}
+  #touchStickL{left:20px}
+  #touchStickR{right:20px}
+  /* Positioned via transform (JS, updateStickThumb()) rather than left/top
+     -- avoids layout reflow on every drag move, same reasoning canvas
+     pointer-tracking elsewhere in this file never touches layout either. */
+  .stick-thumb{position:absolute;left:28px;top:28px;width:40px;height:40px;
+               border-radius:50%;background:var(--surface-2);border:var(--border);
+               pointer-events:none}
   #touchStartSelect{display:flex;gap:8px}
   /* A (last child) sits higher than B, like the real GBA's staggered layout. */
   #touchAB{display:flex;align-items:flex-end;gap:10px}
@@ -442,6 +467,19 @@
     <button class="tbtn" data-name="Right" style="grid-area:r">▶︎</button>
     <button class="tbtn" data-name="Down" style="grid-area:d">▼</button>
   </div>
+  <!-- n3ds_touch_and_buttons only (unison_extended_input's own left_x/
+       left_y/right_x/right_y, unison/protocol.h) -- touch_and_buttons
+       (melonDS) has no stick fields at all, so #touchStickL/R need their
+       own gate (.stick-btn, #touchControls.sticks) narrower than .ext-btn's
+       (X/Y/ZL/ZR are still valid for touch_and_buttons). Left is always
+       shown once that encoding is live (every n3ds_touch_and_buttons
+       console has at least the one circle pad); right only for
+       WIIU_GAMEPAD (#touchControls.dualstick, docs/protocol.md's own
+       "right is always (0,0) on a console with at most one analog stick" --
+       no server for the other consoles is listening for it either way, but
+       showing an always-inert stick is worse than not showing one at all). -->
+  <div id="touchStickL" class="stick stick-btn"><div class="stick-thumb"></div></div>
+  <div id="touchStickR" class="stick dualstick-only"><div class="stick-thumb"></div></div>
   <div id="touchRight">
     <div id="touchXY" class="ext-btn">
       <button class="tbtn round" data-name="Y">Y</button>
@@ -961,6 +999,18 @@ let touchPressed = false;
 let touchX = 0;
 let touchY = 0;
 
+// n3ds_touch_and_buttons only (unison_extended_input's left_x/left_y/
+// right_x/right_y) -- updated live by #touchStickL/R's own pointer
+// handlers (wireStick() below), 0 at rest same as an un-dragged physical
+// stick. right stays (0, 0) for the whole session on any console with only
+// one stick (docs/protocol.md), simply because #touchStickR never shows
+// there to begin with (see its own HTML comment) -- nothing else needs to
+// know which console is connected.
+let leftStickX = 0;
+let leftStickY = 0;
+let rightStickX = 0;
+let rightStickY = 0;
+
 const statusEl = document.getElementById('status');
 const canvas = document.getElementById('screen');
 const ctx = canvas.getContext('2d');
@@ -1172,6 +1222,11 @@ function showGame() {
   // function's own comment above describes.
   if (isMobile) {
     touchControlsEl.classList.toggle('ext', currentInputEncoding !== 'gba_buttons');
+    // .sticks/.dualstick: narrower than .ext above -- see #touchStickL/R's
+    // own HTML comment on why touch_and_buttons (melonDS) gets X/Y/ZL/ZR
+    // but never a stick, and why only WIIU_GAMEPAD (Cemu) gets a second one.
+    touchControlsEl.classList.toggle('sticks', currentInputEncoding === 'n3ds_touch_and_buttons');
+    touchControlsEl.classList.toggle('dualstick', currentStreamType === 'WIIU_GAMEPAD');
   }
 }
 
@@ -1619,12 +1674,10 @@ function sendKeys() {
                           [touchPressed ? 1 : 0, touchX, touchY, unisonButtonsFromKeyState(), bufPtr]);
   } else if (currentInputEncoding === 'n3ds_touch_and_buttons') {
     bufPtr = wasmModule._malloc(18);
-    // Sticks always centered (0, 0) here -- same "no physical-stick input
-    // built out for this client yet" scope note as the frame's own
-    // buttons-translation comment above.
     n = wasmModule.ccall('unison_wasm_build_extended_input_frame', 'number',
                           ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'number', 'number'],
-                          [touchPressed ? 1 : 0, touchX, touchY, unisonButtonsFromKeyState(), 0, 0, 0, 0, bufPtr]);
+                          [touchPressed ? 1 : 0, touchX, touchY, unisonButtonsFromKeyState(),
+                           leftStickX, leftStickY, rightStickX, rightStickY, bufPtr]);
   } else {
     bufPtr = wasmModule._malloc(3);
     n = wasmModule.ccall('unison_wasm_build_input_frame', 'number', ['number', 'number'],
@@ -1937,6 +1990,60 @@ if (isMobile) {
     btn.addEventListener('touchend', release, {passive: false});
     btn.addEventListener('touchcancel', release, {passive: false});
   });
+
+  // #touchStickL/R (n3ds_touch_and_buttons only, see their own HTML
+  // comment): pointer-capture drag within a circle, same clamp-to-radius +
+  // Y-sign convention as every other client's own virtual stick (Android's
+  // VirtualStick composable, PlayerActivity.kt: "y = -clamped.y / radius *
+  // 32767" -- screen Y grows downward, stick Y grows upward) so a given
+  // drag produces the same left_x/left_y across every client, not just a
+  // plausible-looking one here. setLive(0, 0) + snapping the thumb back to
+  // center on release/cancel, same as touchscreen's releaseTouch() sending
+  // (0, 0) rather than leaving the last-held value on the wire.
+  function wireStick(el, setLive) {
+    const thumb = el.querySelector('.stick-thumb');
+    let activePointerId = null;
+    function report(clientX, clientY) {
+      const rect = el.getBoundingClientRect();
+      // Computed per-call, not once at wire-time: el is display:none until
+      // #touchControls gets .sticks (showGame(), long after this one-time
+      // setup runs), and clientWidth/getBoundingClientRect() both report 0
+      // for a display:none element regardless of its CSS width.
+      const radius = rect.width / 2;
+      const dx = clientX - (rect.left + rect.width / 2);
+      const dy = clientY - (rect.top + rect.height / 2);
+      const dist = Math.hypot(dx, dy);
+      const scale = dist > radius ? radius / dist : 1;
+      const cx = dx * scale;
+      const cy = dy * scale;
+      thumb.style.transform = `translate(${cx}px, ${cy}px)`;
+      const x = Math.max(-32767, Math.min(32767, Math.round((cx / radius) * 32767)));
+      const y = Math.max(-32767, Math.min(32767, Math.round((-cy / radius) * 32767)));
+      setLive(x, y);
+      sendKeys();
+    }
+    function release() {
+      if (activePointerId === null) return;
+      activePointerId = null;
+      thumb.style.transform = '';
+      setLive(0, 0);
+      sendKeys();
+    }
+    el.addEventListener('pointerdown', (e) => {
+      if (activePointerId !== null) return;
+      activePointerId = e.pointerId;
+      el.setPointerCapture(e.pointerId);
+      report(e.clientX, e.clientY);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== activePointerId) return;
+      report(e.clientX, e.clientY);
+    });
+    el.addEventListener('pointerup', (e) => { if (e.pointerId === activePointerId) release(); });
+    el.addEventListener('pointercancel', (e) => { if (e.pointerId === activePointerId) release(); });
+  }
+  wireStick(document.getElementById('touchStickL'), (x, y) => { leftStickX = x; leftStickY = y; });
+  wireStick(document.getElementById('touchStickR'), (x, y) => { rightStickX = x; rightStickY = y; });
 
   const overlayStored = localStorage.getItem('unisonWebShowOverlay');
   const showOverlay = overlayStored === null ? true : overlayStored === 'true';
