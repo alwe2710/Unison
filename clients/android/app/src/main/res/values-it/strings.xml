@@ -4,6 +4,16 @@
     <string name="host_hint_example">es. 192.168.1.5</string>
     <string name="menu_connect">Connetti</string>
     <string name="menu_settings">Impostazioni</string>
+    <string name="menu_title">Menu</string>
+    <string name="connect_title">Connetti al server</string>
+    <string name="connect_prompt">Inserisci l\'indirizzo IP dell\'emulatore</string>
+    <string name="connect_probe_ports">Trova la porta automaticamente</string>
+    <string name="connect_probe_need_host">Inserisci prima un indirizzo IP.</string>
+    <string name="connect_probe_searching">Ricerca...</string>
+    <string name="connect_probe_found">Trovato: %1$s sulla porta %2$d.</string>
+    <string name="connect_probe_none_found">Nessun server trovato sulle porte conosciute.</string>
+    <string name="lobby_title">Chi gioca?</string>
+    <string name="lobby_select_slot">Seleziona uno slot...</string>
     <string name="status_disconnected">Non connesso</string>
     <string name="status_connecting">Connessione...</string>
     <string name="status_handshake">Handshake...</string>
@@ -81,6 +91,7 @@
     <string name="key_bindings_gamepad_section">Associazioni gamepad</string>
     <string name="key_bindings_no_gamepad">Nessun controller rilevato -- collegane uno e premi un pulsante.</string>
     <string name="key_bindings_press_button">Premi un pulsante...</string>
+    <string name="key_bindings_button_column">Tasto</string>
     <string name="key_bindings_keyboard_column">Tastiera</string>
     <string name="key_bindings_controller_column">Controller</string>
     <string name="exit_hold_hint">Tieni premuto X+Y per disconnetterti.</string>

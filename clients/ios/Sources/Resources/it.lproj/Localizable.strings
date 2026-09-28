@@ -4,6 +4,16 @@
 "host_hint_example" = "es. 192.168.1.5";
 "menu_connect" = "Connetti";
 "menu_settings" = "Impostazioni";
+"menu_title" = "Menu";
+"connect_title" = "Connetti al server";
+"connect_prompt" = "Inserisci l'indirizzo IP dell'emulatore";
+"connect_probe_ports" = "Trova la porta automaticamente";
+"connect_probe_need_host" = "Inserisci prima un indirizzo IP.";
+"connect_probe_searching" = "Ricerca...";
+"connect_probe_found" = "Trovato: %1$@ sulla porta %2$ld.";
+"connect_probe_none_found" = "Nessun server trovato sulle porte conosciute.";
+"lobby_title" = "Chi gioca?";
+"lobby_select_slot" = "Seleziona uno slot...";
 "status_disconnected" = "Non connesso";
 "status_connecting" = "Connessione...";
 "status_handshake" = "Handshake...";
@@ -81,6 +91,7 @@
 "key_bindings_gamepad_section" = "Associazioni gamepad";
 "key_bindings_no_gamepad" = "Nessun controller rilevato -- collegane uno e premi un pulsante.";
 "key_bindings_press_button" = "Premi un pulsante...";
+"key_bindings_button_column" = "Tasto";
 "key_bindings_keyboard_column" = "Tastiera";
 "key_bindings_controller_column" = "Controller";
 "exit_hold_hint" = "Tieni premuto X+Y per disconnetterti.";

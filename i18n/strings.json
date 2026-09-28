@@ -7,6 +7,18 @@
   "host_hint_example": {"de": "z.B. 192.168.1.5", "en": "e.g. 192.168.1.5", "fr": "p. ex. 192.168.1.5", "it": "es. 192.168.1.5", "es": "p. ej. 192.168.1.5"},
   "menu_connect": {"de": "Verbinden", "en": "Connect", "fr": "Connecter", "it": "Connetti", "es": "Conectar"},
   "menu_settings": {"de": "Einstellungen", "en": "Settings", "fr": "Paramètres", "it": "Impostazioni", "es": "Ajustes"},
+  "menu_title": {"de": "Menü", "en": "Menu", "fr": "Menu", "it": "Menu", "es": "Menú"},
+
+  "connect_title": {"de": "Mit Server verbinden", "en": "Connect to server", "fr": "Se connecter au serveur", "it": "Connetti al server", "es": "Conectar al servidor"},
+  "connect_prompt": {"de": "IP-Adresse des Emulators eingeben", "en": "Enter the emulator's IP address", "fr": "Saisir l'adresse IP de l'émulateur", "it": "Inserisci l'indirizzo IP dell'emulatore", "es": "Introduce la dirección IP del emulador"},
+  "connect_probe_ports": {"de": "Port automatisch finden", "en": "Find port automatically", "fr": "Trouver le port automatiquement", "it": "Trova la porta automaticamente", "es": "Buscar puerto automáticamente"},
+  "connect_probe_need_host": {"de": "Bitte zuerst eine IP-Adresse eingeben.", "en": "Please enter an IP address first.", "fr": "Veuillez d'abord saisir une adresse IP.", "it": "Inserisci prima un indirizzo IP.", "es": "Introduce primero una dirección IP."},
+  "connect_probe_searching": {"de": "Suche läuft...", "en": "Searching...", "fr": "Recherche...", "it": "Ricerca...", "es": "Buscando..."},
+  "connect_probe_found": {"de": "Gefunden: {0} auf Port {1}.", "en": "Found: {0} on port {1}.", "fr": "Trouvé : {0} sur le port {1}.", "it": "Trovato: {0} sulla porta {1}.", "es": "Encontrado: {0} en el puerto {1}.", "placeholders": ["s", "d"]},
+  "connect_probe_none_found": {"de": "Kein Server auf den bekannten Ports gefunden.", "en": "No server found on the known ports.", "fr": "Aucun serveur trouvé sur les ports connus.", "it": "Nessun server trovato sulle porte conosciute.", "es": "No se encontró ningún servidor en los puertos conocidos."},
+
+  "lobby_title": {"de": "Wer spielt mit?", "en": "Who's playing?", "fr": "Qui joue ?", "it": "Chi gioca?", "es": "¿Quién juega?"},
+  "lobby_select_slot": {"de": "Slot wählen...", "en": "Select a slot...", "fr": "Choisir un emplacement...", "it": "Seleziona uno slot...", "es": "Selecciona una ranura..."},
 
   "status_disconnected": {"de": "Nicht verbunden", "en": "Not connected", "fr": "Non connecté", "it": "Non connesso", "es": "No conectado"},
   "status_connecting": {"de": "Verbinde...", "en": "Connecting...", "fr": "Connexion...", "it": "Connessione...", "es": "Conectando..."},
@@ -93,6 +105,7 @@
   "key_bindings_gamepad_section": {"de": "Gamecontroller-Belegung", "en": "Gamepad bindings", "fr": "Assignations manette", "it": "Associazioni gamepad", "es": "Asignaciones del mando"},
   "key_bindings_no_gamepad": {"de": "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.", "en": "No controller detected -- please connect one and press a button.", "fr": "Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.", "it": "Nessun controller rilevato -- collegane uno e premi un pulsante.", "es": "No se detectó ningún mando -- conecta uno y pulsa un botón."},
   "key_bindings_press_button": {"de": "Drücke einen Knopf...", "en": "Press a button...", "fr": "Appuyez sur un bouton...", "it": "Premi un pulsante...", "es": "Pulsa un botón..."},
+  "key_bindings_button_column": {"de": "Taste", "en": "Button", "fr": "Bouton", "it": "Tasto", "es": "Botón"},
   "key_bindings_keyboard_column": {"de": "Tastatur", "en": "Keyboard", "fr": "Clavier", "it": "Tastiera", "es": "Teclado"},
   "key_bindings_controller_column": {"de": "Controller", "en": "Controller", "fr": "Manette", "it": "Controller", "es": "Mando"},
 

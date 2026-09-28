@@ -4,6 +4,16 @@
     <string name="host_hint_example">p. ex. 192.168.1.5</string>
     <string name="menu_connect">Connecter</string>
     <string name="menu_settings">Paramètres</string>
+    <string name="menu_title">Menu</string>
+    <string name="connect_title">Se connecter au serveur</string>
+    <string name="connect_prompt">Saisir l\'adresse IP de l\'émulateur</string>
+    <string name="connect_probe_ports">Trouver le port automatiquement</string>
+    <string name="connect_probe_need_host">Veuillez d\'abord saisir une adresse IP.</string>
+    <string name="connect_probe_searching">Recherche...</string>
+    <string name="connect_probe_found">Trouvé : %1$s sur le port %2$d.</string>
+    <string name="connect_probe_none_found">Aucun serveur trouvé sur les ports connus.</string>
+    <string name="lobby_title">Qui joue ?</string>
+    <string name="lobby_select_slot">Choisir un emplacement...</string>
     <string name="status_disconnected">Non connecté</string>
     <string name="status_connecting">Connexion...</string>
     <string name="status_handshake">Handshake...</string>
@@ -81,6 +91,7 @@
     <string name="key_bindings_gamepad_section">Assignations manette</string>
     <string name="key_bindings_no_gamepad">Aucune manette détectée -- veuillez en connecter une et appuyer sur un bouton.</string>
     <string name="key_bindings_press_button">Appuyez sur un bouton...</string>
+    <string name="key_bindings_button_column">Bouton</string>
     <string name="key_bindings_keyboard_column">Clavier</string>
     <string name="key_bindings_controller_column">Manette</string>
     <string name="exit_hold_hint">Maintenez X+Y pour vous déconnecter.</string>

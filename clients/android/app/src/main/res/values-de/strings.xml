@@ -4,6 +4,16 @@
     <string name="host_hint_example">z.B. 192.168.1.5</string>
     <string name="menu_connect">Verbinden</string>
     <string name="menu_settings">Einstellungen</string>
+    <string name="menu_title">Menü</string>
+    <string name="connect_title">Mit Server verbinden</string>
+    <string name="connect_prompt">IP-Adresse des Emulators eingeben</string>
+    <string name="connect_probe_ports">Port automatisch finden</string>
+    <string name="connect_probe_need_host">Bitte zuerst eine IP-Adresse eingeben.</string>
+    <string name="connect_probe_searching">Suche läuft...</string>
+    <string name="connect_probe_found">Gefunden: %1$s auf Port %2$d.</string>
+    <string name="connect_probe_none_found">Kein Server auf den bekannten Ports gefunden.</string>
+    <string name="lobby_title">Wer spielt mit?</string>
+    <string name="lobby_select_slot">Slot wählen...</string>
     <string name="status_disconnected">Nicht verbunden</string>
     <string name="status_connecting">Verbinde...</string>
     <string name="status_handshake">Handshake...</string>
@@ -81,6 +91,7 @@
     <string name="key_bindings_gamepad_section">Gamecontroller-Belegung</string>
     <string name="key_bindings_no_gamepad">Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.</string>
     <string name="key_bindings_press_button">Drücke einen Knopf...</string>
+    <string name="key_bindings_button_column">Taste</string>
     <string name="key_bindings_keyboard_column">Tastatur</string>
     <string name="key_bindings_controller_column">Controller</string>
     <string name="exit_hold_hint">X+Y halten zum Trennen.</string>

@@ -4,6 +4,16 @@
 "host_hint_example" = "e.g. 192.168.1.5";
 "menu_connect" = "Connect";
 "menu_settings" = "Settings";
+"menu_title" = "Menu";
+"connect_title" = "Connect to server";
+"connect_prompt" = "Enter the emulator's IP address";
+"connect_probe_ports" = "Find port automatically";
+"connect_probe_need_host" = "Please enter an IP address first.";
+"connect_probe_searching" = "Searching...";
+"connect_probe_found" = "Found: %1$@ on port %2$ld.";
+"connect_probe_none_found" = "No server found on the known ports.";
+"lobby_title" = "Who's playing?";
+"lobby_select_slot" = "Select a slot...";
 "status_disconnected" = "Not connected";
 "status_connecting" = "Connecting...";
 "status_handshake" = "Handshake...";
@@ -81,6 +91,7 @@
 "key_bindings_gamepad_section" = "Gamepad bindings";
 "key_bindings_no_gamepad" = "No controller detected -- please connect one and press a button.";
 "key_bindings_press_button" = "Press a button...";
+"key_bindings_button_column" = "Button";
 "key_bindings_keyboard_column" = "Keyboard";
 "key_bindings_controller_column" = "Controller";
 "exit_hold_hint" = "Hold X+Y to disconnect.";

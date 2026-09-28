@@ -4,6 +4,16 @@
 "host_hint_example" = "z.B. 192.168.1.5";
 "menu_connect" = "Verbinden";
 "menu_settings" = "Einstellungen";
+"menu_title" = "Menü";
+"connect_title" = "Mit Server verbinden";
+"connect_prompt" = "IP-Adresse des Emulators eingeben";
+"connect_probe_ports" = "Port automatisch finden";
+"connect_probe_need_host" = "Bitte zuerst eine IP-Adresse eingeben.";
+"connect_probe_searching" = "Suche läuft...";
+"connect_probe_found" = "Gefunden: %1$@ auf Port %2$ld.";
+"connect_probe_none_found" = "Kein Server auf den bekannten Ports gefunden.";
+"lobby_title" = "Wer spielt mit?";
+"lobby_select_slot" = "Slot wählen...";
 "status_disconnected" = "Nicht verbunden";
 "status_connecting" = "Verbinde...";
 "status_handshake" = "Handshake...";
@@ -81,6 +91,7 @@
 "key_bindings_gamepad_section" = "Gamecontroller-Belegung";
 "key_bindings_no_gamepad" = "Kein Controller erkannt -- bitte verbinden und einen Knopf drücken.";
 "key_bindings_press_button" = "Drücke einen Knopf...";
+"key_bindings_button_column" = "Taste";
 "key_bindings_keyboard_column" = "Tastatur";
 "key_bindings_controller_column" = "Controller";
 "exit_hold_hint" = "X+Y halten zum Trennen.";

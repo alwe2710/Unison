@@ -4,6 +4,16 @@
     <string name="host_hint_example">p. ej. 192.168.1.5</string>
     <string name="menu_connect">Conectar</string>
     <string name="menu_settings">Ajustes</string>
+    <string name="menu_title">Menú</string>
+    <string name="connect_title">Conectar al servidor</string>
+    <string name="connect_prompt">Introduce la dirección IP del emulador</string>
+    <string name="connect_probe_ports">Buscar puerto automáticamente</string>
+    <string name="connect_probe_need_host">Introduce primero una dirección IP.</string>
+    <string name="connect_probe_searching">Buscando...</string>
+    <string name="connect_probe_found">Encontrado: %1$s en el puerto %2$d.</string>
+    <string name="connect_probe_none_found">No se encontró ningún servidor en los puertos conocidos.</string>
+    <string name="lobby_title">¿Quién juega?</string>
+    <string name="lobby_select_slot">Selecciona una ranura...</string>
     <string name="status_disconnected">No conectado</string>
     <string name="status_connecting">Conectando...</string>
     <string name="status_handshake">Handshake...</string>
@@ -81,6 +91,7 @@
     <string name="key_bindings_gamepad_section">Asignaciones del mando</string>
     <string name="key_bindings_no_gamepad">No se detectó ningún mando -- conecta uno y pulsa un botón.</string>
     <string name="key_bindings_press_button">Pulsa un botón...</string>
+    <string name="key_bindings_button_column">Botón</string>
     <string name="key_bindings_keyboard_column">Teclado</string>
     <string name="key_bindings_controller_column">Mando</string>
     <string name="exit_hold_hint">Mantén X+Y para desconectar.</string>
