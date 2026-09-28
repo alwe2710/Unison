@@ -54,6 +54,8 @@
   "settings_antialiasing": {"de": "Bilineare Filterung", "en": "Bilinear filtering", "fr": "Filtrage bilinéaire", "it": "Filtro bilineare", "es": "Filtrado bilineal"},
   "settings_video_mode": {"de": "Videomodus", "en": "Video mode", "fr": "Mode vidéo", "it": "Modalità video", "es": "Modo de vídeo"},
   "settings_console_specific": {"de": "Konsolenspezifische Einstellungen", "en": "Console-specific settings", "fr": "Paramètres spécifiques à la console", "it": "Impostazioni specifiche per console", "es": "Ajustes específicos por consola"},
+  "settings_second_stick": {"de": "Zweiter Analog-Stick", "en": "Second analog stick", "fr": "Deuxième stick analogique", "it": "Secondo stick analogico", "es": "Segundo stick analógico"},
+  "settings_second_stick_hint": {"de": "Das echte 3DS hat nur einen Stick -- nur aktivieren, wenn dein Setup einen zweiten tatsächlich nutzt.", "en": "The real 3DS only has one stick -- only enable this if your setup actually uses a second one.", "fr": "La vraie 3DS n'a qu'un seul stick -- n'activez ceci que si votre configuration en utilise vraiment un second.", "it": "Il vero 3DS ha un solo stick -- attivalo solo se la tua configurazione ne usa davvero un secondo.", "es": "La 3DS real solo tiene un stick -- actívalo solo si tu configuración realmente usa un segundo."},
   "video_mode_tiles": {"de": "Raw+Tiling (Deflate)", "en": "Raw+Tiling (Deflate)", "fr": "Raw+Tiling (Deflate)", "it": "Raw+Tiling (Deflate)", "es": "Raw+Tiling (Deflate)"},
   "video_mode_h264": {"de": "H.264", "en": "H.264", "fr": "H.264", "it": "H.264", "es": "H.264"},
   "video_mode_h265": {"de": "H.265", "en": "H.265", "fr": "H.265", "it": "H.265", "es": "H.265"},

@@ -49,6 +49,8 @@ const char *kSettingsOnScreenControls = "On-Screen-Controls anzeigen";
 const char *kSettingsAntialiasing = "Bilineare Filterung";
 const char *kSettingsVideoMode = "Videomodus";
 const char *kSettingsConsoleSpecific = "Konsolenspezifische Einstellungen";
+const char *kSettingsSecondStick = "Zweiter Analog-Stick";
+const char *kSettingsSecondStickHint = "Das echte 3DS hat nur einen Stick -- nur aktivieren, wenn dein Setup einen zweiten tatsächlich nutzt.";
 const char *kVideoModeTiles = "Raw+Tiling (Deflate)";
 const char *kVideoModeH264 = "H.264";
 const char *kVideoModeH265 = "H.265";
@@ -159,6 +161,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Bilineare Filterung";
         kSettingsVideoMode = "Videomodus";
         kSettingsConsoleSpecific = "Konsolenspezifische Einstellungen";
+        kSettingsSecondStick = "Zweiter Analog-Stick";
+        kSettingsSecondStickHint = "Das echte 3DS hat nur einen Stick -- nur aktivieren, wenn dein Setup einen zweiten tatsächlich nutzt.";
         kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
@@ -267,6 +271,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Bilinear filtering";
         kSettingsVideoMode = "Video mode";
         kSettingsConsoleSpecific = "Console-specific settings";
+        kSettingsSecondStick = "Second analog stick";
+        kSettingsSecondStickHint = "The real 3DS only has one stick -- only enable this if your setup actually uses a second one.";
         kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
@@ -375,6 +381,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtrage bilinéaire";
         kSettingsVideoMode = "Mode vidéo";
         kSettingsConsoleSpecific = "Paramètres spécifiques à la console";
+        kSettingsSecondStick = "Deuxième stick analogique";
+        kSettingsSecondStickHint = "La vraie 3DS n'a qu'un seul stick -- n'activez ceci que si votre configuration en utilise vraiment un second.";
         kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
@@ -483,6 +491,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtro bilineare";
         kSettingsVideoMode = "Modalità video";
         kSettingsConsoleSpecific = "Impostazioni specifiche per console";
+        kSettingsSecondStick = "Secondo stick analogico";
+        kSettingsSecondStickHint = "Il vero 3DS ha un solo stick -- attivalo solo se la tua configurazione ne usa davvero un secondo.";
         kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";
@@ -591,6 +601,8 @@ void setLanguage(Lang lang) {
         kSettingsAntialiasing = "Filtrado bilineal";
         kSettingsVideoMode = "Modo de vídeo";
         kSettingsConsoleSpecific = "Ajustes específicos por consola";
+        kSettingsSecondStick = "Segundo stick analógico";
+        kSettingsSecondStickHint = "La 3DS real solo tiene un stick -- actívalo solo si tu configuración realmente usa un segundo.";
         kVideoModeTiles = "Raw+Tiling (Deflate)";
         kVideoModeH264 = "H.264";
         kVideoModeH265 = "H.265";

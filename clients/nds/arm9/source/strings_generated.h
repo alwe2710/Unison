@@ -50,6 +50,8 @@ static const char *STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeige
 static const char *STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
 static const char *STR_SETTINGS_VIDEO_MODE = "Videomodus";
 static const char *STR_SETTINGS_CONSOLE_SPECIFIC = "Konsolenspezifische Einstellungen";
+static const char *STR_SETTINGS_SECOND_STICK = "Zweiter Analog-Stick";
+static const char *STR_SETTINGS_SECOND_STICK_HINT = "Das echte 3DS hat nur einen Stick -- nur aktivieren, wenn dein Setup einen zweiten tatsächlich nutzt.";
 static const char *STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
 static const char *STR_VIDEO_MODE_H264 = "H.264";
 static const char *STR_VIDEO_MODE_H265 = "H.265";
@@ -163,6 +165,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
         STR_SETTINGS_VIDEO_MODE = "Videomodus";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Konsolenspezifische Einstellungen";
+        STR_SETTINGS_SECOND_STICK = "Zweiter Analog-Stick";
+        STR_SETTINGS_SECOND_STICK_HINT = "Das echte 3DS hat nur einen Stick -- nur aktivieren, wenn dein Setup einen zweiten tatsächlich nutzt.";
         STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
@@ -271,6 +275,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Bilinear filtering";
         STR_SETTINGS_VIDEO_MODE = "Video mode";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Console-specific settings";
+        STR_SETTINGS_SECOND_STICK = "Second analog stick";
+        STR_SETTINGS_SECOND_STICK_HINT = "The real 3DS only has one stick -- only enable this if your setup actually uses a second one.";
         STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
@@ -379,6 +385,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtrage bilinéaire";
         STR_SETTINGS_VIDEO_MODE = "Mode vidéo";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Paramètres spécifiques à la console";
+        STR_SETTINGS_SECOND_STICK = "Deuxième stick analogique";
+        STR_SETTINGS_SECOND_STICK_HINT = "La vraie 3DS n'a qu'un seul stick -- n'activez ceci que si votre configuration en utilise vraiment un second.";
         STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
@@ -487,6 +495,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtro bilineare";
         STR_SETTINGS_VIDEO_MODE = "Modalità video";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Impostazioni specifiche per console";
+        STR_SETTINGS_SECOND_STICK = "Secondo stick analogico";
+        STR_SETTINGS_SECOND_STICK_HINT = "Il vero 3DS ha un solo stick -- attivalo solo se la tua configurazione ne usa davvero un secondo.";
         STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";
@@ -595,6 +605,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_SETTINGS_ANTIALIASING = "Filtrado bilineal";
         STR_SETTINGS_VIDEO_MODE = "Modo de vídeo";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Ajustes específicos por consola";
+        STR_SETTINGS_SECOND_STICK = "Segundo stick analógico";
+        STR_SETTINGS_SECOND_STICK_HINT = "La 3DS real solo tiene un stick -- actívalo solo si tu configuración realmente usa un segundo.";
         STR_VIDEO_MODE_TILES = "Raw+Tiling (Deflate)";
         STR_VIDEO_MODE_H264 = "H.264";
         STR_VIDEO_MODE_H265 = "H.265";

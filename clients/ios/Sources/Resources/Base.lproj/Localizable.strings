@@ -45,6 +45,8 @@
 "settings_antialiasing" = "Bilinear filtering";
 "settings_video_mode" = "Video mode";
 "settings_console_specific" = "Console-specific settings";
+"settings_second_stick" = "Second analog stick";
+"settings_second_stick_hint" = "The real 3DS only has one stick -- only enable this if your setup actually uses a second one.";
 "video_mode_tiles" = "Raw+Tiling (Deflate)";
 "video_mode_h264" = "H.264";
 "video_mode_h265" = "H.265";
