@@ -340,8 +340,8 @@
 <div id="connect">
   <div class="brand">
     <div class="mark">unison</div>
-    <h1>Mit Server verbinden</h1>
-    <p id="connectStatus">IP-Adresse des Emulators eingeben</p>
+    <h1 id="connectTitle"></h1>
+    <p id="connectStatus"></p>
   </div>
   <form id="connectForm">
     <label>Host
@@ -353,31 +353,31 @@
         <input id="portInput" type="number" min="1" max="65535" value="6800" required>
       </label>
     </div>
-    <button type="button" id="probePortsBtn">Port automatisch finden</button>
+    <button type="button" id="probePortsBtn"></button>
     <p id="probeStatus"></p>
-    <button type="submit" id="connectSubmit">Verbinden</button>
+    <button type="submit" id="connectSubmit"></button>
     <div id="connectError"></div>
   </form>
 </div>
 <div id="lobby">
   <div class="brand">
     <div class="mark">Link Cable</div>
-    <h1>Wer spielt mit?</h1>
-    <p id="lobbyStatus">Slot wählen...</p>
+    <h1 id="lobbyTitle"></h1>
+    <p id="lobbyStatus"></p>
   </div>
   <div id="lobbyButtons"></div>
 </div>
 <div id="game">
-<div id="status">connecting...</div>
+<div id="status"></div>
 <div id="videoWrap">
   <canvas id="screen" width="240" height="160"></canvas>
-  <button id="settingsButton" title="Tastenbelegung">&#9881;</button>
+  <button id="settingsButton"></button>
 </div>
 <div id="settingsPanel">
-  <h3 id="settingsPanelTitle">Einstellungen</h3>
+  <h3 id="settingsPanelTitle"></h3>
   <div class="stats-row">
-    <span>Ping: <b id="statPing">--</b> ms</span>
-    <span>Bildrate: <b id="statFps">--</b> fps</span>
+    <span><span id="pingLabelDesktop"></span>: <b id="statPing">--</b> ms</span>
+    <span><span id="fpsLabelDesktop"></span>: <b id="statFps">--</b> fps</span>
   </div>
   <button class="menu-row nav-row" id="keyBindingsRowDesktop">
     <span id="keyBindingsLabelDesktop"></span>
@@ -386,10 +386,10 @@
     <span id="consoleSettingsLabelDesktop"></span>
   </button>
   <button class="menu-row nav-row" id="languageRowDesktop">
-    <span>Sprache</span>
+    <span id="languageLabelDesktop"></span>
     <span id="languageValueDesktop" class="nav-row-value"></span>
   </button>
-  <button id="closeSettings">Schließen</button>
+  <button id="closeSettings"></button>
 </div>
 <div id="languagePanel">
   <h3 id="languagePanelTitle">Sprache</h3>
@@ -413,7 +413,7 @@
   <div class="table-scroll">
     <table id="settingsTable">
       <thead><tr>
-        <th>Taste</th>
+        <th id="keyButtonColumnHeader"></th>
         <th id="keyboardColHeader"></th><th></th>
         <th id="gamepadColHeader"></th><th></th>
       </tr></thead>
@@ -505,13 +505,13 @@
 </div>
 <button id="menuButton">&#9776;</button>
 <div id="menuPanel">
-  <h3>Menü</h3>
+  <h3 id="menuPanelTitle"></h3>
   <div class="stats-row">
-    <span>Ping: <b id="statPingMobile">--</b> ms</span>
-    <span>Bildrate: <b id="statFpsMobile">--</b> fps</span>
+    <span><span id="pingLabelMobile"></span>: <b id="statPingMobile">--</b> ms</span>
+    <span><span id="fpsLabelMobile"></span>: <b id="statFpsMobile">--</b> fps</span>
   </div>
   <label class="menu-row" for="toggleOverlay">
-    <span>Touch-Overlay anzeigen</span>
+    <span id="overlayToggleLabel"></span>
     <input type="checkbox" class="switch" id="toggleOverlay">
   </label>
   <button class="menu-row nav-row" id="keyBindingsRowMobile">
@@ -521,10 +521,10 @@
     <span id="consoleSettingsLabelMobile"></span>
   </button>
   <button class="menu-row nav-row" id="languageRowMobile">
-    <span>Sprache</span>
+    <span id="languageLabelMobile"></span>
     <span id="languageValueMobile" class="nav-row-value"></span>
   </button>
-  <button id="closeMenu">Schließen</button>
+  <button id="closeMenu"></button>
 </div>
 </div>
 <script src="strings_generated.js"></script>
@@ -552,11 +552,51 @@ function setLangPref(pref) {
   langPref = pref;
   localStorage.setItem('unisonWebLanguage', pref);
   currentLang = resolvedLang(langPref, (navigator.language || '').toLowerCase().slice(0, 2));
+  applyStaticStrings();
 }
 function t(key, ...args) {
   const text = (STRINGS[currentLang] && STRINGS[currentLang][key]) || STRINGS.en[key];
   return formatString(text, args);
 }
+
+// Every static (not connection-state-dependent) piece of UI text that
+// isn't already re-set on its own by some panel-open function elsewhere in
+// this file (renderConsoleRows(), openConsoleDetailPanel(), etc. -- those
+// already read t() fresh each time they run, so reopening a panel after a
+// language change was never the problem). This is: called once up front
+// so a non-German browser doesn't see hardcoded German at all, and called
+// again from setLangPref() so picking a language in the Settings panel
+// actually retranslates what's already on screen right now, instead of
+// only taking effect the next time some other panel happens to reopen
+// (the actual bug report this fixes -- previously only
+// updateLanguageRowValues()'s own "current language" subtitle updated
+// live; everything else here was simply never wired to any language
+// change at all, in either direction).
+function applyStaticStrings() {
+  document.getElementById('connectTitle').textContent = t('connect_title');
+  document.getElementById('connectStatus').textContent = t('connect_prompt');
+  document.getElementById('probePortsBtn').textContent = t('connect_probe_ports');
+  document.getElementById('connectSubmit').textContent = t('menu_connect');
+  document.getElementById('lobbyTitle').textContent = t('lobby_title');
+  document.getElementById('lobbyStatus').textContent = t('lobby_select_slot');
+  document.getElementById('settingsButton').title = t('menu_settings');
+  document.getElementById('settingsPanelTitle').textContent = t('menu_settings');
+  document.getElementById('closeSettings').textContent = t('close');
+  document.getElementById('menuPanelTitle').textContent = t('menu_title');
+  document.getElementById('overlayToggleLabel').textContent = t('settings_on_screen_controls');
+  document.getElementById('closeMenu').textContent = t('close');
+  document.getElementById('keyButtonColumnHeader').textContent = t('key_bindings_button_column');
+  for (const id of ['languageLabelDesktop', 'languageLabelMobile']) {
+    document.getElementById(id).textContent = t('settings_language');
+  }
+  for (const id of ['pingLabelDesktop', 'pingLabelMobile']) {
+    document.getElementById(id).textContent = t('ping_label');
+  }
+  for (const id of ['fpsLabelDesktop', 'fpsLabelMobile']) {
+    document.getElementById(id).textContent = t('fps_label');
+  }
+}
+applyStaticStrings();
 
 // Any touch-capable device is treated as mobile: fullscreen video, on-screen
 // overlay instead of the keyboard-rebind panel, and the hamburger menu for
@@ -975,19 +1015,19 @@ const probeStatusEl = document.getElementById('probeStatus');
 probePortsBtn.addEventListener('click', async () => {
   const host = hostInput.value.trim();
   if (!host) {
-    probeStatusEl.textContent = 'Bitte zuerst eine IP-Adresse eingeben.';
+    probeStatusEl.textContent = t('connect_probe_need_host');
     return;
   }
   probePortsBtn.disabled = true;
-  probeStatusEl.textContent = 'Suche läuft...';
+  probeStatusEl.textContent = t('connect_probe_searching');
   const hit = await probeHost(host);
   probePortsBtn.disabled = false;
   if (hit) {
     portInput.value = String(hit.port);
     const label = PROBE_PORTS.find((p) => p.port === hit.port)?.label || '';
-    probeStatusEl.textContent = `Gefunden: ${label} auf Port ${hit.port}.`;
+    probeStatusEl.textContent = t('connect_probe_found', label, hit.port);
   } else {
-    probeStatusEl.textContent = 'Kein Server auf den bekannten Ports gefunden.';
+    probeStatusEl.textContent = t('connect_probe_none_found');
   }
 });
 
@@ -1242,7 +1282,7 @@ function fail(reason) {
   // mirrors.
   if (gameEl.style.display !== 'flex') {
     connectErrorEl.textContent = reason;
-    connectStatusEl.textContent = 'IP-Adresse des Emulators eingeben';
+    connectStatusEl.textContent = t('connect_prompt');
     connectSubmitEl.disabled = false;
     lobbyEl.style.display = 'none';
     connectEl.style.display = 'flex';
