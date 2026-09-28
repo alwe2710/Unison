@@ -159,3 +159,12 @@ test('the key-bindings table splits standard and extended (X/Y/ZL/ZR) buttons in
     await expect(rowFor(page, name)).toHaveCount(1);
   }
 });
+
+// Regression guard: applyStaticStrings() (index.html, the language-live-
+// switch fix) once emptied this button's whole content -- including its
+// gear glyph, which isn't translatable text at all -- while clearing its
+// hardcoded title tooltip for i18n, leaving a visible-but-blank button.
+test('the settings gear button actually renders its icon', async ({ page }) => {
+  await connect(page);
+  await expect(page.locator('#settingsButton')).toHaveText('⚙');
+});
