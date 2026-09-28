@@ -115,6 +115,19 @@ class Prefs(context: Context) {
         prefs.edit().putBoolean(prefKeyForBilinear(streamType), value).apply()
     }
 
+    /** N3DS_BOTTOM_SCREEN-only, unlike bilinearFor()/videoModeFor() above --
+     * a flat flag rather than per-stream_type, since no other console has a
+     * second stick to ever need this for. PlayerActivity's own
+     * ExtActionButtons only ever showed the right VirtualStick gated on
+     * hasSticksMode (n3ds_touch_and_buttons), which WIIU_GAMEPAD and
+     * N3DS_BOTTOM_SCREEN both negotiate -- a real bug, since the actual 3DS
+     * has only one circle pad. Default false to match that real hardware;
+     * WIIU_GAMEPAD keeps its own always-on second stick regardless of this
+     * setting (see PlayerActivity's own hasRightStick computation). */
+    var n3dsSecondStickEnabled: Boolean
+        get() = prefs.getBoolean(PREF_N3DS_SECOND_STICK, false)
+        set(value) = prefs.edit().putBoolean(PREF_N3DS_SECOND_STICK, value).apply()
+
     private fun prefKeyFor(button: GbaButton) = "keybind_${button.prefKey}"
     private fun prefKeyFor(button: ExtButton) = "extkeybind_${button.prefKey}"
     private fun prefKeyForBilinear(streamType: String) = "bilinear_video_filter.$streamType"
@@ -130,8 +143,19 @@ class Prefs(context: Context) {
         internal fun defaultBilinearFor(streamType: String): Boolean =
             streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN"
 
+        /** Whether PlayerActivity's second VirtualStick should show at all
+         * (see its own hasRightStick property) -- WIIU_GAMEPAD's second
+         * stick is real hardware, always on regardless of
+         * secondStickEnabled; N3DS_BOTTOM_SCREEN's is opt-in only
+         * (n3dsSecondStickEnabled's own comment on why); every other
+         * stream_type has no stick at all. internal, same PrefsTest
+         * reasoning as defaultBilinearFor() above. */
+        internal fun hasRightStick(streamType: String, secondStickEnabled: Boolean): Boolean =
+            streamType == "WIIU_GAMEPAD" || (streamType == "N3DS_BOTTOM_SCREEN" && secondStickEnabled)
+
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
         private const val PREF_LANGUAGE = "language"
+        private const val PREF_N3DS_SECOND_STICK = "n3ds_second_stick_enabled"
         private const val NO_KEYCODE = -1
 
         const val LANGUAGE_SYSTEM = "system"

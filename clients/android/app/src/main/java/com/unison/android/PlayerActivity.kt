@@ -183,6 +183,13 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // Only meaningful when hasButtonsMode is true; gates whether
     // ExtDPad/VirtualStick/ZL/ZR are shown at all, see PlayerScreen().
     private var hasSticksMode by mutableStateOf(false)
+    // Gates only the *second* (right) VirtualStick below, not ZL/ZR --
+    // those are real WIIU_GAMEPAD/N3DS_BOTTOM_SCREEN buttons either way.
+    // WIIU_GAMEPAD's own second stick is real hardware, always on;
+    // N3DS_BOTTOM_SCREEN's is opt-in (Prefs.n3dsSecondStickEnabled's own
+    // comment on why this exists at all -- previously always shown for any
+    // hasSticksMode session, including azahar's real single-stick 3DS).
+    private var hasRightStick by mutableStateOf(false)
 
     // Touch and physical-key input are tracked separately and OR'd together
     // when sent, so releasing one source doesn't clobber bits the other
@@ -289,6 +296,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         keyCodeToExtBitFromGba = prefs.sharedExtButtonBitsByKeyCode()
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         bilinearVideoFilter = prefs.bilinearFor(streamType)
+        hasRightStick = Prefs.hasRightStick(streamType, prefs.n3dsSecondStickEnabled)
 
         setContent {
             UnisonTheme {
@@ -520,15 +528,17 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                             onMove = { x, y -> extStickLDragX = x; extStickLDragY = y; sendCombinedExtendedInput() },
                             onRelease = { extStickLDragX = 0; extStickLDragY = 0; sendCombinedExtendedInput() }
                         )
-                        // Top-end, left of the R/ZR column rather than
-                        // CenterEnd -- centered vertically overlapped
-                        // ExtActionButtons' A/B/X/Y diamond down in the
-                        // BottomEnd corner.
-                        VirtualStick(
-                            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 96.dp),
-                            onMove = { x, y -> extStickRDragX = x; extStickRDragY = y; sendCombinedExtendedInput() },
-                            onRelease = { extStickRDragX = 0; extStickRDragY = 0; sendCombinedExtendedInput() }
-                        )
+                        if (hasRightStick) {
+                            // Top-end, left of the R/ZR column rather than
+                            // CenterEnd -- centered vertically overlapped
+                            // ExtActionButtons' A/B/X/Y diamond down in the
+                            // BottomEnd corner.
+                            VirtualStick(
+                                modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 96.dp),
+                                onMove = { x, y -> extStickRDragX = x; extStickRDragY = y; sendCombinedExtendedInput() },
+                                onRelease = { extStickRDragX = 0; extStickRDragY = 0; sendCombinedExtendedInput() }
+                            )
+                        }
                     } else {
                         ExtDPad(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp))
                     }

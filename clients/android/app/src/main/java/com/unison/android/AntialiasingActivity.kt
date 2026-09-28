@@ -51,6 +51,7 @@ class AntialiasingActivity : LocalizedActivity() {
     private lateinit var streamType: String
     private var bilinear by mutableStateOf(false)
     private var videoMode by mutableStateOf(Prefs.VIDEO_MODE_DEFAULT)
+    private var secondStickEnabled by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +60,7 @@ class AntialiasingActivity : LocalizedActivity() {
         val labelRes = intent.getIntExtra(EXTRA_LABEL_RES, R.string.settings_console_specific)
         bilinear = prefs.bilinearFor(streamType)
         videoMode = prefs.videoModeFor(streamType)
+        secondStickEnabled = prefs.n3dsSecondStickEnabled
 
         setContent {
             UnisonTheme {
@@ -88,6 +90,39 @@ class AntialiasingActivity : LocalizedActivity() {
                                         bilinear = it
                                         prefs.setBilinearFor(streamType, it)
                                     }
+                                )
+                            }
+
+                            // N3DS_BOTTOM_SCREEN only -- WIIU_GAMEPAD keeps
+                            // its own always-on second stick (real Wii U
+                            // GamePad hardware), no toggle needed there; no
+                            // other console has a stick at all. See
+                            // Prefs.n3dsSecondStickEnabled's own comment on
+                            // why this exists (previously always shown for
+                            // any n3ds_touch_and_buttons session).
+                            if (streamType == "N3DS_BOTTOM_SCREEN") {
+                                HorizontalDivider()
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                                ) {
+                                    Text(
+                                        stringResource(R.string.settings_second_stick),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Switch(
+                                        checked = secondStickEnabled,
+                                        onCheckedChange = {
+                                            secondStickEnabled = it
+                                            prefs.n3dsSecondStickEnabled = it
+                                        }
+                                    )
+                                }
+                                Text(
+                                    stringResource(R.string.settings_second_stick_hint),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 12.dp)
                                 )
                             }
 
@@ -136,5 +171,6 @@ class AntialiasingActivity : LocalizedActivity() {
         super.onResume()
         bilinear = prefs.bilinearFor(streamType)
         videoMode = prefs.videoModeFor(streamType)
+        secondStickEnabled = prefs.n3dsSecondStickEnabled
     }
 }

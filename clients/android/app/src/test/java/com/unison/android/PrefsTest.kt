@@ -32,4 +32,22 @@ class PrefsTest {
     fun `empty stream_type (manual host-colon-port entry, real type unknown yet) defaults to nearest`() {
         assertEquals(false, Prefs.defaultBilinearFor(""))
     }
+
+    @Test
+    fun `WIIU_GAMEPAD always has a right stick, regardless of the N3DS setting`() {
+        assertEquals(true, Prefs.hasRightStick("WIIU_GAMEPAD", secondStickEnabled = false))
+        assertEquals(true, Prefs.hasRightStick("WIIU_GAMEPAD", secondStickEnabled = true))
+    }
+
+    @Test
+    fun `N3DS_BOTTOM_SCREEN's right stick follows the opt-in setting`() {
+        assertEquals(false, Prefs.hasRightStick("N3DS_BOTTOM_SCREEN", secondStickEnabled = false))
+        assertEquals(true, Prefs.hasRightStick("N3DS_BOTTOM_SCREEN", secondStickEnabled = true))
+    }
+
+    @Test
+    fun `NDS_BOTTOM_SCREEN and GC_GBA_LINK never get a right stick, even with the setting on`() {
+        assertEquals(false, Prefs.hasRightStick("NDS_BOTTOM_SCREEN", secondStickEnabled = true))
+        assertEquals(false, Prefs.hasRightStick("GC_GBA_LINK", secondStickEnabled = true))
+    }
 }
