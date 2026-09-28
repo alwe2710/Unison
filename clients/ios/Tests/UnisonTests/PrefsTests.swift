@@ -117,4 +117,25 @@ final class PrefsTests: XCTestCase {
         // A different stream_type is unaffected.
         XCTAssertEqual(prefs.bilinear(for: "WIIU_GAMEPAD"), true)
     }
+
+    func testN3dsSecondStickDefaultsToDisabledAndRoundTrips() {
+        XCTAssertFalse(prefs.n3dsSecondStickEnabled)
+        prefs.n3dsSecondStickEnabled = true
+        XCTAssertTrue(prefs.n3dsSecondStickEnabled)
+    }
+
+    func testWiiuGamepadAlwaysHasARightStickRegardlessOfTheN3dsSetting() {
+        XCTAssertTrue(Prefs.hasRightStick(for: "WIIU_GAMEPAD", secondStickEnabled: false))
+        XCTAssertTrue(Prefs.hasRightStick(for: "WIIU_GAMEPAD", secondStickEnabled: true))
+    }
+
+    func testN3dsBottomScreensRightStickFollowsTheOptInSetting() {
+        XCTAssertFalse(Prefs.hasRightStick(for: "N3DS_BOTTOM_SCREEN", secondStickEnabled: false))
+        XCTAssertTrue(Prefs.hasRightStick(for: "N3DS_BOTTOM_SCREEN", secondStickEnabled: true))
+    }
+
+    func testOtherConsolesNeverGetARightStickEvenWithTheSettingOn() {
+        XCTAssertFalse(Prefs.hasRightStick(for: "NDS_BOTTOM_SCREEN", secondStickEnabled: true))
+        XCTAssertFalse(Prefs.hasRightStick(for: "GC_GBA_LINK", secondStickEnabled: true))
+    }
 }

@@ -218,6 +218,19 @@ final class Prefs {
         defaults.set(value, forKey: prefKeyForBilinear(streamType))
     }
 
+    /// N3DS_BOTTOM_SCREEN-only, unlike bilinear(for:)/videoMode(for:) above
+    /// -- a flat flag rather than per-stream_type, since no other console
+    /// has a second stick to ever need this for. PlayerView's
+    /// ExtendedControlsOverlay previously showed the right Stick for any
+    /// hasSticks session, which WIIU_GAMEPAD and N3DS_BOTTOM_SCREEN both
+    /// negotiate -- a real bug, since the actual 3DS has only one circle
+    /// pad. Default false to match that real hardware; WIIU_GAMEPAD keeps
+    /// its own always-on second stick regardless (see Prefs.hasRightStick).
+    var n3dsSecondStickEnabled: Bool {
+        get { defaults.bool(forKey: Prefs.n3dsSecondStickKey) }
+        set { defaults.set(newValue, forKey: Prefs.n3dsSecondStickKey) }
+    }
+
     // MARK: - Private helpers
 
     private func prefKey(for button: GbaButton) -> String { "keybind_\(button.prefKey)" }
@@ -235,6 +248,19 @@ final class Prefs {
     /// as GC_GBA_LINK.
     static func defaultBilinear(for streamType: String) -> Bool {
         streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN"
+    }
+
+    private static let n3dsSecondStickKey = "n3ds_second_stick_enabled"
+
+    /// Whether ExtendedControlsOverlay's second Stick should show at all
+    /// (PlayerView) -- WIIU_GAMEPAD's second stick is real hardware,
+    /// always on regardless of secondStickEnabled; N3DS_BOTTOM_SCREEN's is
+    /// opt-in only (n3dsSecondStickEnabled's own comment on why); every
+    /// other stream_type has no stick at all. static/pure, mirrors
+    /// Prefs.kt's own hasRightStick(), same PrefsTest-style testability
+    /// reasoning as defaultBilinear(for:) above.
+    static func hasRightStick(for streamType: String, secondStickEnabled: Bool) -> Bool {
+        streamType == "WIIU_GAMEPAD" || (streamType == "N3DS_BOTTOM_SCREEN" && secondStickEnabled)
     }
 
     static let languageSystem = "system"

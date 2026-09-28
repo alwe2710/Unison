@@ -20,6 +20,7 @@ struct AntialiasingView: View {
     private let prefs = Prefs()
     @State private var bilinear: Bool
     @State private var videoMode: String
+    @State private var secondStickEnabled: Bool
 
     init(streamType: String, labelKey: String) {
         self.streamType = streamType
@@ -27,6 +28,7 @@ struct AntialiasingView: View {
         let prefs = Prefs()
         _bilinear = State(initialValue: prefs.bilinear(for: streamType))
         _videoMode = State(initialValue: prefs.videoMode(for: streamType))
+        _secondStickEnabled = State(initialValue: prefs.n3dsSecondStickEnabled)
     }
 
     var body: some View {
@@ -36,6 +38,22 @@ struct AntialiasingView: View {
                     .onChange(of: bilinear) { _, newValue in
                         prefs.setBilinear(newValue, for: streamType)
                     }
+
+                // N3DS_BOTTOM_SCREEN only -- WIIU_GAMEPAD keeps its own
+                // always-on second stick (real Wii U GamePad hardware), no
+                // toggle needed there; no other console has a stick at all.
+                // See Prefs.n3dsSecondStickEnabled's own comment on why
+                // this exists (previously always shown for any hasSticks
+                // session).
+                if streamType == "N3DS_BOTTOM_SCREEN" {
+                    Toggle(LocaleHelper.string("settings_second_stick", prefs: prefs), isOn: $secondStickEnabled)
+                        .onChange(of: secondStickEnabled) { _, newValue in
+                            prefs.n3dsSecondStickEnabled = newValue
+                        }
+                    Text(LocaleHelper.string("settings_second_stick_hint", prefs: prefs))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 NavigationLink {
                     VideoModeView(streamType: streamType)
@@ -58,6 +76,7 @@ struct AntialiasingView: View {
         .onAppear {
             bilinear = prefs.bilinear(for: streamType)
             videoMode = prefs.videoMode(for: streamType)
+            secondStickEnabled = prefs.n3dsSecondStickEnabled
         }
     }
 }

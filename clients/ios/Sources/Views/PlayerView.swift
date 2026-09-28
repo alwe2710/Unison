@@ -536,7 +536,11 @@ struct PlayerView: View {
             // row's worth of space. See ButtonOverlay's/
             // ExtendedControlsOverlay's own comments.
             if viewModel.touchInput, viewModel.hasButtons {
-                ExtendedControlsOverlay(hasSticks: viewModel.hasSticks, viewModel: viewModel)
+                ExtendedControlsOverlay(
+                    hasSticks: viewModel.hasSticks,
+                    hasRightStick: Prefs.hasRightStick(
+                        for: viewModel.streamType, secondStickEnabled: prefs.n3dsSecondStickEnabled),
+                    viewModel: viewModel)
             }
             if !viewModel.touchInput {
                 ButtonOverlay { bit, pressed in
@@ -804,6 +808,12 @@ private struct CompressedVideoView: UIViewRepresentable {
 /// (L/R still do, alone in their corners).
 private struct ExtendedControlsOverlay: View {
     let hasSticks: Bool
+    // Gates only the *right* Stick in rightCluster below, not ZL/ZR or the
+    // left Stick -- WIIU_GAMEPAD's second stick is real hardware, always
+    // on; N3DS_BOTTOM_SCREEN's is opt-in (Prefs.n3dsSecondStickEnabled's
+    // own comment on why: previously always shown for any hasSticks
+    // session, including azahar's real single-stick 3DS).
+    let hasRightStick: Bool
     @ObservedObject var viewModel: PlayerViewModel
 
     private func hold(_ label: String, bit: UInt32) -> some View {
@@ -883,7 +893,7 @@ private struct ExtendedControlsOverlay: View {
                 .overlay(alignment: .leading) { hold("Y", bit: UInt32(ExtButtonBit.Y)) }
                 .overlay(alignment: .bottom) { shared("B") }
                 .overlay(alignment: .trailing) { shared("A") }
-            if hasSticks {
+            if hasSticks, hasRightStick {
                 Stick { x, y in viewModel.setRightStick(x: x, y: y) }
             }
         }
