@@ -813,11 +813,17 @@ function openConsoleDetailPanel(streamType, label) {
     }
   };
 
+  // isMobile, not just streamType: the on-screen overlay this setting
+  // actually controls (#touchControls, wireStick()) only ever exists on a
+  // touch-capable browser at all -- showing the toggle on desktop (which
+  // only ever gets the keyboard-rebind table instead, no on-screen sticks
+  // to begin with) would change a value with no visible effect there.
   const stickRow = document.getElementById('consoleDetailSecondStickRow');
   const stickHint = document.getElementById('consoleDetailSecondStickHint');
-  stickRow.style.display = streamType === 'N3DS_BOTTOM_SCREEN' ? 'flex' : 'none';
+  const showStickSetting = streamType === 'N3DS_BOTTOM_SCREEN' && isMobile;
+  stickRow.style.display = showStickSetting ? 'flex' : 'none';
   stickHint.style.display = stickRow.style.display;
-  if (streamType === 'N3DS_BOTTOM_SCREEN') {
+  if (showStickSetting) {
     document.getElementById('consoleDetailSecondStickLabel').textContent = t('settings_second_stick');
     stickHint.textContent = t('settings_second_stick_hint');
     const stickToggle = document.getElementById('consoleDetailSecondStickToggle');
