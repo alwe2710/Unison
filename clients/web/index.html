@@ -440,6 +440,14 @@
     <span id="consoleDetailBilinearLabel"></span>
     <input type="checkbox" class="switch" id="consoleDetailBilinearToggle">
   </label>
+  <!-- N3DS_BOTTOM_SCREEN only (openConsoleDetailPanel() sets display:none
+       for every other console) -- WIIU_GAMEPAD always shows its second
+       stick, no toggle needed there; no other console has one at all. -->
+  <label class="menu-row" id="consoleDetailSecondStickRow">
+    <span id="consoleDetailSecondStickLabel"></span>
+    <input type="checkbox" class="switch" id="consoleDetailSecondStickToggle">
+  </label>
+  <div class="hint" id="consoleDetailSecondStickHint"></div>
   <button class="menu-row nav-row" id="consoleDetailVideoModeRow">
     <span id="videoModeLabel"></span>
     <span id="videoModeValue" class="nav-row-value"></span>
@@ -595,6 +603,19 @@ const filterPrefs = JSON.parse(localStorage.getItem('unisonWebBilinearByStreamTy
 function setBilinearFor(streamType, value) {
   filterPrefs[streamType] = value;
   localStorage.setItem('unisonWebBilinearByStreamType', JSON.stringify(filterPrefs));
+}
+
+// N3DS_BOTTOM_SCREEN-only, unlike filterPrefs/videoModePrefs above -- a
+// flat flag rather than a per-stream_type map, since no other console has
+// a second stick to ever need this for (see #touchStickR's own HTML
+// comment, index.html). Default false: the real 3DS only has one stick,
+// matching #touchControls.dualstick's own previous WIIU_GAMEPAD-only
+// default before this setting existed.
+function n3dsSecondStickEnabled() {
+  return localStorage.getItem('unisonWebN3dsSecondStickEnabled') === 'true';
+}
+function setN3dsSecondStickEnabled(value) {
+  localStorage.setItem('unisonWebN3dsSecondStickEnabled', value ? 'true' : 'false');
 }
 
 // Video-mode/compression request, same per-stream_type shape as bilinear
@@ -791,6 +812,28 @@ function openConsoleDetailPanel(streamType, label) {
       document.getElementById('screen').style.imageRendering = toggle.checked ? 'auto' : 'pixelated';
     }
   };
+
+  const stickRow = document.getElementById('consoleDetailSecondStickRow');
+  const stickHint = document.getElementById('consoleDetailSecondStickHint');
+  stickRow.style.display = streamType === 'N3DS_BOTTOM_SCREEN' ? 'flex' : 'none';
+  stickHint.style.display = stickRow.style.display;
+  if (streamType === 'N3DS_BOTTOM_SCREEN') {
+    document.getElementById('consoleDetailSecondStickLabel').textContent = t('settings_second_stick');
+    stickHint.textContent = t('settings_second_stick_hint');
+    const stickToggle = document.getElementById('consoleDetailSecondStickToggle');
+    stickToggle.checked = n3dsSecondStickEnabled();
+    stickToggle.onchange = () => {
+      setN3dsSecondStickEnabled(stickToggle.checked);
+      // document.getElementById(), not a touchControlsEl closure reference
+      // -- this function runs outside beginSession() (reachable pre-connect,
+      // see this file's own comment on why), which is where that variable
+      // is actually declared.
+      if (streamType === currentStreamType) {
+        document.getElementById('touchControls').classList.toggle('dualstick', stickToggle.checked);
+      }
+    };
+  }
+
   updateVideoModeRowValue();
   consoleDetailPanel.style.display = 'flex';
 }
@@ -1224,9 +1267,15 @@ function showGame() {
     touchControlsEl.classList.toggle('ext', currentInputEncoding !== 'gba_buttons');
     // .sticks/.dualstick: narrower than .ext above -- see #touchStickL/R's
     // own HTML comment on why touch_and_buttons (melonDS) gets X/Y/ZL/ZR
-    // but never a stick, and why only WIIU_GAMEPAD (Cemu) gets a second one.
+    // but never a stick, and why only WIIU_GAMEPAD (Cemu) always gets a
+    // second one -- N3DS_BOTTOM_SCREEN's own second stick is opt-in only
+    // (n3dsSecondStickEnabled(), #consoleDetailSecondStickToggle): the real
+    // 3DS has just the one circle pad, unlike the Wii U GamePad's genuine
+    // two sticks.
     touchControlsEl.classList.toggle('sticks', currentInputEncoding === 'n3ds_touch_and_buttons');
-    touchControlsEl.classList.toggle('dualstick', currentStreamType === 'WIIU_GAMEPAD');
+    touchControlsEl.classList.toggle('dualstick',
+        currentStreamType === 'WIIU_GAMEPAD' ||
+        (currentStreamType === 'N3DS_BOTTOM_SCREEN' && n3dsSecondStickEnabled()));
   }
 }
 

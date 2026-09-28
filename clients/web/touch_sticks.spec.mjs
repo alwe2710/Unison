@@ -193,3 +193,36 @@ test('touch_and_buttons (melonDS) shows neither stick', async ({ page }) => {
   await expect(page.locator('#touchStickL')).toBeHidden();
   await expect(page.locator('#touchStickR')).toBeHidden();
 });
+
+// N3DS_BOTTOM_SCREEN's own second stick is opt-in (n3dsSecondStickEnabled(),
+// #consoleDetailSecondStickToggle) -- unlike WIIU_GAMEPAD, the real 3DS only
+// has one circle pad, so the default (covered by the first test above) is
+// off. This covers the opt-in path itself, through the real settings UI
+// (menu -> console-specific settings -> 3DS), not just the localStorage key
+// directly -- and that toggling it live-updates the already-connected
+// session, not just the next connect.
+test('enabling the 3DS-specific "second analog stick" setting live-reveals and wires up the right stick', async ({ page }) => {
+  await connect(page, 'N3DS_BOTTOM_SCREEN', 'n3ds_touch_and_buttons');
+  await expect(page.locator('#touchStickR')).toBeHidden();
+
+  await page.click('#menuButton');
+  await page.click('#consoleSettingsRowMobile');
+  // N3DS_BOTTOM_SCREEN is KNOWN_STREAM_TYPES' first entry (index.html).
+  await page.locator('#consoleRows button').first().click();
+  await expect(page.locator('#consoleDetailSecondStickRow')).toBeVisible();
+  await page.locator('#consoleDetailSecondStickToggle').check();
+  await page.click('#closeConsoleDetail');
+  await page.click('#closeConsoleSettings');
+  await page.click('#closeMenu');
+
+  await expect(page.locator('#touchStickR')).toBeVisible();
+
+  const box = await page.locator('#touchStickR').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2);
+  await expect.poll(() => stickFrames().length, { timeout: 5000 }).toBeGreaterThanOrEqual(1);
+  const f = parseStickFrame(stickFrames()[stickFrames().length - 1]);
+  expect(f.rightX).toBeGreaterThan(0);
+  await page.mouse.up();
+});
