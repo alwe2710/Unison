@@ -656,11 +656,15 @@ const lobbyStatusEl = document.getElementById('lobbyStatus');
 const lobbyButtonsEl = document.getElementById('lobbyButtons');
 const gameEl = document.getElementById('game');
 
-// Prefills from ?host=&port= (bookmarkable/shareable links), falling back to
-// the last successfully-used values -- neither is required, both are just a
-// convenience for the common case of always connecting to the same server.
+// Prefills from ?host=&port= (bookmarkable/shareable links), falling back
+// to the last successfully-used host, then to location.hostname -- this
+// page is normally served *by* the Unison host itself (docs/protocol.md's
+// lobby GET / response, the WASM build here), so the address the browser
+// used to reach this very page is almost certainly the right one to
+// connect the WebSocket to as well; empty only if none of those apply
+// (e.g. a bookmarked file:// copy, where location.hostname is itself "").
 const params = new URLSearchParams(location.search);
-hostInput.value = params.get('host') || localStorage.getItem('unisonLastHost') || '';
+hostInput.value = params.get('host') || localStorage.getItem('unisonLastHost') || location.hostname || '';
 portInput.value = params.get('port') || localStorage.getItem('unisonLastPort') || '6800';
 
 // Own overlay (#languagePanel), opened from either settings panel's

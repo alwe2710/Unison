@@ -30,7 +30,10 @@ const MIME = {
 
 export async function startStaticServer() {
   const server = createServer(async (req, res) => {
-    const urlPath = req.url === '/' ? '/index.html' : req.url;
+    // req.url keeps any query string (e.g. "/?host=1.2.3.4") -- strip it
+    // before mapping to a file path, same as any real static file server.
+    const pathname = new URL(req.url, 'http://localhost').pathname;
+    const urlPath = pathname === '/' ? '/index.html' : pathname;
     try {
       const filePath = join(WEB_DIR, urlPath);
       const body = await readFile(filePath);
