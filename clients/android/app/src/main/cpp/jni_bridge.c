@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
@@ -80,6 +82,10 @@ typedef struct {
     // perform_app_handshake(). Read once here rather than from Prefs
     // directly since this file has no Context to build one from.
     char video_mode[UNISON_VIDEO_MODE_LEN];
+    // Prefs.hardwareDecodeEnabled at connect() time -- see
+    // ensure_video_codec()'s own comment. Read once here, same reasoning as
+    // video_mode above (no Context/Prefs available in this file).
+    bool prefer_hardware_decode;
     int sockfd;
     pthread_t thread;
     atomic_bool stop;
@@ -249,6 +255,17 @@ static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop
         LOGE("connect failed for %s:%d", host, port);
         return false;
     }
+
+    // Mirrors the server's own SocketSetNoDelay()
+    // (Cemu/src/Cemu/unisonStream/UnisonWebSocket.h) -- was missing here
+    // entirely, leaving Nagle's algorithm on for this socket. Video frames
+    // are large enough that this mattered less, but every outgoing input
+    // frame (a handful of bytes, sent via maybe_send_input()/
+    // maybe_send_touch() below) could sit buffered for up to ~200ms
+    // waiting to coalesce with more data or an ACK, which reads as
+    // delayed/sluggish controls independently of decode/render speed.
+    const int noDelay = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay));
 
     uint8_t random_bytes[16];
     arc4random_buf(random_bytes, sizeof(random_bytes));
@@ -636,22 +653,23 @@ static void ensure_video_codec(unison_session *s, uint8_t format, int32_t width,
     const bool isH264 = (format & UNISON_VIDEO_FORMAT_H264) != 0;
     const char *mime = isH264 ? "video/avc" : "video/hevc";
 
-    // Temporary diagnostic (see the "schief und interlaced" investigation):
-    // every render-path change tried (TextureView vs SurfaceView) and
-    // every encoder-side change tried (bitrate mode, VBV sizing, H.264
-    // profile) left the same distortion unchanged on this device, while
-    // the identical bitstream renders correctly on the Android emulator's
-    // software decoder -- forcing Android's own software decoder by name
-    // here tells us directly whether this device's *hardware* decoder is
-    // the actual culprit. Falls back to the normal by-type lookup (whatever
-    // hardware/software decoder Android would pick itself) if the named
-    // software decoder doesn't exist on this device.
-    const char *softwareName = isH264 ? "c2.android.avc.decoder" : "c2.android.hevc.decoder";
-    AMediaCodec *codec = AMediaCodec_createCodecByName(softwareName);
-    if (codec) {
-        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Unison using named software decoder: %s", softwareName);
-    } else {
-        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Unison named software decoder unavailable (%s), falling back to by-type lookup", softwareName);
+    // Plain by-type lookup (whatever hardware/software decoder Android
+    // itself picks) unless the user opted into Prefs.hardwareDecodeEnabled
+    // = false (Settings' "Hardware-Decoder" toggle) -- which forces the
+    // named software decoder instead, same as this file's own diagnostic
+    // override used to do unconditionally for a stretch (see git history
+    // around "schief und interlaced") to isolate a real-device distortion
+    // bug from the hardware decoder. That diagnostic was reverted back to
+    // the hardware decoder after a real-device re-test found no
+    // recurrence, but the toggle keeps the software fallback available for
+    // the rare device where it does. Falls back to the plain by-type
+    // lookup if the named software codec doesn't exist on this device.
+    AMediaCodec *codec = NULL;
+    if (!s->prefer_hardware_decode) {
+        const char *swCodecName = isH264 ? "c2.android.avc.decoder" : "c2.android.hevc.decoder";
+        codec = AMediaCodec_createCodecByName(swCodecName);
+    }
+    if (!codec) {
         codec = AMediaCodec_createDecoderByType(mime);
     }
     if (!codec) {
@@ -663,6 +681,18 @@ static void ensure_video_codec(unison_session *s, uint8_t format, int32_t width,
     AMediaFormat_setString(fmt, AMEDIAFORMAT_KEY_MIME, mime);
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_WIDTH, width);
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_HEIGHT, height);
+    // "low-latency" is AMEDIAFORMAT_KEY_LOW_LATENCY's own well-known,
+    // stable value (= android.media.MediaFormat.KEY_LOW_LATENCY, a public,
+    // documented Android SDK constant) -- used as a literal instead of the
+    // NDK symbol itself, since that symbol is "strict"-availability-gated
+    // to API 30+ (this app's minSdk is 24): Android's linker can't safely
+    // guard a weak *data* symbol reference the way it can a weak function
+    // call, so the NDK's clang refuses to let it be referenced at all
+    // below API 30, even behind __builtin_available. A decoder/OS version
+    // that doesn't recognize this key simply ignores it (AMediaFormat is a
+    // plain key-value bag, not validated against the codec until
+    // configure()) -- safe to always set regardless of device API level.
+    AMediaFormat_setInt32(fmt, "low-latency", 1);
     const media_status_t configureStatus = AMediaCodec_configure(codec, fmt, window, NULL, 0);
     AMediaFormat_delete(fmt);
     // AMediaCodec_configure() acquires its own reference to the window --
@@ -1212,6 +1242,7 @@ JNIEXPORT jlong JNICALL Java_com_unison_android_GbaStreamClient_nativeConnect(JN
                                                                                 jstring jhost,
                                                                                 jint jport,
                                                                                 jstring jvideoMode,
+                                                                                jboolean jpreferHardwareDecode,
                                                                                 jobject listener) {
     (void)thiz;
 
@@ -1227,6 +1258,8 @@ JNIEXPORT jlong JNICALL Java_com_unison_android_GbaStreamClient_nativeConnect(JN
     const char *video_mode_chars = (*env)->GetStringUTFChars(env, jvideoMode, NULL);
     strncpy(s->video_mode, video_mode_chars, sizeof(s->video_mode) - 1);
     (*env)->ReleaseStringUTFChars(env, jvideoMode, video_mode_chars);
+
+    s->prefer_hardware_decode = jpreferHardwareDecode != JNI_FALSE;
 
     s->port = (int)jport;
     s->sockfd = -1;

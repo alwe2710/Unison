@@ -56,6 +56,8 @@ const char *kLobbySlotFree = "frei";
 const char *kLobbySlotOccupiedTitle = "Bereits verbunden";
 const char *kSettings = "Einstellungen";
 const char *kSettingsOnScreenControls = "On-Screen-Controls anzeigen";
+const char *kSettingsHardwareDecode = "Hardware-Decoder";
+const char *kSettingsHardwareDecodeHint = "Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.";
 const char *kSettingsAntialiasing = "Bilineare Filterung";
 const char *kSettingsVideoMode = "Videomodus";
 const char *kSettingsConsoleSpecific = "Konsolenspezifische Einstellungen";
@@ -179,6 +181,8 @@ void setLanguage(Lang lang) {
         kLobbySlotOccupiedTitle = "Bereits verbunden";
         kSettings = "Einstellungen";
         kSettingsOnScreenControls = "On-Screen-Controls anzeigen";
+        kSettingsHardwareDecode = "Hardware-Decoder";
+        kSettingsHardwareDecodeHint = "Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.";
         kSettingsAntialiasing = "Bilineare Filterung";
         kSettingsVideoMode = "Videomodus";
         kSettingsConsoleSpecific = "Konsolenspezifische Einstellungen";
@@ -300,6 +304,8 @@ void setLanguage(Lang lang) {
         kLobbySlotOccupiedTitle = "Already connected";
         kSettings = "Settings";
         kSettingsOnScreenControls = "Show on-screen controls";
+        kSettingsHardwareDecode = "Hardware decoder";
+        kSettingsHardwareDecodeHint = "Turn off if the video image looks distorted or skewed.";
         kSettingsAntialiasing = "Bilinear filtering";
         kSettingsVideoMode = "Video mode";
         kSettingsConsoleSpecific = "Console-specific settings";
@@ -421,6 +427,8 @@ void setLanguage(Lang lang) {
         kLobbySlotOccupiedTitle = "Déjà connecté";
         kSettings = "Paramètres";
         kSettingsOnScreenControls = "Afficher les commandes à l'écran";
+        kSettingsHardwareDecode = "Décodeur matériel";
+        kSettingsHardwareDecodeHint = "Désactiver si l'image vidéo semble déformée ou décalée.";
         kSettingsAntialiasing = "Filtrage bilinéaire";
         kSettingsVideoMode = "Mode vidéo";
         kSettingsConsoleSpecific = "Paramètres spécifiques à la console";
@@ -542,6 +550,8 @@ void setLanguage(Lang lang) {
         kLobbySlotOccupiedTitle = "Già connesso";
         kSettings = "Impostazioni";
         kSettingsOnScreenControls = "Mostra controlli a schermo";
+        kSettingsHardwareDecode = "Decodificatore hardware";
+        kSettingsHardwareDecodeHint = "Disattiva se l'immagine video appare distorta o disallineata.";
         kSettingsAntialiasing = "Filtro bilineare";
         kSettingsVideoMode = "Modalità video";
         kSettingsConsoleSpecific = "Impostazioni specifiche per console";
@@ -663,6 +673,8 @@ void setLanguage(Lang lang) {
         kLobbySlotOccupiedTitle = "Ya conectado";
         kSettings = "Ajustes";
         kSettingsOnScreenControls = "Mostrar controles en pantalla";
+        kSettingsHardwareDecode = "Decodificador por hardware";
+        kSettingsHardwareDecodeHint = "Desactívalo si la imagen de vídeo se ve distorsionada o desalineada.";
         kSettingsAntialiasing = "Filtrado bilineal";
         kSettingsVideoMode = "Modo de vídeo";
         kSettingsConsoleSpecific = "Ajustes específicos por consola";

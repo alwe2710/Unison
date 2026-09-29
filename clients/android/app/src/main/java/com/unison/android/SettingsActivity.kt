@@ -45,12 +45,14 @@ class SettingsActivity : LocalizedActivity() {
 
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
+    private var hardwareDecodeEnabled by mutableStateOf(true)
     private var language by mutableStateOf(Prefs.LANGUAGE_SYSTEM)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
+        hardwareDecodeEnabled = prefs.hardwareDecodeEnabled
         language = prefs.language
 
         setContent {
@@ -80,6 +82,34 @@ class SettingsActivity : LocalizedActivity() {
                                     onCheckedChange = {
                                         onScreenControlsEnabled = it
                                         prefs.onScreenControlsEnabled = it
+                                    }
+                                )
+                            }
+
+                            HorizontalDivider()
+
+                            // General (not per-console) decoder override --
+                            // see Prefs.hardwareDecodeEnabled's own comment.
+                            // Subtitle hint shown the same way as the
+                            // language row's current-value subtitle below,
+                            // but static text rather than a computed value.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.settings_hardware_decode))
+                                    Text(
+                                        stringResource(R.string.settings_hardware_decode_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = hardwareDecodeEnabled,
+                                    onCheckedChange = {
+                                        hardwareDecodeEnabled = it
+                                        prefs.hardwareDecodeEnabled = it
                                     }
                                 )
                             }

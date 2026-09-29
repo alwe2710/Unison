@@ -57,6 +57,8 @@ static const char *STR_LOBBY_SLOT_FREE = "frei";
 static const char *STR_LOBBY_SLOT_OCCUPIED_TITLE = "Bereits verbunden";
 static const char *STR_SETTINGS = "Einstellungen";
 static const char *STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeigen";
+static const char *STR_SETTINGS_HARDWARE_DECODE = "Hardware-Decoder";
+static const char *STR_SETTINGS_HARDWARE_DECODE_HINT = "Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.";
 static const char *STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
 static const char *STR_SETTINGS_VIDEO_MODE = "Videomodus";
 static const char *STR_SETTINGS_CONSOLE_SPECIFIC = "Konsolenspezifische Einstellungen";
@@ -183,6 +185,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_LOBBY_SLOT_OCCUPIED_TITLE = "Bereits verbunden";
         STR_SETTINGS = "Einstellungen";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "On-Screen-Controls anzeigen";
+        STR_SETTINGS_HARDWARE_DECODE = "Hardware-Decoder";
+        STR_SETTINGS_HARDWARE_DECODE_HINT = "Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.";
         STR_SETTINGS_ANTIALIASING = "Bilineare Filterung";
         STR_SETTINGS_VIDEO_MODE = "Videomodus";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Konsolenspezifische Einstellungen";
@@ -304,6 +308,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_LOBBY_SLOT_OCCUPIED_TITLE = "Already connected";
         STR_SETTINGS = "Settings";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Show on-screen controls";
+        STR_SETTINGS_HARDWARE_DECODE = "Hardware decoder";
+        STR_SETTINGS_HARDWARE_DECODE_HINT = "Turn off if the video image looks distorted or skewed.";
         STR_SETTINGS_ANTIALIASING = "Bilinear filtering";
         STR_SETTINGS_VIDEO_MODE = "Video mode";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Console-specific settings";
@@ -425,6 +431,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_LOBBY_SLOT_OCCUPIED_TITLE = "Déjà connecté";
         STR_SETTINGS = "Paramètres";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Afficher les commandes à l'écran";
+        STR_SETTINGS_HARDWARE_DECODE = "Décodeur matériel";
+        STR_SETTINGS_HARDWARE_DECODE_HINT = "Désactiver si l'image vidéo semble déformée ou décalée.";
         STR_SETTINGS_ANTIALIASING = "Filtrage bilinéaire";
         STR_SETTINGS_VIDEO_MODE = "Mode vidéo";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Paramètres spécifiques à la console";
@@ -546,6 +554,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_LOBBY_SLOT_OCCUPIED_TITLE = "Già connesso";
         STR_SETTINGS = "Impostazioni";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Mostra controlli a schermo";
+        STR_SETTINGS_HARDWARE_DECODE = "Decodificatore hardware";
+        STR_SETTINGS_HARDWARE_DECODE_HINT = "Disattiva se l'immagine video appare distorta o disallineata.";
         STR_SETTINGS_ANTIALIASING = "Filtro bilineare";
         STR_SETTINGS_VIDEO_MODE = "Modalità video";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Impostazioni specifiche per console";
@@ -667,6 +677,8 @@ static inline void strSetLanguage(StrLang lang) {
         STR_LOBBY_SLOT_OCCUPIED_TITLE = "Ya conectado";
         STR_SETTINGS = "Ajustes";
         STR_SETTINGS_ON_SCREEN_CONTROLS = "Mostrar controles en pantalla";
+        STR_SETTINGS_HARDWARE_DECODE = "Decodificador por hardware";
+        STR_SETTINGS_HARDWARE_DECODE_HINT = "Desactívalo si la imagen de vídeo se ve distorsionada o desalineada.";
         STR_SETTINGS_ANTIALIASING = "Filtrado bilineal";
         STR_SETTINGS_VIDEO_MODE = "Modo de vídeo";
         STR_SETTINGS_CONSOLE_SPECIFIC = "Ajustes específicos por consola";

@@ -72,6 +72,18 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(PREF_ON_SCREEN_CONTROLS, true)
         set(value) = prefs.edit().putBoolean(PREF_ON_SCREEN_CONTROLS, value).apply()
 
+    /** General (not per-console) override for GbaStreamClient.connect() /
+     * jni_bridge.c's ensure_video_codec() -- true (default) uses whatever
+     * hardware/software decoder Android itself picks for the codec type;
+     * false forces the named software decoder
+     * (c2.android.avc.decoder/c2.android.hevc.decoder) as an intentional,
+     * user-opted-in fallback, for the rare device where the hardware
+     * decoder produces a distorted/skewed image (see jni_bridge.c's own
+     * comment, "schief und interlaced"). */
+    var hardwareDecodeEnabled: Boolean
+        get() = prefs.getBoolean(PREF_HARDWARE_DECODE, true)
+        set(value) = prefs.edit().putBoolean(PREF_HARDWARE_DECODE, value).apply()
+
     /** "system" (default, follow the device locale -- see LocaleHelper), or
      * one of LANGUAGES' language codes. A manual override from the
      * Settings language picker. */
@@ -161,6 +173,7 @@ class Prefs(context: Context) {
             streamType == "WIIU_GAMEPAD" || (streamType == "N3DS_BOTTOM_SCREEN" && secondStickEnabled)
 
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
+        private const val PREF_HARDWARE_DECODE = "hardware_decode_enabled"
         private const val PREF_LANGUAGE = "language"
         private const val PREF_N3DS_SECOND_STICK = "n3ds_second_stick_enabled"
         private const val NO_KEYCODE = -1

@@ -1316,7 +1316,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         val c = GbaStreamClient(this)
         client = c
         statusText = getString(R.string.status_connecting)
-        c.connect(host, port, prefs.videoModeFor(streamType))
+        c.connect(host, port, prefs.videoModeFor(streamType), prefs.hardwareDecodeEnabled)
     }
 
     private fun disconnect() {

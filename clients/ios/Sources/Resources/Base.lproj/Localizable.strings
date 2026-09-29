@@ -52,6 +52,8 @@
 "lobby_slot_occupied_title" = "Already connected";
 "settings" = "Settings";
 "settings_on_screen_controls" = "Show on-screen controls";
+"settings_hardware_decode" = "Hardware decoder";
+"settings_hardware_decode_hint" = "Turn off if the video image looks distorted or skewed.";
 "settings_antialiasing" = "Bilinear filtering";
 "settings_video_mode" = "Video mode";
 "settings_console_specific" = "Console-specific settings";

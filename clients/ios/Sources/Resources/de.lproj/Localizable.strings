@@ -52,6 +52,8 @@
 "lobby_slot_occupied_title" = "Bereits verbunden";
 "settings" = "Einstellungen";
 "settings_on_screen_controls" = "On-Screen-Controls anzeigen";
+"settings_hardware_decode" = "Hardware-Decoder";
+"settings_hardware_decode_hint" = "Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.";
 "settings_antialiasing" = "Bilineare Filterung";
 "settings_video_mode" = "Videomodus";
 "settings_console_specific" = "Konsolenspezifische Einstellungen";

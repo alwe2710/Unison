@@ -52,6 +52,8 @@
     <string name="lobby_slot_occupied_title">Bereits verbunden</string>
     <string name="settings">Einstellungen</string>
     <string name="settings_on_screen_controls">On-Screen-Controls anzeigen</string>
+    <string name="settings_hardware_decode">Hardware-Decoder</string>
+    <string name="settings_hardware_decode_hint">Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.</string>
     <string name="settings_antialiasing">Bilineare Filterung</string>
     <string name="settings_video_mode">Videomodus</string>
     <string name="settings_console_specific">Konsolenspezifische Einstellungen</string>

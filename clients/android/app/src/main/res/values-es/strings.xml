@@ -52,6 +52,8 @@
     <string name="lobby_slot_occupied_title">Ya conectado</string>
     <string name="settings">Ajustes</string>
     <string name="settings_on_screen_controls">Mostrar controles en pantalla</string>
+    <string name="settings_hardware_decode">Decodificador por hardware</string>
+    <string name="settings_hardware_decode_hint">Desactívalo si la imagen de vídeo se ve distorsionada o desalineada.</string>
     <string name="settings_antialiasing">Filtrado bilineal</string>
     <string name="settings_video_mode">Modo de vídeo</string>
     <string name="settings_console_specific">Ajustes específicos por consola</string>

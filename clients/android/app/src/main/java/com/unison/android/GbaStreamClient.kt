@@ -72,9 +72,10 @@ class GbaStreamClient(private val listener: Listener) {
     /** Spawns a background native thread; connect result arrives via onConnected/onDisconnected.
      * videoMode is sent verbatim as hello_ack.video_mode (Prefs.videoModeFor(streamType), one of
      * Prefs.VIDEO_MODES) -- see docs/protocol.md; servers that don't implement the negotiation
-     * just ignore it. */
-    fun connect(host: String, port: Int, videoMode: String = Prefs.VIDEO_MODE_DEFAULT) {
-        nativeHandle = nativeConnect(host, port, videoMode, listener)
+     * just ignore it. preferHardwareDecode mirrors Prefs.hardwareDecodeEnabled -- only consulted
+     * by ensure_video_codec() (jni_bridge.c) for h264/h265 sessions, harmless/unused otherwise. */
+    fun connect(host: String, port: Int, videoMode: String = Prefs.VIDEO_MODE_DEFAULT, preferHardwareDecode: Boolean = true) {
+        nativeHandle = nativeConnect(host, port, videoMode, preferHardwareDecode, listener)
     }
 
     /** Hands the TextureView's Surface (see PlayerScreen's video layer) down
@@ -154,7 +155,7 @@ class GbaStreamClient(private val listener: Listener) {
         }
     }
 
-    private external fun nativeConnect(host: String, port: Int, videoMode: String, listener: Listener): Long
+    private external fun nativeConnect(host: String, port: Int, videoMode: String, preferHardwareDecode: Boolean, listener: Listener): Long
     private external fun nativeSetVideoSurface(handle: Long, surface: android.view.Surface?)
     private external fun nativeSendInput(handle: Long, keyMask: Int)
     private external fun nativeSendTouch(handle: Long, pressed: Boolean, x: Int, y: Int)

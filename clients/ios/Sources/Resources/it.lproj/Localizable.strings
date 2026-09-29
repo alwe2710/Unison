@@ -52,6 +52,8 @@
 "lobby_slot_occupied_title" = "Già connesso";
 "settings" = "Impostazioni";
 "settings_on_screen_controls" = "Mostra controlli a schermo";
+"settings_hardware_decode" = "Decodificatore hardware";
+"settings_hardware_decode_hint" = "Disattiva se l'immagine video appare distorta o disallineata.";
 "settings_antialiasing" = "Filtro bilineare";
 "settings_video_mode" = "Modalità video";
 "settings_console_specific" = "Impostazioni specifiche per console";

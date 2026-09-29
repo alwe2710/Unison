@@ -63,6 +63,8 @@
 
   "settings": {"de": "Einstellungen", "en": "Settings", "fr": "Paramètres", "it": "Impostazioni", "es": "Ajustes"},
   "settings_on_screen_controls": {"de": "On-Screen-Controls anzeigen", "en": "Show on-screen controls", "fr": "Afficher les commandes à l'écran", "it": "Mostra controlli a schermo", "es": "Mostrar controles en pantalla"},
+  "settings_hardware_decode": {"de": "Hardware-Decoder", "en": "Hardware decoder", "fr": "Décodeur matériel", "it": "Decodificatore hardware", "es": "Decodificador por hardware"},
+  "settings_hardware_decode_hint": {"de": "Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.", "en": "Turn off if the video image looks distorted or skewed.", "fr": "Désactiver si l'image vidéo semble déformée ou décalée.", "it": "Disattiva se l'immagine video appare distorta o disallineata.", "es": "Desactívalo si la imagen de vídeo se ve distorsionada o desalineada."},
   "settings_antialiasing": {"de": "Bilineare Filterung", "en": "Bilinear filtering", "fr": "Filtrage bilinéaire", "it": "Filtro bilineare", "es": "Filtrado bilineal"},
   "settings_video_mode": {"de": "Videomodus", "en": "Video mode", "fr": "Mode vidéo", "it": "Modalità video", "es": "Modo de vídeo"},
   "settings_console_specific": {"de": "Konsolenspezifische Einstellungen", "en": "Console-specific settings", "fr": "Paramètres spécifiques à la console", "it": "Impostazioni specifiche per console", "es": "Ajustes específicos por consola"},

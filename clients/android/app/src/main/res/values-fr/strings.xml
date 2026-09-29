@@ -52,6 +52,8 @@
     <string name="lobby_slot_occupied_title">Déjà connecté</string>
     <string name="settings">Paramètres</string>
     <string name="settings_on_screen_controls">Afficher les commandes à l\'écran</string>
+    <string name="settings_hardware_decode">Décodeur matériel</string>
+    <string name="settings_hardware_decode_hint">Désactiver si l\'image vidéo semble déformée ou décalée.</string>
     <string name="settings_antialiasing">Filtrage bilinéaire</string>
     <string name="settings_video_mode">Mode vidéo</string>
     <string name="settings_console_specific">Paramètres spécifiques à la console</string>

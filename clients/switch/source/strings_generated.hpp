@@ -58,6 +58,8 @@ extern const char *kLobbySlotFree;
 extern const char *kLobbySlotOccupiedTitle;
 extern const char *kSettings;
 extern const char *kSettingsOnScreenControls;
+extern const char *kSettingsHardwareDecode;
+extern const char *kSettingsHardwareDecodeHint;
 extern const char *kSettingsAntialiasing;
 extern const char *kSettingsVideoMode;
 extern const char *kSettingsConsoleSpecific;

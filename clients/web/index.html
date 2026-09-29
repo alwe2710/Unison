@@ -389,6 +389,15 @@
     <span id="languageLabelDesktop"></span>
     <span id="languageValueDesktop" class="nav-row-value"></span>
   </button>
+  <!-- General (not per-console) decoder preference -- see
+       hardwareDecodePref's own comment below. Duplicated between
+       #settingsPanel (here, desktop) and #menuPanel (mobile), same
+       languageLabelDesktop/Mobile-style split as the row above, since
+       exactly one of the two panels is ever shown depending on isMobile. -->
+  <label class="menu-row" for="toggleHardwareDecodeDesktop">
+    <span id="hardwareDecodeToggleLabelDesktop"></span>
+    <input type="checkbox" class="switch" id="toggleHardwareDecodeDesktop">
+  </label>
   <button id="closeSettings"></button>
 </div>
 <div id="languagePanel">
@@ -514,6 +523,10 @@
     <span id="overlayToggleLabel"></span>
     <input type="checkbox" class="switch" id="toggleOverlay">
   </label>
+  <label class="menu-row" for="toggleHardwareDecodeMobile">
+    <span id="hardwareDecodeToggleLabelMobile"></span>
+    <input type="checkbox" class="switch" id="toggleHardwareDecodeMobile">
+  </label>
   <button class="menu-row nav-row" id="keyBindingsRowMobile">
     <span id="keyBindingsLabelMobile"></span>
   </button>
@@ -548,6 +561,15 @@
 // there -- see settings_test.mjs).
 let langPref = localStorage.getItem('unisonWebLanguage') || 'system';
 let currentLang = resolvedLang(langPref, (navigator.language || '').toLowerCase().slice(0, 2));
+
+// General (not per-console) decoder preference -- mirrors Android's
+// Prefs.hardwareDecodeEnabled/Settings' "Hardware-Decoder" toggle. Feeds
+// VideoDecoderConfig.hardwareAcceleration (WebCodecs, a real standardized
+// field: 'no-preference'/'prefer-hardware'/'prefer-software') in
+// ensureVideoDecoder() below -- a best-effort hint the browser/OS may
+// ignore, unlike the native clients' own hard decoder-name lookup, since
+// WebCodecs offers no stronger guarantee than that.
+let hardwareDecodePref = localStorage.getItem('unisonWebHardwareDecode') !== 'false';
 function setLangPref(pref) {
   langPref = pref;
   localStorage.setItem('unisonWebLanguage', pref);
@@ -584,6 +606,9 @@ function applyStaticStrings() {
   document.getElementById('closeSettings').textContent = t('close');
   document.getElementById('menuPanelTitle').textContent = t('menu_title');
   document.getElementById('overlayToggleLabel').textContent = t('settings_on_screen_controls');
+  for (const id of ['hardwareDecodeToggleLabelDesktop', 'hardwareDecodeToggleLabelMobile']) {
+    document.getElementById(id).textContent = t('settings_hardware_decode');
+  }
   document.getElementById('closeMenu').textContent = t('close');
   document.getElementById('keyButtonColumnHeader').textContent = t('key_bindings_button_column');
   for (const id of ['languageLabelDesktop', 'languageLabelMobile']) {
@@ -1260,6 +1285,7 @@ function ensureVideoDecoder(isH265) {
     codec: isH265 ? 'hev1.1.6.L93.B0' : 'avc1.42001E',
     ...(isH265 ? { hevc: { format: 'annexb' } } : { avc: { format: 'annexb' } }),
     optimizeForLatency: true,
+    hardwareAcceleration: hardwareDecodePref ? 'prefer-hardware' : 'prefer-software',
   });
 }
 
@@ -2174,6 +2200,14 @@ if (isMobile) {
     localStorage.setItem('unisonWebShowOverlay', overlayToggle.checked);
   };
 
+  const hardwareDecodeToggleMobile = document.getElementById('toggleHardwareDecodeMobile');
+  hardwareDecodeToggleMobile.checked = hardwareDecodePref;
+  hardwareDecodeToggleMobile.onchange = () => {
+    hardwareDecodePref = hardwareDecodeToggleMobile.checked;
+    localStorage.setItem('unisonWebHardwareDecode', hardwareDecodePref);
+    resetVideoDecoder();
+  };
+
   menuButton.style.display = 'flex';
   menuButton.onclick = () => { menuPanel.style.display = 'flex'; };
   document.getElementById('closeMenu').onclick = () => { menuPanel.style.display = 'none'; };
@@ -2190,6 +2224,14 @@ if (!isMobile) {
   settingsButton.style.display = 'flex';
   settingsButton.onclick = () => { settingsPanel.style.display = 'flex'; };
   document.getElementById('closeSettings').onclick = () => { settingsPanel.style.display = 'none'; };
+
+  const hardwareDecodeToggleDesktop = document.getElementById('toggleHardwareDecodeDesktop');
+  hardwareDecodeToggleDesktop.checked = hardwareDecodePref;
+  hardwareDecodeToggleDesktop.onchange = () => {
+    hardwareDecodePref = hardwareDecodeToggleDesktop.checked;
+    localStorage.setItem('unisonWebHardwareDecode', hardwareDecodePref);
+    resetVideoDecoder();
+  };
 }
 }  // beginSession
 </script>
