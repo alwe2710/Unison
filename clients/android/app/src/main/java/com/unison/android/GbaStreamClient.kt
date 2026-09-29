@@ -191,7 +191,7 @@ class GbaStreamClient(private val listener: Listener) {
         // and UNISON_BEACON_PORT (core/include/unison/discovery.h) --
         // MenuActivity's discovery listener needs both before any native
         // handshake code runs, so it can't just call into core for them.
-        const val PROTOCOL_VERSION = 3
+        const val PROTOCOL_VERSION = 4
         const val BEACON_PORT = 6805
 
         // Mirrors unison_key in core/include/unison/protocol.h.
