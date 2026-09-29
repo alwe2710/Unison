@@ -511,6 +511,45 @@ static void test_mic_audio_frame(void) {
     CHECK(unison_parse_mic_audio_frame(wrong_type, sizeof(wrong_type), &audio) == UNISON_ERR_UNKNOWN_TYPE);
 }
 
+/* UDP fragment header (docs/protocol.md, "Dedicated video/audio channel
+ * (UDP)") -- pure framing roundtrip, independent of whatever payload the
+ * caller puts after it (see unison_udp_fragment_header's own comment). */
+static void test_udp_fragment_header_roundtrip(void) {
+    unison_udp_fragment_header hdr;
+    hdr.msg_type = UNISON_MSG_VIDEO;
+    hdr.frame_id = 0x01020304;
+    hdr.fragment_index = 3;
+    hdr.fragment_count = 7;
+
+    uint8_t buf[UNISON_UDP_FRAGMENT_HEADER_SIZE];
+    CHECK(unison_build_udp_fragment_header(&hdr, buf) == UNISON_UDP_FRAGMENT_HEADER_SIZE);
+
+    unison_udp_fragment_header parsed;
+    memset(&parsed, 0xAA, sizeof(parsed));
+    CHECK(unison_parse_udp_fragment_header(buf, sizeof(buf), &parsed) == UNISON_OK);
+    CHECK(parsed.msg_type == UNISON_MSG_VIDEO);
+    CHECK(parsed.frame_id == 0x01020304);
+    CHECK(parsed.fragment_index == 3);
+    CHECK(parsed.fragment_count == 7);
+
+    /* Too short -- must not read past a truncated buffer. */
+    CHECK(unison_parse_udp_fragment_header(buf, UNISON_UDP_FRAGMENT_HEADER_SIZE - 1, &parsed) ==
+          UNISON_ERR_TOO_SHORT);
+}
+
+/* UNISON_MSG_UDP_HELLO -- the single-shot client->server rendezvous
+ * packet -- must round-trip through the same generic unison_peek_type()
+ * every other msg_type already does, not just the fragment-header parser
+ * above (a receiver dispatching on unison_peek_type() first, the same way
+ * it already does for every other message type, must recognize this one
+ * too rather than treating it as UNISON_ERR_UNKNOWN_TYPE). */
+static void test_udp_hello_recognized_by_peek_type(void) {
+    unison_msg_type type;
+    const uint8_t hello_byte[] = {UNISON_MSG_UDP_HELLO};
+    CHECK(unison_peek_type(hello_byte, sizeof(hello_byte), &type) == UNISON_OK);
+    CHECK(type == UNISON_MSG_UDP_HELLO);
+}
+
 int main(void) {
     test_peek_type();
     test_video_header();
@@ -530,6 +569,8 @@ int main(void) {
     test_text_input_response();
     test_mic_enable_frame();
     test_mic_audio_frame();
+    test_udp_fragment_header_roundtrip();
+    test_udp_hello_recognized_by_peek_type();
     printf("protocol: all tests passed\n");
     return 0;
 }

@@ -21,6 +21,11 @@ typedef enum {
     UNISON_MSG_TEXT_INPUT_RESPONSE = 5, /* client->server, see unison_text_input_response */
     UNISON_MSG_MIC_ENABLE = 6,          /* server->client, see unison_mic_enable */
     UNISON_MSG_MIC_AUDIO = 7,           /* client->server, see unison_parse_mic_audio_frame */
+    /* client->server, UDP-only, see unison_udp_fragment_header's own
+     * comment -- the client's rendezvous "hello" so the server learns its
+     * source address/port; empty payload, fragment_index/fragment_count
+     * both 0. Never appears on the TCP control connection. */
+    UNISON_MSG_UDP_HELLO = 8,
 } unison_msg_type;
 
 typedef enum {
@@ -105,6 +110,34 @@ typedef struct {
     const uint8_t *samples; /* s16le, read with unison_read_s16le() */
     size_t sample_count;
 } unison_audio_frame;
+
+/* UDP fragment header (docs/protocol.md, "Dedicated video/audio channel
+ * (UDP)") -- every datagram on that channel starts with this 9-byte
+ * header, server->client for UNISON_MSG_VIDEO/UNISON_MSG_AUDIO,
+ * client->server for the single-shot UNISON_MSG_UDP_HELLO rendezvous
+ * packet. Framing only: the payload following the header is exactly the
+ * same message body a TCP-delivered frame of that msg_type would carry
+ * (e.g. SendVideoFrame's own message bytes) split across fragment_count
+ * datagrams -- this struct/its build+parse functions never look inside
+ * that payload, same "framing is shared, body content stays
+ * host-specific" split as unison_ws_build_frame/unison_ws_parse_frame
+ * already draw for the TCP side.
+ *
+ * frame_id is assigned by the sender, monotonically increasing per
+ * msg_type (video and audio each count independently) -- lets a receiver
+ * detect a new frame starting before the previous one's fragments all
+ * arrived (drop the incomplete old one, same "newest wins" policy TILES
+ * dedup and the decode-backlog logic already use) without needing any
+ * acknowledgement/retransmission machinery. fragment_index/fragment_count
+ * are both 0 for UNISON_MSG_UDP_HELLO's empty-payload packet. */
+typedef struct {
+    uint8_t msg_type; /* unison_msg_type */
+    uint32_t frame_id;
+    uint16_t fragment_index; /* 0-based */
+    uint16_t fragment_count; /* total fragments for this frame_id, >= 1 (0 only for UDP_HELLO) */
+} unison_udp_fragment_header;
+
+#define UNISON_UDP_FRAGMENT_HEADER_SIZE 9
 
 #define UNISON_INPUT_FRAME_SIZE 3
 
@@ -234,6 +267,23 @@ unison_result unison_parse_touch_and_buttons_frame(const uint8_t *data, size_t s
 /* Reads the leading type byte of a server->client message without consuming
  * the rest. `size` must be >= 1. */
 unison_result unison_peek_type(const uint8_t *data, size_t size, unison_msg_type *out_type);
+
+/* Writes out_buf[UNISON_UDP_FRAGMENT_HEADER_SIZE] (caller must have room).
+ * Returns the number of bytes written, always
+ * UNISON_UDP_FRAGMENT_HEADER_SIZE. */
+size_t unison_build_udp_fragment_header(const unison_udp_fragment_header *header,
+                                          uint8_t out_buf[UNISON_UDP_FRAGMENT_HEADER_SIZE]);
+
+/* Parses a UDP fragment header from the start of a received datagram.
+ * `size` must be >= UNISON_UDP_FRAGMENT_HEADER_SIZE. Unlike
+ * unison_parse_video_header and friends, this does NOT validate msg_type
+ * against unison_msg_type at all (not even via unison_peek_type) -- the
+ * header's own msg_type byte is read verbatim into out->msg_type, letting
+ * the caller reject an unrecognized value however it prefers (e.g. by
+ * feeding it to unison_peek_type separately) rather than this generic
+ * framing layer hardcoding that policy. */
+unison_result unison_parse_udp_fragment_header(const uint8_t *data, size_t size,
+                                                 unison_udp_fragment_header *out);
 
 /* Parses a type=1 message. `data` must start at the type byte. */
 unison_result unison_parse_video_header(const uint8_t *data, size_t size, unison_video_header *out);

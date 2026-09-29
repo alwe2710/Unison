@@ -10,12 +10,17 @@ emulator-agnostic and every fork's server follows the same shape (see [Endpoints
 below). Starting with `protocol_version = 2` (see below), this document also describes the
 discovery beacon, connection handshake (including slot negotiation), and downscaling negotiation
 — before that there was no mechanism for any of it; see this file's git history for the plain
-`Video`/`Audio`/`Input` state without a handshake. Starting with `protocol_version = 3`, a server
-may additionally offer a [dedicated video connection](#dedicated-video-connection), separate from
-the one carrying every other frame type. As of this revision only Cemu's `WIIU_GAMEPAD` server and
-the Android client have actually been updated to `3` and use it — per the exact-match rule below,
-this means the Android client currently can't connect to azahar/melonDS/dolphin-gba-stream (still
-`2`) at all until those are updated too, not just that they'd fall back to not using this feature.
+`Video`/`Audio`/`Input` state without a handshake. Starting with `protocol_version = 4`, a server
+may additionally offer a [dedicated video/audio channel](#dedicated-videoaudio-channel-udp) over
+UDP, separate from the TCP connection carrying `Input`/`Text input`/`Mic`. (An earlier,
+`protocol_version = 3` design offered a second *TCP* connection for `Video` alone instead — replaced
+outright rather than kept as a fallback, once TCP's own head-of-line blocking on real Wi-Fi turned
+out to still be the dominant source of latency even with `Input` no longer sharing a connection with
+it; see this file's git history.) As of this revision only Cemu's `WIIU_GAMEPAD` server and the
+Android client have actually been updated to `4` and use it — per the exact-match rule below, this
+means the Android client currently can't connect to azahar/melonDS/dolphin-gba-stream (still on an
+earlier version) at all until those are updated too, not just that they'd fall back to not using
+this feature.
 
 ## Endpoints
 
@@ -24,7 +29,7 @@ this means the Android client currently can't connect to azahar/melonDS/dolphin-
 | Lobby | `6800` (TCP) | Handshake entry point (see below), one per Unison server instance, independent of which stream slot ends up serving the client. Named `GBAStreamLobby` in dolphin-gba-stream specifically — a reference-counted singleton there, replacing that fork's earlier HTML picker page. |
 | Stream host (× slot) | `6801`–`6804` (TCP) | One slot per active stream (e.g. one GC port set to "GBA (Client Stream)" in dolphin-gba-stream). Exactly one connected client per port. For stream types with only a single slot (see below), this range isn't used — the session stays on `6800`. Named `StreamHost` in dolphin-gba-stream specifically. |
 | Discovery beacon | `6805` (UDP, broadcast) | Periodic server announcement, see [Discovery Beacon](#discovery-beacon-udp). |
-| Video connection | server-chosen (TCP), transmitted as `session_ready.video_port` | `protocol_version = 3`+, optional per server/stream type — see [Dedicated video connection](#dedicated-video-connection). Not a fixed range like the stream host ports above; each server picks and announces its own port. |
+| Video/audio channel | server-chosen (UDP), transmitted as `session_ready.video_port` | `protocol_version = 4`+, optional per server/stream type — see [Dedicated video/audio channel (UDP)](#dedicated-videoaudio-channel-udp). Not a fixed range like the stream host ports above; each server picks and announces its own port. |
 
 > Since `protocol_version = 2`, the lobby distinguishes between a plain `GET /` (returns an HTML
 > page, status 200 — the WASM-based web client, now built on `core/`) and a WebSocket upgrade
@@ -35,7 +40,7 @@ this means the Android client currently can't connect to azahar/melonDS/dolphin-
 
 ## Protocol version
 
-`protocol_version` is a simple, monotonically increasing integer. Current value: **3**.
+`protocol_version` is a simple, monotonically increasing integer. Current value: **4**.
 Compatibility rule: **exact match** — a client with `protocol_version = 2` only connects to a
 server that also reports exactly `2`, and vice versa. No major/minor scheme; any protocol change
 that affects this document increments the value by 1.
@@ -182,20 +187,22 @@ analog stick.
 
 ```mermaid
 flowchart LR
-    S["Server<br/>(Cemu)"] -- "Video (type=1)" --> C[Client]
-    S -- "Audio (type=3)" --> C
-    S -- "Text input request (type=4)" --> C
-    S -- "Mic enable (type=6)" --> C
-    C -- "Input: n3ds_touch_and_buttons (type=2)" --> S
-    C -- "Text input response (type=5)" --> S
-    C -- "Mic audio (type=7)" --> S
+    S["Server<br/>(Cemu)"] -- "Video (type=1), UDP" --> C[Client]
+    S -- "Audio (type=3), UDP" --> C
+    S -- "Text input request (type=4), TCP" --> C
+    S -- "Mic enable (type=6), TCP" --> C
+    C -- "Input: n3ds_touch_and_buttons (type=2), TCP" --> S
+    C -- "Text input response (type=5), TCP" --> S
+    C -- "Mic audio (type=7), TCP" --> S
 ```
 
 The only stream type with every message type so far active at once: GamePad speaker audio plays
 exclusively on the client (local playback is muted meanwhile, see `ax_out.cpp`/`AIInitDRCDMA`),
 GamePad microphone runs in the reverse direction, and `swkbd` (the Wii U's software keyboard) uses
 text input instead of a local overlay, since that would never be captured by the video capture
-(see "Text Input" below).
+(see "Text Input" below). As of `protocol_version = 4`, this is also the one stream type where
+`Video`/`Audio` and everything else no longer share a connection at all — see
+[Dedicated video/audio channel (UDP)](#dedicated-videoaudio-channel-udp).
 
 ### Target screen on second-screen clients (3DS, DS/DSi)
 
@@ -237,14 +244,14 @@ For stream types with exactly one slot (`N3DS_BOTTOM_SCREEN`, and in the future
 port-6800 connection without a `redirect` field, and that same connection then carries the stream
 too — there's no use of 6801–6804 for these types.
 
-A server implementing [dedicated video connection](#dedicated-video-connection) (`protocol_version
-= 3`+) adds one more step after a `session_ready` without `redirect`, still before any binary frame
-flows on the first (now "control") connection:
+A server implementing [dedicated video/audio channel (UDP)](#dedicated-videoaudio-channel-udp)
+(`protocol_version = 4`+) adds one more step after a `session_ready` without `redirect`, still
+before any binary frame flows on the first (now "control") connection:
 
 ```
   |<-- session_ready { video_port: 6850 } --|      (no redirect -- final connection for control frames)
-  |--- WebSocket upgrade (RFC6455) -------->|      (second, simultaneous connection, no hello/hello_ack)
-  |<== from here on: Video (1) on the 2nd connection, Audio (3)/Input (2)/etc. on the 1st ==>|
+  |--- UDP: UNISON_MSG_UDP_HELLO ----------->|      (repeated every 200ms until acknowledged, see below)
+  |<== from here on: Video (1)/Audio (3) over UDP, Input (2)/etc. on the TCP connection ==>|
 ```
 
 ### `hello` (server → client)
@@ -334,19 +341,20 @@ priority as long as the client can handle them per `hello_ack`, otherwise the se
   any server that predates this field — a client must **not** treat an absent value the same as
   `"tiles"` the way `hello_ack.video_mode`'s own absent-value convention works; there is
   deliberately no default here (see below for why).
-- `video_port`: optional (`protocol_version = 3`+). When present (and `redirect` is absent — see
-  below), the server offers a [dedicated video connection](#dedicated-video-connection): a second,
-  simultaneously open WebSocket connection to this port, carrying `Video` frames exclusively, so
-  they never queue up behind `Input`/`Audio`/etc. on the same connection. Absent means video stays
-  multiplexed on this connection as in every prior protocol version — the only shape any server
-  predating this field, or any server that simply doesn't implement it, can produce.
+- `video_port`: optional (`protocol_version = 4`+). When present (and `redirect` is absent — see
+  below), the server offers a [dedicated video/audio channel (UDP)](#dedicated-videoaudio-channel-udp)
+  on this port: `Video` and `Audio` both move there, off this (TCP) connection entirely, so neither
+  can ever queue up behind (or be queued up behind by) `Input`/etc. on the same ordered byte stream.
+  Absent means video/audio stay multiplexed on this connection as in every prior protocol version —
+  the only shape any server predating this field, or any server that simply doesn't implement it,
+  can produce.
 
 Optionally with an additional `"redirect": { "host": "192.168.1.42", "port": 6801 }` — only for
 stream types with more than one slot. If `redirect` is set, **this** connection carries no
 video/audio/input frames at all; the server closes it after sending. Every other field in this
 particular reply — including `video_mode` and `video_port` — is a placeholder, not an actionable
 value (a server may not even have decided its real fallback yet at this point, and any dedicated
-video connection only ever gets set up on the *final*, non-redirect connection below); only
+video/audio channel only ever gets set up after the *final*, non-redirect connection below); only
 `redirect.host`/`redirect.port` matter here. The client opens a new
 WebSocket connection to `redirect.host:port` and goes through the same `hello`/`hello_ack`/
 `session_ready` exchange there again (with the same limits/the same `requested_slot`) — this time
@@ -358,53 +366,86 @@ given fork's lobby and stream host are actually implemented.
 
 `audio` is absent from `session_ready` if it was already absent from `hello`.
 
-After a `session_ready` without `redirect`, the server starts sending `Video`/`Audio` binary
-frames at the (possibly downscaled) `width`/`height`/`sample_rate`/`channels` — `Video` on the
-dedicated video connection if `video_port` was present (see below) and the client has finished
-setting it up, otherwise (as in every protocol version before 3) both on this same connection. The
-existing binary format itself (the frame header already carries `width`/`height` per frame, see
-below) does **not** change for downscaling — downscaling is purely a server-side decision about
-which resolution/frame rate/sample rate to encode at, before the existing header+deflate pipeline
-takes over.
+After a `session_ready` without `redirect`, the server starts sending `Video`/`Audio` at the
+(possibly downscaled) `width`/`height`/`sample_rate`/`channels` — both over the dedicated UDP
+channel if `video_port` was present (see below) and the client has finished the rendezvous, otherwise
+(as in every protocol version before 4) both as binary frames on this same TCP connection. The
+existing binary message body format itself (the video header already carries `width`/`height` per
+frame, see below) does **not** change for downscaling — downscaling is purely a server-side decision
+about which resolution/frame rate/sample rate to encode at, before the existing header+deflate/codec
+pipeline takes over; it also doesn't change when moving to UDP (see below) — only the transport and
+outer framing around that same body changes, not its content.
 
-### Dedicated video connection
+### Dedicated video/audio channel (UDP)
 
-`protocol_version = 3`+, optional (see `session_ready.video_port` above). Splits `Video` (`type=1`)
-frames onto a second, simultaneously open WebSocket connection, separate from the one carrying
-`Input`/`Audio`/`Mic`/`Text input` — so a large or slow-to-arrive video frame (or a burst of them)
-can never queue up in front of, and delay, a client's outgoing `Input` frames, since they no longer
-share one ordered TCP byte stream. This is **not** a loss-tolerant or unreliable channel — both
-connections are still plain, fully reliable WebSocket/TCP; only the head-of-line-blocking *between
-frame types* is removed, not blocking within the video connection itself if it stalls.
+`protocol_version = 4`+, optional (see `session_ready.video_port` above). Moves `Video` (`type=1`)
+*and* `Audio` (`type=3`) off the TCP control connection entirely, onto a UDP channel on this port —
+`Input`/`Text input`/`Mic` stay on the TCP connection. Unlike TCP, a lost or delayed UDP datagram
+never blocks delivery of anything after it: on real Wi-Fi, this is the actual fix for
+`Input` lagging behind a slow/lossy link, which an earlier `protocol_version = 3` design (a second
+*TCP* connection for `Video` alone, replaced by this) turned out not to be, since TCP's own
+head-of-line blocking still applied *within* that connection whenever it stalled. The tradeoff is
+real: UDP has no delivery guarantee at all, so a lost video/audio datagram is simply gone — video
+already tolerates this by design (see [Keyframe discipline](#keyframe-discipline-h264h265) and
+[Frame semantics](#frame-semantics-video-dedup)), and a lost audio datagram is just a short gap.
 
-Setup, right after a `session_ready` without `redirect` that included `video_port`:
+Since UDP is connectionless, there's no equivalent of a TCP "connect" here — instead, a small
+rendezvous step lets the server learn the client's UDP source address before it can send anything to
+it, right after a `session_ready` without `redirect` that included `video_port`:
 
-1. The client opens a second, independent TCP connection to `session_ready`'s own `host` (the same
-   host the control connection is already on) and `video_port`.
-2. Plain RFC6455 WebSocket upgrade on it (same mechanics as the control connection's own upgrade,
-   see [WebSocket Transport](#websocket-transport-rfc6455-and-binary-framing)) — **no** `hello`/
-   `hello_ack`/`session_ready` exchange on this connection. Every parameter that exchange would
-   otherwise negotiate (resolution, `video_mode`, slot) was already decided on the control
-   connection; repeating it here would be redundant and would only add another round trip before
-   video could start flowing.
-3. Once upgraded, the server sends `Video` binary frames on this connection **only** — never
-   `Audio`/`Input`/`Text input`/`Mic`, and the client never sends anything on it at all (client
-   frames would still need RFC6455 masking like on any other connection, but there is currently no
-   message type defined to ever send this direction here).
-4. The control connection stops carrying `Video` frames entirely once the video connection is up —
-   a server implementing this must not send `Video` on both.
+1. The client sends a single, empty-payload `UNISON_MSG_UDP_HELLO` (`type=8`) datagram (see
+   [Fragment framing](#fragment-framing) below for the header every datagram on this channel starts
+   with) to `session_ready`'s own `host` (the same host the control connection is already on) and
+   `video_port` — repeated every 200ms (a plain, unacknowledged UDP send can simply be lost) until
+   either the client starts receiving `Video`/`Audio` datagrams back, or 5 seconds pass with none
+   arriving, whichever comes first. A client reaching the timeout without ever receiving anything
+   treats this the same as any other connection failure (e.g. the control connection itself never
+   completing its handshake).
+2. The server, upon receiving any `UNISON_MSG_UDP_HELLO` datagram on this port while a control
+   session is active, remembers its source address and starts sending `Video`/`Audio` there. It does
+   not reply to the hello directly — the client's own "am I receiving anything yet" check above is
+   what confirms rendezvous succeeded, avoiding a redundant acknowledgement message.
+3. The control connection stops carrying `Video`/`Audio` entirely once this channel is in use — a
+   server implementing this must not send either on both.
 
-A server should give the client a bounded window to complete step 1-2 (a few seconds is reasonable,
-mirroring the existing app-handshake timeouts elsewhere in this document) before treating the
-session as failed — a client that predates `protocol_version = 3` support would never attempt this
-second connection at all, but such a client also wouldn't have received a `video_port` in the first
-place (exact-match version compatibility, see [Protocol Version](#protocol-version)), so this case
-only arises from a genuine connectivity problem on the second connection, not a compatibility gap.
+Either the control connection closing/erroring, or (implicitly, since UDP has no close signal) the
+control connection going away, ends the whole session — same all-or-nothing session lifetime a
+single-connection session already has today. There is no independent per-channel reconnect.
 
-Either connection closing/erroring ends the whole session — there is no independent
-reconnect-just-the-video-connection recovery; a client noticing the video connection died should
-disconnect the control connection too (and vice versa), the same all-or-nothing session lifetime a
-single-connection session already has today.
+#### Fragment framing
+
+Every datagram on this channel — `Video`, `Audio`, and the rendezvous `UNISON_MSG_UDP_HELLO` alike —
+starts with a 9-byte header, followed (except for `UNISON_MSG_UDP_HELLO`, which has none) by a slice
+of the same message body a TCP-delivered frame of that `type` would carry in full (e.g. `Video`'s
+existing `[u32le width][u32le height][u8 format][...]` header+payload, `Audio`'s existing
+`[u32le sampleRate][u8 channels][s16le samples...]`) — this framing only splits that body across
+multiple datagrams when it doesn't fit in one, it never changes the body's own content or layout:
+
+```
+[u8 type]               // UNISON_MSG_VIDEO=1, UNISON_MSG_AUDIO=3, or UNISON_MSG_UDP_HELLO=8
+[u32le frame_id]        // monotonically increasing per type -- video and audio count independently
+[u16le fragment_index]  // 0-based
+[u16le fragment_count]  // total fragments for this frame_id (>=1; 0 only for UNISON_MSG_UDP_HELLO)
+[... this fragment's slice of the message body ...]
+```
+
+Reference implementation: [`../core/include/unison/protocol.h`](../core/include/unison/protocol.h)
+(`unison_udp_fragment_header`, `unison_build_udp_fragment_header`, `unison_parse_udp_fragment_header`).
+
+A sender keeps each datagram's total size conservatively under ~1200 bytes (safely under a typical
+1500-byte MTU's usable payload once IP/UDP headers and some margin for tunnels/VPNs are accounted
+for) — a `Video` keyframe or a `frame_id` covering more than one network-MTU's worth of audio
+samples will span several fragments; most `Audio` frame_ids fit in a single one.
+
+A receiver reassembles fragments by `frame_id` per `type` (video and audio are reassembled
+independently of each other, sharing nothing but the port): once every `fragment_index` in
+`0..fragment_count-1` has arrived for a given `frame_id`, concatenate their payloads back into the
+original message body, in `fragment_index` order, and hand it to the same processing a TCP-delivered
+frame of that `type` would get. If a datagram for a *newer* `frame_id` (of the same `type`) arrives
+before an older one finished reassembling, the older one's partial state is discarded outright —
+same "the newest one wins, an incomplete/late one is simply abandoned" policy already used by TILES
+dedup and by every client's own decode-backlog handling, applied here at the transport level instead
+of only the application level.
 
 ### Video-mode fallback
 
@@ -476,6 +517,14 @@ another" instead of a generic error message).
 | Client → server | `5` (Text input response) | `[u8 type=5][u8 confirmed][u32le textLen][utf8 text]` |
 | Server → client | `6` (Mic enable) | `[u8 type=6][u8 enabled][u32le sampleRate]` |
 | Client → server | `7` (Mic audio) | `[u8 type=7][u32le sampleRate][u8 channels][s16le PCM samples]` |
+| Client → server | `8` (UDP hello) | UDP only, no body — see [Dedicated video/audio channel (UDP)](#dedicated-videoaudio-channel-udp) |
+
+Types `1` (Video) and `3` (Audio) travel over the dedicated UDP channel instead of this WebSocket
+connection whenever `session_ready.video_port` was present and the client completed the UDP
+rendezvous (`protocol_version = 4`+) — same message body shown above either way, just wrapped in a
+`unison_udp_fragment_header` (and possibly split across several datagrams) instead of a WebSocket
+frame; see that section for the wire-level difference. Type `8` only ever exists on that UDP
+channel, never on a WebSocket connection at all.
 
 These binary frames (opcode `0x2`) occur exclusively **after** a successful handshake
 (`session_ready` without `redirect`, see above) on the same connection. Content unchanged from the

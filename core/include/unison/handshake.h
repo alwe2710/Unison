@@ -33,8 +33,15 @@ extern "C" {
  * bump; azahar/melonDS/dolphin-gba-stream and every other client still
  * report/expect plain version 2 until they're updated too, so exact-match
  * means the Android client can't connect to them again until then -- a
- * known, accepted tradeoff for this pass (see the plan this came from). */
-#define UNISON_PROTOCOL_VERSION 3
+ * known, accepted tradeoff for this pass (see the plan this came from).
+ *
+ * 3 -> 4: session_ready.video_port changed meaning -- a UDP port instead
+ * of a second TCP/WebSocket connection, carrying UNISON_MSG_VIDEO *and*
+ * UNISON_MSG_AUDIO now (audio moved off the control connection too), each
+ * datagram prefixed with a unison_udp_fragment_header (protocol.h) instead
+ * of WebSocket framing. See docs/protocol.md's "Dedicated video/audio
+ * channel (UDP)". Same Cemu/Android-only scope as the 2 -> 3 bump. */
+#define UNISON_PROTOCOL_VERSION 4
 
 #define UNISON_MAX_SLOTS 4
 #define UNISON_LABEL_LEN 8
