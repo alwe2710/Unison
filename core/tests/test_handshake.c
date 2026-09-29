@@ -189,6 +189,41 @@ static void test_parse_session_ready_video_mode(void) {
     CHECK(strcmp(ready.video_mode, "tiles") == 0);
 }
 
+/* video_port (see docs/protocol.md, "Dedicated video connection") -- same
+ * absent-means-no-information shape as redirect/video_mode above: a host
+ * that predates this field must come back has_video_port=0, not some
+ * garbage/zero-as-a-real-port value silently treated as meaningful. */
+static void test_parse_session_ready_video_port(void) {
+    unison_session_ready ready;
+
+    const char *no_field_json =
+        "{\"message\":\"session_ready\",\"slot\":0,\"video\":{\"width\":854,\"height\":480,\"fps\":20}}";
+    memset(&ready, 0xAA, sizeof(ready));
+    CHECK(unison_parse_session_ready((const uint8_t *)no_field_json, strlen(no_field_json), &ready) ==
+          UNISON_HANDSHAKE_OK);
+    CHECK(!ready.has_video_port);
+
+    const char *with_field_json =
+        "{\"message\":\"session_ready\",\"slot\":0,\"video\":{\"width\":854,\"height\":480,\"fps\":20},"
+        "\"video_mode\":\"h264\",\"video_port\":6850}";
+    CHECK(unison_parse_session_ready((const uint8_t *)with_field_json, strlen(with_field_json), &ready) ==
+          UNISON_HANDSHAKE_OK);
+    CHECK(ready.has_video_port);
+    CHECK(ready.video_port == 6850);
+
+    /* Alongside redirect -- placeholder per docs/protocol.md on a redirect
+     * reply, but this module parses both fields faithfully regardless,
+     * same reasoning as the video_mode+redirect combination above. */
+    const char *with_redirect_json =
+        "{\"message\":\"session_ready\",\"slot\":2,\"video\":{\"width\":240,\"height\":160,\"fps\":59.7275},"
+        "\"redirect\":{\"host\":\"192.168.1.42\",\"port\":6803},\"video_port\":6850}";
+    CHECK(unison_parse_session_ready((const uint8_t *)with_redirect_json, strlen(with_redirect_json),
+                                       &ready) == UNISON_HANDSHAKE_OK);
+    CHECK(ready.has_redirect);
+    CHECK(ready.has_video_port);
+    CHECK(ready.video_port == 6850);
+}
+
 static void test_parse_session_ready_other_fields(void) {
     unison_session_ready ready;
 
@@ -249,6 +284,7 @@ int main(void) {
     test_parse_hello();
     test_build_hello_ack_video_mode();
     test_parse_session_ready_video_mode();
+    test_parse_session_ready_video_port();
     test_parse_session_ready_other_fields();
     test_parse_handshake_error();
     test_stream_type_prefers_secondary_screen();

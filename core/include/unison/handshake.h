@@ -25,8 +25,16 @@ extern "C" {
 
 /* Bump alongside any wire-incompatible change to the messages below --
  * mirrors GBA_STREAM_PROTOCOL_VERSION in the dolphin-gba-stream fork's
- * Core/HW/GBAStreamNetUtil.h, which must stay numerically in sync. */
-#define UNISON_PROTOCOL_VERSION 2
+ * Core/HW/GBAStreamNetUtil.h, which must stay numerically in sync.
+ *
+ * 2 -> 3: added session_ready.video_port (see unison_session_ready's own
+ * comment and docs/protocol.md's "Dedicated video connection") -- only
+ * Cemu (WIIU_GAMEPAD) and the Android client actually use it as of this
+ * bump; azahar/melonDS/dolphin-gba-stream and every other client still
+ * report/expect plain version 2 until they're updated too, so exact-match
+ * means the Android client can't connect to them again until then -- a
+ * known, accepted tradeoff for this pass (see the plan this came from). */
+#define UNISON_PROTOCOL_VERSION 3
 
 #define UNISON_MAX_SLOTS 4
 #define UNISON_LABEL_LEN 8
@@ -120,6 +128,18 @@ typedef struct {
     char redirect_host[UNISON_HOST_LEN];
     int redirect_port;
     char video_mode[UNISON_VIDEO_MODE_LEN];
+    /* Port for a second, video-only WebSocket connection (see
+     * docs/protocol.md, "Dedicated video connection") -- absent
+     * (has_video_port = 0) means video stays multiplexed on this same
+     * connection, the only behavior any server predating this field can
+     * produce. Unlike redirect (a one-time replace: this connection
+     * closes, a new one repeats the whole hello/hello_ack exchange
+     * elsewhere), video_port names a *second*, simultaneously open
+     * connection -- no hello/hello_ack on it, just a plain WebSocket
+     * upgrade, after which it carries UNISON_MSG_VIDEO frames exclusively
+     * and nothing else ever flows on it in either direction. */
+    int has_video_port;
+    int video_port;
 } unison_session_ready;
 
 typedef struct {

@@ -185,6 +185,13 @@ unison_handshake_result unison_parse_session_ready(const uint8_t *data, size_t s
             text, unison_json_find_member(text, redirect_span.start, redirect_span.end, "port"));
     }
 
+    const unison_json_span video_port_span =
+        unison_json_find_member(text, obj.start, obj.end, "video_port");
+    if (video_port_span.found) {
+        out->has_video_port = 1;
+        out->video_port = (int)unison_json_get_number(text, video_port_span);
+    }
+
     return UNISON_HANDSHAKE_OK;
 }
 
