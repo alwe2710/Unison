@@ -44,11 +44,17 @@ function makeMocks(streamType, inputEncoding) {
     video: { width: 256, height: 192, fps: 60 },
     input_encoding: inputEncoding,
   });
+  // Matches whatever videoModeFor() (index.html) actually requests for
+  // this streamType, so grantedVideoMode === requestedVideoMode and
+  // showVideoModeFallback() never fires and steals focus from the sticks
+  // under test here -- WIIU_GAMEPAD no longer has a raw fallback at all
+  // (videoModeFor()'s own normalizing, matching Cemu's real WiiuGamepad-
+  // Stream.cpp), so VIDEO_MODE_DEFAULT ('tiles') would otherwise mismatch.
   const SESSION_READY_JSON = JSON.stringify({
     message: 'session_ready',
     slot: 0,
     video: { width: 256, height: 192, fps: 60 },
-    video_mode: 'tiles',
+    video_mode: streamType === 'WIIU_GAMEPAD' ? 'h264' : 'tiles',
   });
   return { HELLO_JSON, SESSION_READY_JSON };
 }

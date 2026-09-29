@@ -665,7 +665,14 @@ function setN3dsSecondStickEnabled(value) {
 // never honors it anyway, but still) -- see #consoleDetailPanel.
 const videoModePrefs = JSON.parse(localStorage.getItem('unisonWebVideoModeByStreamType') || '{}');
 function videoModeFor(streamType) {
-  return videoModePrefs[streamType] || VIDEO_MODE_DEFAULT;
+  const mode = videoModePrefs[streamType] || VIDEO_MODE_DEFAULT;
+  // WIIU_GAMEPAD (Cemu) removed both raw modes entirely -- honest server
+  // request, and it also means #videoModePanel never has to migrate a
+  // stale "legacy"/"tiles" pref saved before this existed (see
+  // renderVideoModeOptions()' own filtering, which keeps that from ever
+  // being picked again going forward).
+  if (streamType === 'WIIU_GAMEPAD' && (mode === 'legacy' || mode === 'tiles')) return 'h264';
+  return mode;
 }
 function setVideoModeFor(streamType, value) {
   videoModePrefs[streamType] = value;
@@ -795,7 +802,13 @@ function updateVideoModeRowValue() {
 function renderVideoModeOptions() {
   document.getElementById('videoModePanelTitle').textContent = t('settings_video_mode');
   videoModeOptionsList.innerHTML = '';
-  for (const [mode, key] of Object.entries(VIDEO_MODE_OPTION_KEYS)) {
+  // WIIU_GAMEPAD (Cemu) no longer has a raw (legacy/tiles) fallback at
+  // all -- see WiiuGamepadStream.cpp's own SendVideoFrame() comment --
+  // so offering either here would just be a dead choice the server
+  // silently overrides to h264 anyway (videoModeFor()'s own normalizing).
+  const entries = Object.entries(VIDEO_MODE_OPTION_KEYS).filter(([mode]) =>
+    videoModeReturnStreamType !== 'WIIU_GAMEPAD' || (mode !== 'legacy' && mode !== 'tiles'));
+  for (const [mode, key] of entries) {
     const btn = document.createElement('button');
     btn.textContent = t(key);
     btn.onclick = () => {
