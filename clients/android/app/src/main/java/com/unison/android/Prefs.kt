@@ -90,8 +90,15 @@ class Prefs(context: Context) {
      * Dolphin (which never supports it, always falls back, but still).
      * Servers that don't implement the negotiation at all just ignore the
      * field either way. */
-    fun videoModeFor(streamType: String): String =
-        prefs.getString(prefKeyForVideoMode(streamType), VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
+    fun videoModeFor(streamType: String): String {
+        val mode = prefs.getString(prefKeyForVideoMode(streamType), VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
+        // WIIU_GAMEPAD (Cemu) removed both raw modes entirely (see
+        // WiiuGamepadStream.cpp's own SendVideoFrame() comment) -- honest
+        // request, and it also normalizes a stale "legacy"/"tiles" pref
+        // saved before this existed, since videoModesFor() keeps either
+        // from ever being picked again going forward.
+        return if (streamType == "WIIU_GAMEPAD" && (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264" else mode
+    }
 
     fun setVideoModeFor(streamType: String, value: String) {
         prefs.edit().putString(prefKeyForVideoMode(streamType), value).apply()
@@ -190,5 +197,14 @@ class Prefs(context: Context) {
             VideoModeOption("h264", R.string.video_mode_h264),
             VideoModeOption("h265", R.string.video_mode_h265)
         )
+
+        /** VideoModeActivity's actual list for a given console -- WIIU_GAMEPAD
+         * (Cemu) drops both raw options (legacy/tiles), since its own
+         * encoder no longer has a fallback path for either at all; every
+         * other console still gets the full VIDEO_MODES list unfiltered.
+         * internal, same PrefsTest reasoning as hasRightStick() above. */
+        internal fun videoModesFor(streamType: String): List<VideoModeOption> =
+            if (streamType == "WIIU_GAMEPAD") VIDEO_MODES.filter { it.value != "legacy" && it.value != VIDEO_MODE_DEFAULT }
+            else VIDEO_MODES
     }
 }

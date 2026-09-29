@@ -61,7 +61,7 @@ class VideoModeActivity : LocalizedActivity() {
                         }
                     ) { innerPadding ->
                         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                            for (option in Prefs.VIDEO_MODES) {
+                            for (option in Prefs.videoModesFor(streamType)) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()

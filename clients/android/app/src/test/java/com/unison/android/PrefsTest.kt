@@ -50,4 +50,17 @@ class PrefsTest {
         assertEquals(false, Prefs.hasRightStick("NDS_BOTTOM_SCREEN", secondStickEnabled = true))
         assertEquals(false, Prefs.hasRightStick("GC_GBA_LINK", secondStickEnabled = true))
     }
+
+    @Test
+    fun `WIIU_GAMEPAD's video mode list drops both raw options`() {
+        val values = Prefs.videoModesFor("WIIU_GAMEPAD").map { it.value }
+        assertEquals(listOf("h264", "h265"), values)
+    }
+
+    @Test
+    fun `every other console keeps all four video mode options`() {
+        for (streamType in listOf("N3DS_BOTTOM_SCREEN", "NDS_BOTTOM_SCREEN", "GC_GBA_LINK", "")) {
+            assertEquals(Prefs.VIDEO_MODES, Prefs.videoModesFor(streamType))
+        }
+    }
 }
