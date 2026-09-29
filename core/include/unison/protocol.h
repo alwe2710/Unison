@@ -139,6 +139,19 @@ typedef struct {
 
 #define UNISON_UDP_FRAGMENT_HEADER_SIZE 9
 
+/* Target max UDP datagram size (header + payload), chosen conservatively
+ * under typical MTU (1500) minus IP/UDP overhead and some margin for
+ * VPNs/tunnels -- see docs/protocol.md, "Dedicated video/audio channel
+ * (UDP)". Every fragment except possibly the last carries EXACTLY
+ * UNISON_UDP_MAX_FRAGMENT_PAYLOAD bytes; the sender only ever shortens the
+ * final fragment. This is a real wire invariant, not an implementation
+ * detail of any one sender: a receiver assembling out-of-order fragments
+ * must place fragment i at byte offset i * UNISON_UDP_MAX_FRAGMENT_PAYLOAD
+ * without having seen every earlier fragment yet, which only works if
+ * both sides agree on this exact constant. */
+#define UNISON_UDP_MAX_DATAGRAM_SIZE 1200
+#define UNISON_UDP_MAX_FRAGMENT_PAYLOAD (UNISON_UDP_MAX_DATAGRAM_SIZE - UNISON_UDP_FRAGMENT_HEADER_SIZE)
+
 #define UNISON_INPUT_FRAME_SIZE 3
 
 /* Touch state for input_encoding "n3ds_touch" (docs/protocol.md,
