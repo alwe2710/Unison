@@ -138,4 +138,26 @@ final class PrefsTests: XCTestCase {
         XCTAssertFalse(Prefs.hasRightStick(for: "NDS_BOTTOM_SCREEN", secondStickEnabled: true))
         XCTAssertFalse(Prefs.hasRightStick(for: "GC_GBA_LINK", secondStickEnabled: true))
     }
+
+    func testWiiuGamepadVideoModesDropsBothRawOptions() {
+        let values = Prefs.videoModes(for: "WIIU_GAMEPAD").map(\.value)
+        XCTAssertEqual(values, ["h264", "h265"])
+    }
+
+    func testEveryOtherConsoleKeepsAllFourVideoModeOptions() {
+        for streamType in ["N3DS_BOTTOM_SCREEN", "NDS_BOTTOM_SCREEN", "GC_GBA_LINK", ""] {
+            XCTAssertEqual(
+                Prefs.videoModes(for: streamType).map(\.value),
+                Prefs.videoModes.map(\.value))
+        }
+    }
+
+    func testWiiuGamepadNormalizesAStaleRawVideoModePreferenceToH264() {
+        prefs.setVideoMode("tiles", for: "WIIU_GAMEPAD")
+        XCTAssertEqual(prefs.videoMode(for: "WIIU_GAMEPAD"), "h264")
+        prefs.setVideoMode("legacy", for: "WIIU_GAMEPAD")
+        XCTAssertEqual(prefs.videoMode(for: "WIIU_GAMEPAD"), "h264")
+        prefs.setVideoMode("h265", for: "WIIU_GAMEPAD")
+        XCTAssertEqual(prefs.videoMode(for: "WIIU_GAMEPAD"), "h265")
+    }
 }

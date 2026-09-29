@@ -74,11 +74,20 @@ void Prefs::setBilinearFor(const std::string &streamType, bool value) {
 }
 
 std::string Prefs::videoModeFor(const std::string &streamType) const {
+    std::string mode = kVideoModeDefault;
     auto it = videoModeByStreamType.find(streamType);
     if (it != videoModeByStreamType.end()) {
-        return it->second;
+        mode = it->second;
     }
-    return kVideoModeDefault;
+    // WIIU_GAMEPAD (Cemu) removed both raw modes entirely (see
+    // WiiuGamepadStream.cpp's own SendVideoFrame() comment) -- honest
+    // request, and it also normalizes a stale "legacy"/"tiles" pref saved
+    // before this existed, since drawVideoModeScreen() keeps either from
+    // ever being picked again going forward.
+    if (streamType == "WIIU_GAMEPAD" && (mode == "legacy" || mode == kVideoModeDefault)) {
+        return "h264";
+    }
+    return mode;
 }
 
 void Prefs::setVideoModeFor(const std::string &streamType, const std::string &value) {

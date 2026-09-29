@@ -16,7 +16,7 @@ struct VideoModeView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        List(Prefs.videoModes, id: \.value) { option in
+        List(Prefs.videoModes(for: streamType), id: \.value) { option in
             Button(LocaleHelper.string(option.labelKey, prefs: prefs)) {
                 prefs.setVideoMode(option.value, for: streamType)
                 dismiss()

@@ -198,7 +198,16 @@ final class Prefs {
     /// until hello) falls back to Prefs.videoModeDefault, same as any other
     /// not-yet-configured console.
     func videoMode(for streamType: String) -> String {
-        defaults.string(forKey: prefKeyForVideoMode(streamType)) ?? Prefs.videoModeDefault
+        let mode = defaults.string(forKey: prefKeyForVideoMode(streamType)) ?? Prefs.videoModeDefault
+        // WIIU_GAMEPAD (Cemu) removed both raw modes entirely (see
+        // WiiuGamepadStream.cpp's own SendVideoFrame() comment) -- honest
+        // request, and it also normalizes a stale "legacy"/"tiles" pref
+        // saved before this existed, since videoModes(for:) keeps either
+        // from ever being picked again going forward.
+        if streamType == "WIIU_GAMEPAD", mode == "legacy" || mode == Prefs.videoModeDefault {
+            return "h264"
+        }
+        return mode
     }
 
     func setVideoMode(_ value: String, for streamType: String) {
@@ -294,6 +303,18 @@ final class Prefs {
         VideoModeOption(value: "h264", labelKey: "video_mode_h264"),
         VideoModeOption(value: "h265", labelKey: "video_mode_h265"),
     ]
+
+    /// VideoModeView's actual list for a given console -- WIIU_GAMEPAD
+    /// (Cemu) drops both raw options (legacy/tiles), since its own encoder
+    /// no longer has a fallback path for either at all; every other
+    /// console still gets the full videoModes list unfiltered. static/
+    /// pure, mirrors Prefs.kt's own videoModesFor(), same PrefsTests-style
+    /// testability reasoning as hasRightStick(for:secondStickEnabled:).
+    static func videoModes(for streamType: String) -> [VideoModeOption] {
+        streamType == "WIIU_GAMEPAD"
+            ? videoModes.filter { $0.value != "legacy" && $0.value != videoModeDefault }
+            : videoModes
+    }
 
     private enum Keys {
         static let onScreenControls = "on_screen_controls"

@@ -726,6 +726,12 @@ void drawVideoModeScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pre
     };
     float y = 40.0f;
     for (const auto &option : options) {
+        // WIIU_GAMEPAD (Cemu) removed both raw modes entirely -- offering
+        // either here would just be a dead choice the server now silently
+        // normalizes to h264 anyway (Prefs::videoModeFor()'s own
+        // normalizing).
+        if (streamType == "WIIU_GAMEPAD" && (std::string(option.value) == "legacy" || std::string(option.value) == "tiles"))
+            continue;
         ui::Rect r { 8, y, 304, 26 };
         if (ui::button(textBuf, touch, r, option.label)) {
             prefs->setVideoModeFor(streamType, option.value);

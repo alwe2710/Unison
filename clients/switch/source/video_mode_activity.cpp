@@ -28,7 +28,13 @@ brls::View *VideoModeActivity::createContentView() {
         { "h264", strings::kVideoModeH264 },
         { "h265", strings::kVideoModeH265 },
     };
+    // WIIU_GAMEPAD (Cemu) removed both raw modes entirely (see
+    // WiiuGamepadStream.cpp's own SendVideoFrame() comment) -- offering
+    // either here would just be a dead choice the server now silently
+    // normalizes to h264 anyway (Prefs::videoModeFor()'s own normalizing).
     for (const auto &option : options) {
+        if (streamType == "WIIU_GAMEPAD" && (std::string(option.value) == "legacy" || std::string(option.value) == "tiles"))
+            continue;
         auto *cell = new brls::DetailCell();
         cell->setText(option.label);
         cell->registerClickAction([this, value = option.value](brls::View *) {
