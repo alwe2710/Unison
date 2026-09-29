@@ -1,7 +1,7 @@
 package com.unison.android
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -49,10 +49,10 @@ class SettingsActivityTest {
         // in its own onCreate() (SettingsActivity.kt) before this test body
         // runs -- confirm the rendered switch actually reflects that
         // starting value (default true, Prefs.kt) rather than assuming it.
-        composeTestRule.onNode(isToggleable()).assertExists()
+        composeTestRule.onNodeWithTag("onScreenControlsSwitch").assertExists()
         assertEquals(true, prefs.onScreenControlsEnabled)
 
-        composeTestRule.onNode(isToggleable()).performClick()
+        composeTestRule.onNodeWithTag("onScreenControlsSwitch").performClick()
 
         // The real thing this test cares about: a real click on the real
         // rendered switch actually flows through onCheckedChange() into
@@ -60,7 +60,7 @@ class SettingsActivityTest {
         // Composable's own local mutableStateOf.
         assertEquals(false, prefs.onScreenControlsEnabled)
 
-        composeTestRule.onNode(isToggleable()).performClick()
+        composeTestRule.onNodeWithTag("onScreenControlsSwitch").performClick()
         assertEquals(true, prefs.onScreenControlsEnabled)
     }
 
@@ -70,5 +70,20 @@ class SettingsActivityTest {
             ApplicationProvider.getApplicationContext<android.content.Context>()
                 .getString(R.string.settings_on_screen_controls)
         ).assertExists()
+    }
+
+    @Test
+    fun `hardware-decode switch reflects and updates the real Prefs value`() {
+        val prefs = Prefs(ApplicationProvider.getApplicationContext())
+        // Default true (Prefs.hardwareDecodeEnabled's own default), same
+        // reasoning as the on-screen-controls test above.
+        composeTestRule.onNodeWithTag("hardwareDecodeSwitch").assertExists()
+        assertEquals(true, prefs.hardwareDecodeEnabled)
+
+        composeTestRule.onNodeWithTag("hardwareDecodeSwitch").performClick()
+        assertEquals(false, prefs.hardwareDecodeEnabled)
+
+        composeTestRule.onNodeWithTag("hardwareDecodeSwitch").performClick()
+        assertEquals(true, prefs.hardwareDecodeEnabled)
     }
 }

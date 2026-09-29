@@ -87,6 +87,15 @@ typedef struct {
     // video_mode above (no Context/Prefs available in this file).
     bool prefer_hardware_decode;
     int sockfd;
+    // Dedicated video connection (docs/protocol.md, "Dedicated video
+    // connection", protocol_version 3+) -- -1 whenever the server didn't
+    // offer session_ready.video_port, in which case Video frames keep
+    // arriving on sockfd above exactly as in every prior protocol version.
+    // Set once in client_thread_main() right after a successful handshake,
+    // read (never written) by run_session_loop()'s poll; only that
+    // function ever touches its contents afterward, same "one owner"
+    // reasoning as sockfd itself.
+    int video_sockfd;
     pthread_t thread;
     atomic_bool stop;
     atomic_int pending_keymask;
@@ -432,6 +441,15 @@ typedef struct {
     // why -- an old/unpatched server must never produce a false-positive
     // fallback prompt).
     char granted_video_mode[UNISON_VIDEO_MODE_LEN];
+    // From session_ready.video_port (docs/protocol.md, "Dedicated video
+    // connection", protocol_version 3+) -- when set, client_thread_main
+    // opens a second connection here right after this handshake succeeds,
+    // and run_session_loop() polls it alongside the control socket, video
+    // frames only. false means video stays multiplexed on the control
+    // connection, the only behavior a server predating this field can
+    // produce.
+    bool has_video_port;
+    int32_t video_port;
 } app_handshake_result;
 
 // App-level handshake (unison/handshake.h, docs/protocol.md
@@ -585,6 +603,8 @@ static app_handshake_result perform_app_handshake(unison_session *s, byte_buf *b
             result.height = (int32_t)ready.video.height;
             strncpy(result.granted_video_mode, ready.video_mode, sizeof(result.granted_video_mode) - 1);
             result.granted_video_mode[sizeof(result.granted_video_mode) - 1] = '\0';
+            result.has_video_port = ready.has_video_port;
+            result.video_port = (int32_t)ready.video_port;
             result.ok = true;
             return result;
         }
@@ -1102,17 +1122,29 @@ static void maybe_send_touch(unison_session *s) {
 }
 
 static void run_session_loop(JNIEnv *env, unison_session *s, jmethodID on_video, jmethodID on_audio,
-                              jmethodID on_text_input_request, jmethodID on_mic_enable, byte_buf *buf) {
+                              jmethodID on_text_input_request, jmethodID on_mic_enable, byte_buf *buf,
+                              byte_buf *video_buf) {
     uint8_t chunk[4096];
     uint8_t *inflate_out = NULL;
     size_t inflate_out_cap = 0;
     uint8_t *rgb565_out = NULL;
     size_t rgb565_out_cap = 0;
+    // Dedicated video connection (docs/protocol.md, "Dedicated video
+    // connection") -- s->video_sockfd was set once in client_thread_main
+    // and is only ever read here afterward, never re-checked mid-session
+    // (a session never gains or loses this connection on its own).
+    const bool has_video_conn = s->video_sockfd >= 0;
 
     while (!atomic_load(&s->stop)) {
-        struct pollfd pfd = {.fd = s->sockfd, .events = POLLIN};
-        int pr = poll(&pfd, 1, 4); // short timeout: also need to notice pending input to send
-        if (pr > 0 && (pfd.revents & POLLIN)) {
+        struct pollfd pfds[2];
+        pfds[0] = (struct pollfd){.fd = s->sockfd, .events = POLLIN};
+        nfds_t npfds = 1;
+        if (has_video_conn) {
+            pfds[1] = (struct pollfd){.fd = s->video_sockfd, .events = POLLIN};
+            npfds = 2;
+        }
+        int pr = poll(pfds, npfds, 4); // short timeout: also need to notice pending input to send
+        if (pr > 0 && (pfds[0].revents & POLLIN)) {
             ssize_t n = recv(s->sockfd, chunk, sizeof(chunk), 0);
             if (n <= 0) {
                 break; // peer closed or socket error
@@ -1120,6 +1152,13 @@ static void run_session_loop(JNIEnv *env, unison_session *s, jmethodID on_video,
             byte_buf_append(buf, chunk, (size_t)n);
         } else if (pr < 0 && errno != EINTR) {
             break;
+        }
+        if (has_video_conn && pr > 0 && (pfds[1].revents & POLLIN)) {
+            ssize_t n = recv(s->video_sockfd, chunk, sizeof(chunk), 0);
+            if (n <= 0) {
+                break; // peer closed or socket error -- ends the whole session, see protocol.md
+            }
+            byte_buf_append(video_buf, chunk, (size_t)n);
         }
 
         bool should_stop = false;
@@ -1142,9 +1181,16 @@ static void run_session_loop(JNIEnv *env, unison_session *s, jmethodID on_video,
 
             unison_msg_type type;
             if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
+                // Video normally arrives on video_buf instead once
+                // has_video_conn -- a type=1 landing here regardless (a
+                // server bug, or one that doesn't honor its own
+                // session_ready.video_port) is dropped rather than handled
+                // twice/out of order against whatever video_buf is doing.
                 if (type == UNISON_MSG_VIDEO) {
-                    handle_video_message(env, s, on_video, frame.payload, frame.payload_size,
-                                         &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
+                    if (!has_video_conn) {
+                        handle_video_message(env, s, on_video, frame.payload, frame.payload_size,
+                                             &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
+                    }
                 } else if (type == UNISON_MSG_AUDIO) {
                     handle_audio_message(env, s, on_audio, frame.payload, frame.payload_size);
                 } else if (type == UNISON_MSG_TEXT_INPUT_REQUEST) {
@@ -1159,6 +1205,37 @@ static void run_session_loop(JNIEnv *env, unison_session *s, jmethodID on_video,
         }
         if (should_stop) {
             break;
+        }
+
+        // video_buf: only ever carries Video frames (docs/protocol.md) --
+        // no close/other-type handling needed beyond what a malformed
+        // frame already triggers via UNISON_WS_FRAME_ERR, since the server
+        // never sends a close frame here specifically (session teardown
+        // closes the TCP connection directly, same as the control
+        // connection's own teardown).
+        if (has_video_conn) {
+            for (;;) {
+                unison_ws_frame frame;
+                unison_ws_frame_status fs = unison_ws_parse_frame(video_buf->data, video_buf->len, &frame);
+                if (fs == UNISON_WS_FRAME_INCOMPLETE) {
+                    break;
+                }
+                if (fs == UNISON_WS_FRAME_ERR) {
+                    should_stop = true;
+                    break;
+                }
+                unison_msg_type type;
+                if (frame.opcode != UNISON_WS_OPCODE_CLOSE &&
+                    unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK &&
+                    type == UNISON_MSG_VIDEO) {
+                    handle_video_message(env, s, on_video, frame.payload, frame.payload_size,
+                                         &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
+                }
+                byte_buf_consume(video_buf, frame.frame_size);
+            }
+            if (should_stop) {
+                break;
+            }
         }
 
         maybe_send_input(s);
@@ -1217,6 +1294,31 @@ static void *client_thread_main(void *arg) {
 
     atomic_store(&s->extended_input, hs.extended_input);
     atomic_store(&s->has_buttons, hs.has_buttons);
+
+    // Dedicated video connection (docs/protocol.md, "Dedicated video
+    // connection", protocol_version 3+): a second, simultaneous connection
+    // carrying Video frames only, no app handshake of its own (every
+    // negotiated parameter already came from the exchange above) -- just
+    // the plain RFC6455 upgrade, reusing connect_and_ws_upgrade() exactly
+    // as the control connection above did. s->video_sockfd stays -1 (its
+    // calloc'd default) when the server didn't offer video_port, which is
+    // exactly what run_session_loop() below already treats as "no video
+    // connection, keep polling only the control socket."
+    byte_buf video_buf = {0};
+    s->video_sockfd = -1;
+    if (hs.has_video_port) {
+        int video_fd = -1;
+        if (!connect_and_ws_upgrade(s->host, hs.video_port, &s->stop, &video_fd, &video_buf)) {
+            call_on_disconnected(env, s, on_disconnected, "Video-Verbindung fehlgeschlagen");
+            byte_buf_free(&buf);
+            byte_buf_free(&video_buf);
+            close(s->sockfd);
+            (*s->jvm)->DetachCurrentThread(s->jvm);
+            return NULL;
+        }
+        s->video_sockfd = video_fd;
+    }
+
     // Empty granted_video_mode (server predates session_ready.video_mode)
     // is passed through as an empty jstring, not null -- Kotlin's onConnected
     // does the "skip the fallback comparison" decision on isBlank(), matching
@@ -1227,12 +1329,16 @@ static void *client_thread_main(void *arg) {
                             (jboolean)hs.has_buttons, (jboolean)hs.extended_input, (jint)hs.width,
                             (jint)hs.height, jgranted_video_mode);
     (*env)->DeleteLocalRef(env, jgranted_video_mode);
-    run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf);
+    run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf, &video_buf);
     byte_buf_free(&buf);
+    byte_buf_free(&video_buf);
 
     call_on_disconnected(env, s, on_disconnected, "Verbindung getrennt");
 
     close(s->sockfd);
+    if (s->video_sockfd >= 0) {
+        close(s->video_sockfd);
+    }
     (*s->jvm)->DetachCurrentThread(s->jvm);
     return NULL;
 }
