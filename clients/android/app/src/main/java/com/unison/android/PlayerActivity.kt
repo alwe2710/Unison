@@ -128,6 +128,41 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // retrigger capture until the game toggled its mic off and on again.
     private val requestRecordAudioPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way, see class comment */ }
+
+    // Gates connectTo() below -- unlike RECORD_AUDIO above (a nice-to-have,
+    // the mic just won't work if denied), the UDP video/audio channel
+    // itself silently never receives anything without this permission on
+    // at least some OEM builds (see the manifest's own comment on
+    // NEARBY_WIFI_DEVICES for how this was diagnosed). Registered
+    // unconditionally here (must happen before onCreate() reaches STARTED,
+    // same requirement as requestRecordAudioPermission/textInputLauncher
+    // above) -- connectAfterEnsuringLocalNetworkPermission() below decides
+    // whether to actually launch() it. The callback calls connectTo()
+    // regardless of the actual grant result -- a device/OS version that
+    // doesn't need this permission at all should still connect normally
+    // either way, and there's no better fallback if the user denies it
+    // than just letting the existing "Video-Verbindung fehlgeschlagen"
+    // handshake failure explain itself. pendingHost/pendingPort carry the
+    // connectTo() arguments across the request, since this launcher (like
+    // the others above) takes no arguments of its own.
+    private var pendingHost: String = ""
+    private var pendingPort: Int = -1
+    private val requestNearbyWifiDevicesPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            connectTo(pendingHost, pendingPort)
+        }
+
+    private fun connectAfterEnsuringLocalNetworkPermission(host: String, port: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+            == PackageManager.PERMISSION_GRANTED) {
+            connectTo(host, port)
+            return
+        }
+        pendingHost = host
+        pendingPort = port
+        requestNearbyWifiDevicesPermission.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+    }
     private var micRecord: AudioRecord? = null
     private var micThread: Thread? = null
     @Volatile private var micStopFlag = false
@@ -310,7 +345,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
             statusText = getString(R.string.status_error, "kein Host übergeben")
             return
         }
-        connectTo(host, port)
+        connectAfterEnsuringLocalNetworkPermission(host, port)
     }
 
     @Composable

@@ -21,6 +21,22 @@
          stream was opened. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Requested at runtime (PlayerActivity.onCreate, before connectTo()),
+         on Android 13+: on at least some OEM builds (confirmed: a
+         Samsung One UI / Android 16 device), an app without this held
+         Video/Audio UDP datagrams (docs/protocol.md, "Dedicated
+         video/audio channel (UDP)") are silently never delivered even
+         though the app's own send() reports success and the identical
+         control-connection TCP socket works fine, while a raw shell
+         process on the same device reaches the same destination/port
+         without issue, so this isn't a network/firewall problem, just
+         this permission gating outbound UDP to local-network unicast
+         addresses per-app. neverForLocation: this app only uses Wi-Fi to
+         reach a LAN server the user typed in, never to derive location
+         from scan results. -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <!-- Needed for the menu's GET /status polling and discovery sweep
          (java.net.HttpURLConnection in MenuActivity), which, unlike the
          actual GBA stream itself (a raw NDK POSIX socket in
