@@ -81,6 +81,19 @@ int unison_wasm_build_hello_ack(int requested_slot, unsigned int max_width, unsi
     // so no NULL check needed here.
     if (video_mode != NULL)
         strncpy(req.video_mode, video_mode, sizeof(req.video_mode) - 1);
+    // Opt-out from the dedicated video/audio channel (docs/protocol.md,
+    // "Dedicated video/audio channel (UDP)", protocol_version 4) --
+    // always set, unconditionally, for every session this client ever
+    // starts: a browser page has no raw socket API of any kind (no TCP,
+    // no UDP -- WebSocket, which already speaks RFC6455 itself, is the
+    // only network primitive exposed to JavaScript at all, see this
+    // file's own top comment). Never a per-call choice, so this isn't a
+    // parameter -- see unison_hello_ack_request::no_udp_video's own
+    // comment for what a server does with it (keeps Video/Audio
+    // multiplexed on the control connection, exactly as it would for a
+    // protocol_version <=3 session, instead of offering
+    // session_ready.video_port at all).
+    req.no_udp_video = 1;
     return (int)unison_build_hello_ack(&req, out_buf, (size_t)out_capacity);
 }
 

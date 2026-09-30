@@ -1,5 +1,7 @@
 #include "unison/handshake.h"
 
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -113,50 +115,59 @@ unison_handshake_result unison_parse_hello(const uint8_t *data, size_t size, uni
     return UNISON_HANDSHAKE_OK;
 }
 
+/* Appends onto *pos (already-written byte count in out_buf), same
+ * "n < 0 or would-overflow means abort" convention the old 4-branch
+ * version of this function used per format string -- one shared helper so
+ * that convention isn't duplicated per appended field below. Returns false
+ * (mirroring an aborted build) on overflow/error, true otherwise. */
+static bool append_json(char *out_buf, size_t out_capacity, size_t *pos, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    const int n = vsnprintf(out_buf + *pos, out_capacity - *pos, fmt, args);
+    va_end(args);
+    if (n < 0 || (size_t)n >= out_capacity - *pos) {
+        return false;
+    }
+    *pos += (size_t)n;
+    return true;
+}
+
 size_t unison_build_hello_ack(const unison_hello_ack_request *req, char *out_buf,
                                 size_t out_capacity) {
-    int n;
+    size_t pos = 0;
     const int has_video_mode = req->video_mode[0] != '\0';
 
-    if (req->wants_audio && has_video_mode) {
-        n = snprintf(out_buf, out_capacity,
-                     "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
-                     "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
-                     "\"max_bitrate_kbps\":null},"
-                     "\"audio_limits\":{\"max_sample_rate\":%u,\"max_channels\":%u},"
-                     "\"video_mode\":\"%s\"}",
-                     UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
-                     (unsigned)req->max_height, req->max_fps, (unsigned)req->max_sample_rate,
-                     (unsigned)req->max_channels, req->video_mode);
-    } else if (req->wants_audio) {
-        n = snprintf(out_buf, out_capacity,
-                     "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
-                     "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
-                     "\"max_bitrate_kbps\":null},"
-                     "\"audio_limits\":{\"max_sample_rate\":%u,\"max_channels\":%u}}",
-                     UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
-                     (unsigned)req->max_height, req->max_fps, (unsigned)req->max_sample_rate,
-                     (unsigned)req->max_channels);
-    } else if (has_video_mode) {
-        n = snprintf(out_buf, out_capacity,
-                     "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
-                     "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
-                     "\"max_bitrate_kbps\":null},"
-                     "\"video_mode\":\"%s\"}",
-                     UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
-                     (unsigned)req->max_height, req->max_fps, req->video_mode);
-    } else {
-        n = snprintf(out_buf, out_capacity,
-                     "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
-                     "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
-                     "\"max_bitrate_kbps\":null}}",
-                     UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
-                     (unsigned)req->max_height, req->max_fps);
-    }
-    if (n < 0 || (size_t)n >= out_capacity) {
+    if (!append_json(out_buf, out_capacity, &pos,
+                      "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
+                      "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
+                      "\"max_bitrate_kbps\":null}",
+                      UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
+                      (unsigned)req->max_height, req->max_fps)) {
         return 0;
     }
-    return (size_t)n;
+    if (req->wants_audio &&
+        !append_json(out_buf, out_capacity, &pos,
+                      ",\"audio_limits\":{\"max_sample_rate\":%u,\"max_channels\":%u}",
+                      (unsigned)req->max_sample_rate, (unsigned)req->max_channels)) {
+        return 0;
+    }
+    if (has_video_mode &&
+        !append_json(out_buf, out_capacity, &pos, ",\"video_mode\":\"%s\"", req->video_mode)) {
+        return 0;
+    }
+    /* Dedicated video/audio channel (docs/protocol.md, "Dedicated
+     * video/audio channel (UDP)", protocol_version 4) -- see
+     * unison_hello_ack_request::no_udp_video's own comment. Only ever
+     * emitted when true: omitted (not "false") for every client that
+     * doesn't set this field, matching every other optional field in this
+     * builder. */
+    if (req->no_udp_video && !append_json(out_buf, out_capacity, &pos, ",\"no_udp_video\":true")) {
+        return 0;
+    }
+    if (!append_json(out_buf, out_capacity, &pos, "}")) {
+        return 0;
+    }
+    return pos;
 }
 
 unison_handshake_result unison_parse_session_ready(const uint8_t *data, size_t size,

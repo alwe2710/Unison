@@ -127,9 +127,7 @@ static void test_build_hello_ack_video_mode(void) {
     CHECK(strstr(buf, "video_mode") == NULL);
 
     /* wants_audio and video_mode are independent axes -- both present at
-     * once must still produce valid, fully-populated JSON (this exercises
-     * unison_build_hello_ack()'s 4th snprintf branch, the only one
-     * combining both). */
+     * once must still produce valid, fully-populated JSON. */
     req.wants_audio = 1;
     req.max_sample_rate = 48000;
     req.max_channels = 2;
@@ -143,6 +141,33 @@ static void test_build_hello_ack_video_mode(void) {
      * partial/invalid JSON payload into out_buf. */
     char tiny[8];
     CHECK(unison_build_hello_ack(&req, tiny, sizeof(tiny)) == 0);
+}
+
+/* no_udp_video (docs/protocol.md, "Dedicated video/audio channel (UDP)",
+ * protocol_version 4) -- clients/web is the one real caller that ever
+ * sets this (no raw socket API in a browser at all), everyone else leaves
+ * it at the zero-initialized default. */
+static void test_build_hello_ack_no_udp_video(void) {
+    char buf[256];
+    unison_hello_ack_request req;
+    memset(&req, 0, sizeof(req));
+    req.max_width = 240;
+    req.max_height = 160;
+    req.max_fps = 60.0;
+
+    /* Default (0): omitted entirely, same convention as every other
+     * optional field here -- not written as "false". */
+    size_t n = unison_build_hello_ack(&req, buf, sizeof(buf));
+    CHECK(n > 0);
+    CHECK(strstr(buf, "no_udp_video") == NULL);
+
+    /* Set: present and true, and the rest of the message (independent
+     * axis) stays intact alongside it. */
+    req.no_udp_video = 1;
+    n = unison_build_hello_ack(&req, buf, sizeof(buf));
+    CHECK(n > 0);
+    CHECK(strstr(buf, "\"no_udp_video\":true") != NULL);
+    CHECK(strstr(buf, "\"requested_slot\":0") != NULL);
 }
 
 /* session_ready.video_mode is what the server actually granted -- the
@@ -283,6 +308,7 @@ int main(void) {
     test_peek_handshake_message();
     test_parse_hello();
     test_build_hello_ack_video_mode();
+    test_build_hello_ack_no_udp_video();
     test_parse_session_ready_video_mode();
     test_parse_session_ready_video_port();
     test_parse_session_ready_other_fields();

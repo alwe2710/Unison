@@ -414,6 +414,29 @@ Either the control connection closing/erroring, or (implicitly, since UDP has no
 control connection going away, ends the whole session — same all-or-nothing session lifetime a
 single-connection session already has today. There is no independent per-channel reconnect.
 
+#### Opting out (`hello_ack.no_udp_video`)
+
+A client that genuinely cannot open a raw UDP socket at all — the one real case: `clients/web`, a
+browser page, where no raw socket API of any kind is exposed to JavaScript (`WebSocket`, which
+already speaks RFC6455 itself, is the only network primitive available) — sets `no_udp_video: true`
+in its own `hello_ack`. A server that sees this must omit `session_ready.video_port` entirely for
+that session and keep `Video`/`Audio` multiplexed on the control connection, exactly as it would for
+a `protocol_version <= 3` session; it must not attempt the rendezvous at all in this case. Absent (the
+default for every other client), this means "can use the channel if the server offers one" — every
+client converted to `protocol_version = 4` so far (Android, Switch, 3DS, NDS/DSi, iOS) leaves this
+field unset without ever needing to think about it.
+
+A server whose own implementation has already fully replaced the old TCP-multiplexed `Video`/`Audio`
+send path with the new channel (true of all four reference servers as of this revision — see
+[Stream Types](#stream-types)) has no fallback left to actually honor `no_udp_video` with a working
+session: `hello_ack.no_udp_video: true` against one of these today gets a `handshake_error`
+(`udp_video_required`) instead, rejecting the connection outright rather than silently accepting one
+that will never show a frame. This is a real, currently-unresolved gap for `clients/web` specifically
+— it can request an exact-match `protocol_version` handshake against any of these four servers and
+get *past* the version check, but is then always rejected once `no_udp_video` reaches this check, until
+either a server re-adds a TCP fallback specifically for this case or `clients/web` grows a WebRTC
+data-channel transport (a much larger undertaking, not started at the time of this revision).
+
 #### Fragment framing
 
 Every datagram on this channel — `Video`, `Audio`, and the rendezvous `UNISON_MSG_UDP_HELLO` alike —

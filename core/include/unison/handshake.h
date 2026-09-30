@@ -108,6 +108,21 @@ typedef struct {
     uint32_t max_sample_rate;
     uint8_t max_channels;
     char video_mode[UNISON_VIDEO_MODE_LEN];
+    /* Opt-out from the dedicated video/audio channel (docs/protocol.md,
+     * "Dedicated video/audio channel (UDP)", protocol_version 4) -- 0
+     * (the default) means the client can use it if the server offers one;
+     * every client converted so far (Android/Switch/3DS/NDS/iOS) leaves
+     * this at 0 without ever setting it, so the field being absent from
+     * the wire JSON also means "can use it", not "predates the field
+     * entirely" the way most of this struct's other optional fields work.
+     * Nonzero means the client genuinely cannot open a raw UDP socket at
+     * all (the one client this exists for: clients/web, a browser page --
+     * no raw socket API of any kind is exposed to JavaScript, RFC6455
+     * WebSocket is the only thing available) -- the server must then omit
+     * session_ready.video_port entirely and keep sending Video/Audio
+     * multiplexed on the control connection, exactly as it would for a
+     * protocol_version <=3 session. */
+    int no_udp_video;
 } unison_hello_ack_request;
 
 /* Server -> client, confirms (possibly downscaled) parameters and either the

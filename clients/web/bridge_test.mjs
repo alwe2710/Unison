@@ -71,6 +71,11 @@ check("hello.slots[1].occupied", mod.ccall("unison_wasm_hello_slot_occupied", "n
   check("hello_ack.audio_limits present", "audio_limits" in parsed);
   check("hello_ack.audio_limits.max_channels", parsed.audio_limits.max_channels === 2);
   check("hello_ack.video_mode", parsed.video_mode === "h264");
+  // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+  // video/audio channel (UDP)", protocol_version 4) -- always set for
+  // this client, no raw socket API of any kind exists in a browser (see
+  // unison_wasm_build_hello_ack's own comment).
+  check("hello_ack.no_udp_video", parsed.no_udp_video === true);
 }
 
 // ---------------- session_ready (with redirect) ----------------
