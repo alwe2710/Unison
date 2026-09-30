@@ -115,7 +115,29 @@ class Prefs(context: Context) {
         // and it also normalizes a stale "legacy"/"tiles" pref saved before
         // this existed, since videoModesFor() keeps either from ever being
         // picked again going forward.
-        return if (isRawFallbackRemovedFor(streamType) && (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264"
+        //
+        // "" (manual host:port entry) gets the same h264 correction, not
+        // just the three named types above: there's no per-console screen
+        // to ever set prefKeyForVideoMode("") to anything else (only the 4
+        // known consoles get a VideoModeActivity row), so it always held
+        // the unset default (VIDEO_MODE_DEFAULT == "tiles") -- and with 3
+        // of the 4 real stream types no longer accepting that at all,
+        // requesting it by default just meant every single manual
+        // connection to one of them hit the "Anderer Videomodus" fallback
+        // dialog (reported live: "möchte sich per raw/tiling verbinden,
+        // obwohl dieses Verfahren für WiiU gar nicht mehr angeboten wird").
+        // The one real tradeoff is GC_GBA_LINK, the sole remaining type
+        // that both supports raw/tiling AND actually honors whatever's
+        // requested (dolphin-gba-stream's own GBAStreamHost.cpp) -- a
+        // manual connection to one now silently gets h264 (bilinear
+        // upscale) instead of tiles (crisp pixel art) by default, same as
+        // it always would have without ever explicitly picking a mode.
+        // Accepted: GC_GBA_LINK's primary entry point is the P1-P4 slot
+        // picker (which knows the real stream_type and reads
+        // videoModeFor("GC_GBA_LINK") normally), not manual host:port
+        // entry, so this only affects that already-rare combination.
+        return if ((isRawFallbackRemovedFor(streamType) || streamType.isEmpty()) &&
+            (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264"
         else mode
     }
 
