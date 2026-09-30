@@ -823,6 +823,3 @@ client, not a discovery mechanism for the native clients — those use the UDP b
   request the same free slot at the same time; the loser gets `handshake_error` with
   `code = "slot_unavailable"` and has to pick again themselves (see above). This is expected
   behavior, not a bug.
-- Whether RGB565+raw-deflate works unchanged for `N3DS_BOTTOM_SCREEN` (320×240, larger than the
-  GBA's 240×160) or a different codec is needed remains open — to be resolved during the Azahar
-  implementation, not part of this protocol revision.

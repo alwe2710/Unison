@@ -104,12 +104,19 @@ class Prefs(context: Context) {
      * field either way. */
     fun videoModeFor(streamType: String): String {
         val mode = prefs.getString(prefKeyForVideoMode(streamType), VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
-        // WIIU_GAMEPAD (Cemu) removed both raw modes entirely (see
-        // WiiuGamepadStream.cpp's own SendVideoFrame() comment) -- honest
-        // request, and it also normalizes a stale "legacy"/"tiles" pref
-        // saved before this existed, since videoModesFor() keeps either
-        // from ever being picked again going forward.
-        return if (streamType == "WIIU_GAMEPAD" && (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264" else mode
+        // WIIU_GAMEPAD (Cemu)/N3DS_BOTTOM_SCREEN (azahar)/NDS_BOTTOM_SCREEN
+        // (melonDS) have all removed both raw video modes entirely now --
+        // TILES was never actually implemented for the latter two (always a
+        // full frame either way) and the plain "legacy" full-raw-frame path
+        // was removed outright alongside it, matching WIIU_GAMEPAD's own
+        // earlier removal (see each server's own SendVideoFrame() comment;
+        // raw/tiling stays only for GC_GBA_LINK, whose native low-res
+        // pixel-art content actually benefits from it) -- honest request,
+        // and it also normalizes a stale "legacy"/"tiles" pref saved before
+        // this existed, since videoModesFor() keeps either from ever being
+        // picked again going forward.
+        return if (isRawFallbackRemovedFor(streamType) && (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264"
+        else mode
     }
 
     fun setVideoModeFor(streamType: String, value: String) {
@@ -211,13 +218,26 @@ class Prefs(context: Context) {
             VideoModeOption("h265", R.string.video_mode_h265)
         )
 
-        /** VideoModeActivity's actual list for a given console -- WIIU_GAMEPAD
-         * (Cemu) drops both raw options (legacy/tiles), since its own
-         * encoder no longer has a fallback path for either at all; every
-         * other console still gets the full VIDEO_MODES list unfiltered.
-         * internal, same PrefsTest reasoning as hasRightStick() above. */
+        /** WIIU_GAMEPAD/N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN -- see
+         * videoModeFor()'s own comment: all three servers have dropped both
+         * raw video modes (legacy/tiles) entirely, always using a real
+         * h264/h265 encoder instead. GC_GBA_LINK (dolphin-gba-stream) is the
+         * one stream type that still genuinely implements raw/tiling (its
+         * native low-res pixel-art content actually benefits from it), so
+         * it's deliberately left out here. internal, same PrefsTest
+         * reasoning as hasRightStick() above. */
+        internal fun isRawFallbackRemovedFor(streamType: String): Boolean =
+            streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" ||
+                streamType == "NDS_BOTTOM_SCREEN"
+
+        /** VideoModeActivity's actual list for a given console -- drops both
+         * raw options (legacy/tiles) for any console whose own encoder no
+         * longer has a fallback path for either at all; every other console
+         * still gets the full VIDEO_MODES list unfiltered. internal, same
+         * PrefsTest reasoning as hasRightStick() above. */
         internal fun videoModesFor(streamType: String): List<VideoModeOption> =
-            if (streamType == "WIIU_GAMEPAD") VIDEO_MODES.filter { it.value != "legacy" && it.value != VIDEO_MODE_DEFAULT }
+            if (isRawFallbackRemovedFor(streamType))
+                VIDEO_MODES.filter { it.value != "legacy" && it.value != VIDEO_MODE_DEFAULT }
             else VIDEO_MODES
     }
 }
