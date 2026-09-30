@@ -79,6 +79,20 @@ struct unison_native_client {
     char video_mode[UNISON_VIDEO_MODE_LEN];
     unison_native_callbacks callbacks;
     int sockfd;
+    // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)", protocol_version 4) -- a connected
+    // SOCK_DGRAM socket, -1 whenever the server didn't offer
+    // session_ready.video_port, in which case Video/Audio keep arriving on
+    // sockfd above exactly as in protocol_version <=2. Only ever touched by
+    // client_thread_main()/run_session_loop() and the functions they call,
+    // same "one owner" reasoning as sockfd itself.
+    int video_sockfd;
+    // The rendezvous handshake (udp_rendezvous(), client_thread_main) had
+    // to read *some* datagram off the socket to know it succeeded -- that
+    // datagram is real Video/Audio data, stashed here so run_session_loop()
+    // can process it instead of it being silently dropped.
+    uint8_t pending_first_video_datagram[UNISON_UDP_MAX_DATAGRAM_SIZE];
+    ssize_t pending_first_video_datagram_len;
     pthread_t thread;
     atomic_bool stop;
     atomic_int pending_keymask;
@@ -227,6 +241,98 @@ static bool connect_and_ws_upgrade(const char *host, int port, atomic_bool *stop
     return true;
 }
 
+// Creates a SOCK_DGRAM socket and connect()s it to host:port -- for UDP,
+// connect() just fixes the peer address kernel-side so plain send()/recv()
+// work without per-call addressing (docs/protocol.md, "Dedicated
+// video/audio channel (UDP)"), it does not perform a handshake the way TCP
+// connect() does. Same shape as jni_bridge.c's own
+// create_and_connect_udp_socket().
+static bool create_and_connect_udp_socket(const char *host, int port, int *out_fd) {
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+
+    struct addrinfo *result = NULL;
+    if (getaddrinfo(host, port_str, &hints, &result) != 0 || !result) {
+        return false;
+    }
+
+    int fd = -1;
+    for (struct addrinfo *rp = result; rp; rp = rp->ai_next) {
+        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) {
+            continue;
+        }
+        if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            break;
+        }
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(result);
+    if (fd < 0) {
+        return false;
+    }
+    *out_fd = fd;
+    return true;
+}
+
+// Rendezvous handshake for the UDP video/audio channel (docs/protocol.md) --
+// sends UNISON_MSG_UDP_HELLO (empty payload, fragment_index/fragment_count
+// both 0) every 200ms until either the first real datagram arrives back or
+// timeout_ms elapses. The first datagram received back is *real*
+// Video/Audio data (the server starts streaming as soon as it's learned
+// the client's address, it doesn't ack the hello specifically) -- copied
+// into out_buf/*out_len rather than just used as a yes/no rendezvous
+// signal, so the caller can still process it instead of silently dropping
+// the first frame. Same shape as jni_bridge.c's own udp_rendezvous().
+static bool udp_rendezvous(int fd, atomic_bool *stop_flag, int timeout_ms, uint8_t *out_buf,
+                            size_t out_buf_cap, ssize_t *out_len) {
+    const unison_udp_fragment_header hello_hdr = {
+        .msg_type = UNISON_MSG_UDP_HELLO, .frame_id = 0, .fragment_index = 0, .fragment_count = 0};
+    uint8_t hello_datagram[UNISON_UDP_FRAGMENT_HEADER_SIZE];
+    unison_build_udp_fragment_header(&hello_hdr, hello_datagram);
+
+    struct timespec deadline;
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+    }
+
+    for (;;) {
+        if (atomic_load(stop_flag)) {
+            return false;
+        }
+        send(fd, hello_datagram, sizeof(hello_datagram), 0);
+
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long remaining_ms =
+            (deadline.tv_sec - now.tv_sec) * 1000 + (deadline.tv_nsec - now.tv_nsec) / 1000000;
+        if (remaining_ms <= 0) {
+            return false;
+        }
+
+        struct pollfd pfd = {.fd = fd, .events = POLLIN};
+        int wait_ms = remaining_ms < 200 ? (int)remaining_ms : 200;
+        int pr = poll(&pfd, 1, wait_ms);
+        if (pr > 0 && (pfd.revents & POLLIN)) {
+            ssize_t n = recv(fd, out_buf, out_buf_cap, 0);
+            if (n > 0) {
+                *out_len = n;
+                return true;
+            }
+        }
+    }
+}
+
 static bool receive_one_ws_frame(unison_native_client *c, byte_buf *buf, unison_ws_frame *out_frame,
                                   int timeout_ms) {
     struct timespec deadline;
@@ -300,6 +406,13 @@ typedef struct {
     // shape, so those three booleans alone can't tell Cemu and Azahar
     // apart the way the raw string can.
     char stream_type[UNISON_STREAM_TYPE_LEN];
+    // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)", protocol_version 4) -- has_video_port
+    // false whenever the server didn't offer session_ready.video_port, in
+    // which case Video/Audio keep arriving on the control connection
+    // exactly as in protocol_version <=2.
+    bool has_video_port;
+    int video_port;
 } app_handshake_result;
 
 // App-level handshake (unison/handshake.h, docs/protocol.md
@@ -420,6 +533,8 @@ static app_handshake_result perform_app_handshake(unison_native_client *c, byte_
             result.height = (int32_t)ready.video.height;
             strncpy(result.granted_video_mode, ready.video_mode, sizeof(result.granted_video_mode) - 1);
             result.granted_video_mode[sizeof(result.granted_video_mode) - 1] = '\0';
+            result.has_video_port = ready.has_video_port;
+            result.video_port = ready.video_port;
             result.ok = true;
             return result;
         }
@@ -523,6 +638,130 @@ static void handle_audio_message(unison_native_client *c, const uint8_t *payload
                                      (int32_t)audio.channels, pcm, audio.sample_count);
     }
     free(pcm);
+}
+
+// Per-msg_type reassembly state for the UDP video/audio channel -- one
+// instance each for video and audio in run_session_loop() below, since a
+// frame_id counts independently per msg_type (unison_udp_fragment_header's
+// own comment). Fragment i is always placed at byte offset
+// i * UNISON_UDP_MAX_FRAGMENT_PAYLOAD regardless of arrival order, which
+// is only correct because every fragment except the last is sent at
+// EXACTLY that length -- see that macro's own comment. Same shape as
+// jni_bridge.c's own udp_reassembly_state, but heap-growable (realloc)
+// like this file's inflate_out/rgb565_out already are, rather than a
+// fixed-size array -- this file has no equivalent size ceiling to bound
+// against.
+typedef struct {
+    bool active;
+    uint32_t frame_id;
+    uint16_t fragment_count;
+    uint16_t fragments_received;
+    bool *received;        // fragment_count entries
+    uint16_t *fragment_len; // fragment_count entries
+    uint8_t *buf;           // fragment_count * UNISON_UDP_MAX_FRAGMENT_PAYLOAD bytes
+    size_t buf_cap;         // in fragments, not bytes -- tracks received/fragment_len/buf's shared allocation size
+} udp_reassembly_state;
+
+static void udp_reassembly_free(udp_reassembly_state *state) {
+    free(state->received);
+    free(state->fragment_len);
+    free(state->buf);
+    memset(state, 0, sizeof(*state));
+}
+
+// Feeds one fragment into *state. A newer frame_id than the one currently
+// in progress discards that old, incomplete state outright (same "newest
+// wins" policy TILES dedup and Cemu/Android's own decode-backlog logic
+// already use). Returns true (with *out_payload/*out_len valid, pointing
+// into state->buf until the next call) once *state has every fragment for
+// the frame_id currently being assembled; false otherwise (still
+// incomplete, or this fragment was malformed and was ignored, or a
+// realloc failed).
+static bool process_udp_fragment(udp_reassembly_state *state, const unison_udp_fragment_header *hdr,
+                                   const uint8_t *fragment_payload, size_t fragment_payload_len,
+                                   const uint8_t **out_payload, size_t *out_len) {
+    if (hdr->fragment_count == 0 || hdr->fragment_index >= hdr->fragment_count ||
+        fragment_payload_len > UNISON_UDP_MAX_FRAGMENT_PAYLOAD) {
+        return false;
+    }
+    if (hdr->fragment_index != (uint16_t)(hdr->fragment_count - 1) &&
+        fragment_payload_len != UNISON_UDP_MAX_FRAGMENT_PAYLOAD) {
+        return false;
+    }
+
+    if (!state->active || hdr->frame_id != state->frame_id || hdr->fragment_count != state->fragment_count) {
+        if (hdr->fragment_count > state->buf_cap) {
+            bool *new_received = realloc(state->received, hdr->fragment_count * sizeof(bool));
+            uint16_t *new_len = realloc(state->fragment_len, hdr->fragment_count * sizeof(uint16_t));
+            uint8_t *new_buf =
+                realloc(state->buf, (size_t)hdr->fragment_count * UNISON_UDP_MAX_FRAGMENT_PAYLOAD);
+            if (!new_received || !new_len || !new_buf) {
+                free(new_received);
+                free(new_len);
+                free(new_buf);
+                udp_reassembly_free(state);
+                return false;
+            }
+            state->received = new_received;
+            state->fragment_len = new_len;
+            state->buf = new_buf;
+            state->buf_cap = hdr->fragment_count;
+        }
+        state->active = true;
+        state->frame_id = hdr->frame_id;
+        state->fragment_count = hdr->fragment_count;
+        state->fragments_received = 0;
+        memset(state->received, 0, hdr->fragment_count * sizeof(bool));
+        memset(state->fragment_len, 0, hdr->fragment_count * sizeof(uint16_t));
+    }
+
+    if (!state->received[hdr->fragment_index]) {
+        state->received[hdr->fragment_index] = true;
+        state->fragment_len[hdr->fragment_index] = (uint16_t)fragment_payload_len;
+        memcpy(state->buf + (size_t)hdr->fragment_index * UNISON_UDP_MAX_FRAGMENT_PAYLOAD, fragment_payload,
+               fragment_payload_len);
+        state->fragments_received++;
+    }
+
+    if (state->fragments_received < state->fragment_count) {
+        return false;
+    }
+
+    *out_len = (size_t)(state->fragment_count - 1) * UNISON_UDP_MAX_FRAGMENT_PAYLOAD +
+               state->fragment_len[state->fragment_count - 1];
+    *out_payload = state->buf;
+    state->active = false; // consumed -- the next datagram (new frame_id) starts fresh
+    return true;
+}
+
+// Parses one datagram off the UDP video/audio channel, reassembles it
+// against the matching per-msg_type state, and dispatches a completed
+// frame to handle_video_message()/handle_audio_message() -- same message-
+// body handlers the WS-framed path uses, since the bodies are identical
+// either way, only the framing around them differs.
+static void process_udp_datagram(unison_native_client *c, udp_reassembly_state *video_state,
+                                   udp_reassembly_state *audio_state, const uint8_t *datagram,
+                                   size_t datagram_len, uint8_t **inflate_out, size_t *inflate_out_cap,
+                                   uint8_t **rgb565_out, size_t *rgb565_out_cap) {
+    unison_udp_fragment_header hdr;
+    if (unison_parse_udp_fragment_header(datagram, datagram_len, &hdr) != UNISON_OK) {
+        return;
+    }
+    const uint8_t *fragment_payload = datagram + UNISON_UDP_FRAGMENT_HEADER_SIZE;
+    const size_t fragment_payload_len = datagram_len - UNISON_UDP_FRAGMENT_HEADER_SIZE;
+
+    const uint8_t *payload = NULL;
+    size_t payload_len = 0;
+    if (hdr.msg_type == UNISON_MSG_VIDEO &&
+        process_udp_fragment(video_state, &hdr, fragment_payload, fragment_payload_len, &payload,
+                              &payload_len)) {
+        handle_video_message(c, payload, payload_len, inflate_out, inflate_out_cap, rgb565_out,
+                              rgb565_out_cap);
+    } else if (hdr.msg_type == UNISON_MSG_AUDIO &&
+               process_udp_fragment(audio_state, &hdr, fragment_payload, fragment_payload_len, &payload,
+                                     &payload_len)) {
+        handle_audio_message(c, payload, payload_len);
+    }
 }
 
 // Cemu's on-screen software keyboard (and any future server that does the
@@ -666,15 +905,36 @@ static void maybe_send_touch(unison_native_client *c) {
 
 static void run_session_loop(unison_native_client *c, byte_buf *buf) {
     uint8_t chunk[4096];
+    uint8_t udp_chunk[UNISON_UDP_MAX_DATAGRAM_SIZE];
     uint8_t *inflate_out = NULL;
     size_t inflate_out_cap = 0;
     uint8_t *rgb565_out = NULL;
     size_t rgb565_out_cap = 0;
+    const bool has_video_conn = c->video_sockfd >= 0;
+    udp_reassembly_state video_reassembly = {0};
+    udp_reassembly_state audio_reassembly = {0};
+
+    // The rendezvous handshake (udp_rendezvous(), client_thread_main) had
+    // to read *some* datagram off the socket to know it succeeded -- that
+    // datagram is real Video/Audio data, so it's processed here first,
+    // before the poll loop below ever runs, rather than being discarded.
+    if (has_video_conn && c->pending_first_video_datagram_len > 0) {
+        process_udp_datagram(c, &video_reassembly, &audio_reassembly, c->pending_first_video_datagram,
+                              (size_t)c->pending_first_video_datagram_len, &inflate_out, &inflate_out_cap,
+                              &rgb565_out, &rgb565_out_cap);
+        c->pending_first_video_datagram_len = 0;
+    }
 
     while (!atomic_load(&c->stop)) {
-        struct pollfd pfd = {.fd = c->sockfd, .events = POLLIN};
-        int pr = poll(&pfd, 1, 4); // short timeout: also need to notice pending input to send
-        if (pr > 0 && (pfd.revents & POLLIN)) {
+        struct pollfd pfds[2];
+        pfds[0] = (struct pollfd){.fd = c->sockfd, .events = POLLIN};
+        nfds_t npfds = 1;
+        if (has_video_conn) {
+            pfds[1] = (struct pollfd){.fd = c->video_sockfd, .events = POLLIN};
+            npfds = 2;
+        }
+        int pr = poll(pfds, npfds, 4); // short timeout: also need to notice pending input to send
+        if (pr > 0 && (pfds[0].revents & POLLIN)) {
             ssize_t n = recv(c->sockfd, chunk, sizeof(chunk), 0);
             if (n <= 0) {
                 break;
@@ -682,6 +942,18 @@ static void run_session_loop(unison_native_client *c, byte_buf *buf) {
             byte_buf_append(buf, chunk, (size_t)n);
         } else if (pr < 0 && errno != EINTR) {
             break;
+        }
+        if (has_video_conn && pr > 0 && (pfds[1].revents & POLLIN)) {
+            // Unlike the control socket above, n <= 0 here is never
+            // treated as "connection closed" -- UDP is connectionless, so
+            // there is no such signal on this channel. Session lifetime
+            // stays entirely driven by the control connection, per
+            // docs/protocol.md.
+            ssize_t n = recv(c->video_sockfd, udp_chunk, sizeof(udp_chunk), 0);
+            if (n > 0) {
+                process_udp_datagram(c, &video_reassembly, &audio_reassembly, udp_chunk, (size_t)n,
+                                      &inflate_out, &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
+            }
         }
 
         bool should_stop = false;
@@ -701,13 +973,23 @@ static void run_session_loop(unison_native_client *c, byte_buf *buf) {
                 break;
             }
 
+            // Video/Audio normally arrive on the UDP channel instead once
+            // has_video_conn -- either type landing here regardless (a
+            // server bug, or one that doesn't honor its own
+            // session_ready.video_port) is dropped rather than handled
+            // twice/out of order against whatever the UDP reassembly
+            // state is doing.
             unison_msg_type type;
             if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
                 if (type == UNISON_MSG_VIDEO) {
-                    handle_video_message(c, frame.payload, frame.payload_size, &inflate_out,
-                                         &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
+                    if (!has_video_conn) {
+                        handle_video_message(c, frame.payload, frame.payload_size, &inflate_out,
+                                             &inflate_out_cap, &rgb565_out, &rgb565_out_cap);
+                    }
                 } else if (type == UNISON_MSG_AUDIO) {
-                    handle_audio_message(c, frame.payload, frame.payload_size);
+                    if (!has_video_conn) {
+                        handle_audio_message(c, frame.payload, frame.payload_size);
+                    }
                 } else if (type == UNISON_MSG_TEXT_INPUT_REQUEST) {
                     handle_text_input_request_message(c, frame.payload, frame.payload_size);
                 }
@@ -726,6 +1008,8 @@ static void run_session_loop(unison_native_client *c, byte_buf *buf) {
         maybe_send_text_input_response(c);
     }
 
+    udp_reassembly_free(&video_reassembly);
+    udp_reassembly_free(&audio_reassembly);
     free(inflate_out);
     free(rgb565_out);
 }
@@ -760,6 +1044,40 @@ static void *client_thread_main(void *arg) {
     atomic_store(&c->has_buttons, hs.has_buttons);
     atomic_store(&c->extended_input, hs.extended_input);
 
+    // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)", protocol_version 4): a connected UDP
+    // socket carrying Video and Audio, no app handshake of its own (every
+    // negotiated parameter already came from the exchange above) -- just
+    // the rendezvous hello below. c->video_sockfd stays -1 (its calloc'd
+    // default) when the server didn't offer video_port, which is exactly
+    // what run_session_loop() already treats as "no video connection,
+    // keep polling only the control socket."
+    c->video_sockfd = -1;
+    if (hs.has_video_port) {
+        int video_fd = -1;
+        if (!create_and_connect_udp_socket(c->host, hs.video_port, &video_fd)) {
+            if (c->callbacks.on_disconnected) {
+                c->callbacks.on_disconnected(c->callbacks.user_data, "Video-Verbindung fehlgeschlagen");
+            }
+            byte_buf_free(&buf);
+            close(c->sockfd);
+            return NULL;
+        }
+        ssize_t first_len = 0;
+        if (!udp_rendezvous(video_fd, &c->stop, 5000, c->pending_first_video_datagram,
+                            sizeof(c->pending_first_video_datagram), &first_len)) {
+            if (c->callbacks.on_disconnected) {
+                c->callbacks.on_disconnected(c->callbacks.user_data, "Video-Verbindung fehlgeschlagen");
+            }
+            byte_buf_free(&buf);
+            close(video_fd);
+            close(c->sockfd);
+            return NULL;
+        }
+        c->video_sockfd = video_fd;
+        c->pending_first_video_datagram_len = first_len;
+    }
+
     if (c->callbacks.on_connected) {
         c->callbacks.on_connected(c->callbacks.user_data, hs.touch_input, hs.has_buttons,
                                    hs.extended_input, hs.width, hs.height, hs.granted_video_mode,
@@ -772,6 +1090,9 @@ static void *client_thread_main(void *arg) {
         c->callbacks.on_disconnected(c->callbacks.user_data, "Verbindung getrennt");
     }
     close(c->sockfd);
+    if (c->video_sockfd >= 0) {
+        close(c->video_sockfd);
+    }
     return NULL;
 }
 
