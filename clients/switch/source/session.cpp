@@ -144,6 +144,248 @@ bool connect_and_ws_upgrade(const std::string &host, int port, int *out_fd, std:
     return true;
 }
 
+// Generous upper bound on fragments per frame_id (docs/protocol.md,
+// "Dedicated video/audio channel (UDP)") -- 256 * UNISON_UDP_MAX_FRAGMENT_PAYLOAD
+// (~1191 bytes) is ~298KB, far more than any realistic single video
+// keyframe or audio chunk needs; just a safety cap against a malformed
+// header, not a tuned value.
+constexpr uint16_t kMaxUdpFragments = 256;
+
+// Per-msg_type reassembly state for the UDP video/audio channel -- one
+// instance each for video and audio in threadMain() below, since a
+// frame_id counts independently per msg_type (unison_udp_fragment_header's
+// own comment, core/include/unison/protocol.h). Fragment i is always
+// placed at byte offset i * UNISON_UDP_MAX_FRAGMENT_PAYLOAD regardless of
+// arrival order, which is only correct because every fragment except the
+// last is sent at EXACTLY that length (the sender's own chunking
+// invariant) -- see that macro's own comment.
+struct UdpReassemblyState {
+    bool active = false;
+    uint32_t frameId = 0;
+    uint16_t fragmentCount = 0;
+    uint16_t fragmentsReceived = 0;
+    std::vector<bool> received;
+    std::vector<uint16_t> fragmentLen;
+    std::vector<uint8_t> buf;
+};
+
+// Feeds one fragment into `state`. A newer frame_id than the one currently
+// in progress discards that old, incomplete state outright (same "newest
+// wins" policy TILES dedup and Cemu/Android's own decode-backlog logic
+// already use). Returns true (with *outPayload/*outLen valid, pointing
+// into state.buf until the next call) once `state` has every fragment for
+// the frame_id currently being assembled; false otherwise (still
+// incomplete, or this fragment was malformed/out of range and was
+// ignored).
+bool processUdpFragment(UdpReassemblyState &state, const unison_udp_fragment_header &hdr,
+                         const uint8_t *fragmentPayload, size_t fragmentPayloadLen,
+                         const uint8_t **outPayload, size_t *outLen) {
+    if (hdr.fragment_count == 0 || hdr.fragment_count > kMaxUdpFragments ||
+        hdr.fragment_index >= hdr.fragment_count || fragmentPayloadLen > UNISON_UDP_MAX_FRAGMENT_PAYLOAD) {
+        return false;
+    }
+    // Every fragment but the last must be exactly UNISON_UDP_MAX_FRAGMENT_PAYLOAD
+    // bytes for the offset-by-index placement below to be valid.
+    if (hdr.fragment_index != static_cast<uint16_t>(hdr.fragment_count - 1) &&
+        fragmentPayloadLen != UNISON_UDP_MAX_FRAGMENT_PAYLOAD) {
+        return false;
+    }
+
+    if (!state.active || hdr.frame_id != state.frameId || hdr.fragment_count != state.fragmentCount) {
+        state.active = true;
+        state.frameId = hdr.frame_id;
+        state.fragmentCount = hdr.fragment_count;
+        state.fragmentsReceived = 0;
+        state.received.assign(hdr.fragment_count, false);
+        state.fragmentLen.assign(hdr.fragment_count, 0);
+        state.buf.assign(static_cast<size_t>(hdr.fragment_count) * UNISON_UDP_MAX_FRAGMENT_PAYLOAD, 0);
+    }
+
+    if (!state.received[hdr.fragment_index]) {
+        state.received[hdr.fragment_index] = true;
+        state.fragmentLen[hdr.fragment_index] = static_cast<uint16_t>(fragmentPayloadLen);
+        std::memcpy(state.buf.data() + static_cast<size_t>(hdr.fragment_index) * UNISON_UDP_MAX_FRAGMENT_PAYLOAD,
+                    fragmentPayload, fragmentPayloadLen);
+        state.fragmentsReceived++;
+    }
+
+    if (state.fragmentsReceived < state.fragmentCount) {
+        return false;
+    }
+
+    *outLen = static_cast<size_t>(state.fragmentCount - 1) * UNISON_UDP_MAX_FRAGMENT_PAYLOAD +
+              state.fragmentLen[state.fragmentCount - 1];
+    *outPayload = state.buf.data();
+    state.active = false; // consumed -- the next datagram (new frame_id) starts fresh
+    return true;
+}
+
+// Creates a SOCK_DGRAM socket and connect()s it to host:port -- for UDP,
+// connect() just fixes the peer address kernel-side so plain send()/recv()
+// work without per-call addressing (docs/protocol.md, "Dedicated
+// video/audio channel (UDP)"), it does not perform a handshake the way TCP
+// connect() does.
+bool create_and_connect_udp_socket(const std::string &host, int port, int *out_fd) {
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+
+    struct addrinfo *result = nullptr;
+    if (getaddrinfo(host.c_str(), port_str, &hints, &result) != 0 || !result) {
+        return false;
+    }
+
+    int fd = -1;
+    for (struct addrinfo *rp = result; rp; rp = rp->ai_next) {
+        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) {
+            continue;
+        }
+        if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            break;
+        }
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(result);
+    if (fd < 0) {
+        return false;
+    }
+    *out_fd = fd;
+    return true;
+}
+
+// Rendezvous handshake for the UDP video/audio channel (docs/protocol.md) --
+// sends UNISON_MSG_UDP_HELLO (empty payload, fragment_index/fragment_count
+// both 0) every 200ms until either the first real datagram arrives back or
+// timeout_ms elapses. The first datagram received back is *real*
+// Video/Audio data (the server starts streaming as soon as it's learned
+// the client's address, it doesn't ack the hello specifically) -- copied
+// into out_buf/*out_len rather than just used as a yes/no rendezvous
+// signal, so the caller can still process it instead of silently dropping
+// the first frame.
+bool udp_rendezvous(int fd, std::atomic<bool> *stop_flag, int timeout_ms, uint8_t *out_buf,
+                     size_t out_buf_cap, ssize_t *out_len) {
+    const unison_udp_fragment_header hello_hdr{UNISON_MSG_UDP_HELLO, 0, 0, 0};
+    uint8_t hello_datagram[UNISON_UDP_FRAGMENT_HEADER_SIZE];
+    unison_build_udp_fragment_header(&hello_hdr, hello_datagram);
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (stop_flag->load()) {
+            return false;
+        }
+        send(fd, hello_datagram, sizeof(hello_datagram), 0);
+
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (remaining.count() <= 0) {
+            return false;
+        }
+        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+        int pr = poll(&pfd, 1, static_cast<int>(remaining.count() > 200 ? 200 : remaining.count()));
+        if (pr > 0 && (pfd.revents & POLLIN)) {
+            ssize_t n = recv(fd, out_buf, out_buf_cap, 0);
+            if (n > 0) {
+                *out_len = n;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Dispatches one already-unwrapped UNISON_MSG_VIDEO/UNISON_MSG_AUDIO message
+// body to the matching Listener callback -- shared between the WS-framed
+// control-connection path (protocol_version <=2, or a server that never
+// offered video_port) and the UDP-reassembled path below (protocol_version
+// 4), since the message *bodies* are identical either way, only the
+// framing around them differs (docs/protocol.md's own "framing is shared,
+// body content stays host-specific" split, same as unison_ws_build_frame/
+// unison_ws_parse_frame already draw for the TCP side).
+void dispatchVideoOrAudioMessage(GbaSession::Listener &listener, const uint8_t *payload, size_t payload_size,
+                                  std::vector<uint8_t> &inflate_buf, std::vector<uint8_t> &rgb565_out) {
+    unison_msg_type type;
+    if (unison_peek_type(payload, payload_size, &type) != UNISON_OK) {
+        return;
+    }
+    if (type == UNISON_MSG_VIDEO) {
+        unison_video_header hdr;
+        if (unison_parse_video_header(payload, payload_size, &hdr) != UNISON_OK) {
+            return;
+        }
+        if (hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)) {
+            // hdr.compressed_data is a raw Annex-B NAL stream here, not
+            // raw-deflate -- handed straight to H264Decoder instead of
+            // through unison_inflate_raw()/unison_decode_video_frame()
+            // below, same split every other client's own compressed-video
+            // path uses.
+            if (listener.onCompressedVideoFrame) {
+                std::vector<uint8_t> data(hdr.compressed_data, hdr.compressed_data + hdr.compressed_size);
+                listener.onCompressedVideoFrame(hdr.width, hdr.height,
+                                                 (hdr.format & UNISON_VIDEO_FORMAT_H265) != 0, std::move(data));
+            }
+        } else if (listener.onVideoFrame) {
+            // rgb565_out is the PERSISTENT framebuffer: resizing it to the
+            // same size every frame (width/height don't change mid-stream)
+            // is a no-op that leaves its content alone, which is exactly
+            // what a UNISON_VIDEO_FORMAT_TILES frame needs -- it only
+            // patches the tiles it lists, every other pixel must keep
+            // whatever the previous frame decoded there.
+            size_t framebuffer_size = static_cast<size_t>(hdr.width) * hdr.height * 2;
+            inflate_buf.resize(unison_video_max_inflated_size(hdr.width, hdr.height));
+            rgb565_out.resize(framebuffer_size);
+            size_t inflated_size = 0;
+            if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, inflate_buf.data(),
+                                     inflate_buf.size(), &inflated_size) == UNISON_INFLATE_OK &&
+                unison_decode_video_frame(hdr.format, inflate_buf.data(), inflated_size, hdr.width,
+                                            hdr.height, rgb565_out.data(), rgb565_out.size()) == UNISON_OK) {
+                listener.onVideoFrame(hdr.width, hdr.height, rgb565_out);
+            }
+        }
+    } else if (type == UNISON_MSG_AUDIO && listener.onAudioFrame) {
+        unison_audio_frame audio;
+        if (unison_parse_audio_frame(payload, payload_size, &audio) == UNISON_OK && audio.sample_count > 0) {
+            std::vector<int16_t> pcm(audio.sample_count);
+            for (size_t i = 0; i < audio.sample_count; i++) {
+                pcm[i] = unison_read_s16le(audio.samples + i * 2);
+            }
+            listener.onAudioFrame(audio.sample_rate, audio.channels, std::move(pcm));
+        }
+    }
+}
+
+// Parses one datagram off the UDP video/audio channel, reassembles it
+// against the matching per-msg_type state, and dispatches to
+// dispatchVideoOrAudioMessage() once a frame_id's fragments are all in.
+void processUdpDatagram(GbaSession::Listener &listener, UdpReassemblyState &videoState,
+                         UdpReassemblyState &audioState, const uint8_t *datagram, size_t datagramLen,
+                         std::vector<uint8_t> &inflate_buf, std::vector<uint8_t> &rgb565_out) {
+    unison_udp_fragment_header hdr;
+    if (unison_parse_udp_fragment_header(datagram, datagramLen, &hdr) != UNISON_OK) {
+        return;
+    }
+    const uint8_t *fragmentPayload = datagram + UNISON_UDP_FRAGMENT_HEADER_SIZE;
+    const size_t fragmentPayloadLen = datagramLen - UNISON_UDP_FRAGMENT_HEADER_SIZE;
+
+    const uint8_t *payload = nullptr;
+    size_t payloadLen = 0;
+    if (hdr.msg_type == UNISON_MSG_VIDEO &&
+        processUdpFragment(videoState, hdr, fragmentPayload, fragmentPayloadLen, &payload, &payloadLen)) {
+        dispatchVideoOrAudioMessage(listener, payload, payloadLen, inflate_buf, rgb565_out);
+    } else if (hdr.msg_type == UNISON_MSG_AUDIO &&
+               processUdpFragment(audioState, hdr, fragmentPayload, fragmentPayloadLen, &payload, &payloadLen)) {
+        dispatchVideoOrAudioMessage(listener, payload, payloadLen, inflate_buf, rgb565_out);
+    }
+    // Any other msg_type (e.g. an echoed UNISON_MSG_UDP_HELLO, which the
+    // server never sends but a misbehaving/future peer theoretically
+    // could) is silently ignored -- this channel only ever carries these
+    // two types server->client.
+}
+
 // GC_GBA_LINK player ports are always this + the GC device number
 // (docs/protocol.md; matches kPlayerBasePort in menu_activity.cpp and
 // GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork). Not shared
@@ -210,6 +452,13 @@ struct AppHandshakeResult {
     // session_ready.video_mode -- see GbaSession::Listener::onConnected's
     // own comment on the empty-means-no-info convention.
     std::string grantedVideoMode;
+    // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)", protocol_version 4) -- hasVideoPort false
+    // whenever the server didn't offer session_ready.video_port, in which
+    // case Video/Audio keep arriving on the control connection exactly as
+    // in protocol_version <=2.
+    bool hasVideoPort = false;
+    int videoPort = 0;
 };
 
 // App-level handshake (unison/handshake.h, docs/protocol.md
@@ -311,7 +560,7 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
         }
 
         if (!ready.has_redirect) {
-            return { true, "", ready.video_mode };
+            return { true, "", ready.video_mode, static_cast<bool>(ready.has_video_port), ready.video_port };
         }
 
         // Redirect: this connection carries no stream data, ever -- close
@@ -392,6 +641,40 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
         listener.onConnected(hs.grantedVideoMode);
     }
 
+    // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)", protocol_version 4): a connected UDP
+    // socket carrying Video and Audio, no app handshake of its own (every
+    // negotiated parameter already came from the exchange above) -- just
+    // the rendezvous hello below. videoSockfd stays -1 (its default) when
+    // the server didn't offer video_port, which is exactly what the poll
+    // loop below already treats as "no dedicated channel, Video/Audio
+    // arrive on the control socket instead" (protocol_version <=2
+    // behavior).
+    uint8_t pendingFirstVideoDatagram[UNISON_UDP_MAX_DATAGRAM_SIZE];
+    ssize_t pendingFirstVideoDatagramLen = 0;
+    if (hs.hasVideoPort) {
+        int videoFd = -1;
+        if (!create_and_connect_udp_socket(host, hs.videoPort, &videoFd)) {
+            close(sockfd);
+            sockfd = -1;
+            if (listener.onDisconnected && !suppressDisconnectedCallback.load()) {
+                listener.onDisconnected("Video-Verbindung fehlgeschlagen");
+            }
+            return;
+        }
+        if (!udp_rendezvous(videoFd, &stop, 5000, pendingFirstVideoDatagram,
+                            sizeof(pendingFirstVideoDatagram), &pendingFirstVideoDatagramLen)) {
+            close(videoFd);
+            close(sockfd);
+            sockfd = -1;
+            if (listener.onDisconnected && !suppressDisconnectedCallback.load()) {
+                listener.onDisconnected("Video-Verbindung fehlgeschlagen");
+            }
+            return;
+        }
+        videoSockfd = videoFd;
+    }
+
     // inflate_buf is scratch space for unison_inflate_raw()'s output,
     // whose content depends on hdr.format (raw RGB565, or a palette +
     // per-pixel indices, see unison/protocol.h) -- rgb565_out is always
@@ -400,11 +683,30 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
     std::vector<uint8_t> inflate_buf;
     std::vector<uint8_t> rgb565_out;
     uint8_t chunk[4096];
+    uint8_t udpChunk[UNISON_UDP_MAX_DATAGRAM_SIZE];
+    const bool hasVideoConn = videoSockfd >= 0;
+    UdpReassemblyState videoReassembly;
+    UdpReassemblyState audioReassembly;
+
+    // The rendezvous handshake above had to read *some* datagram off the
+    // socket to know it succeeded -- that datagram is real Video/Audio
+    // data, so it's processed here first, before the poll loop below ever
+    // runs, rather than being discarded.
+    if (hasVideoConn && pendingFirstVideoDatagramLen > 0) {
+        processUdpDatagram(listener, videoReassembly, audioReassembly, pendingFirstVideoDatagram,
+                           static_cast<size_t>(pendingFirstVideoDatagramLen), inflate_buf, rgb565_out);
+    }
 
     while (!stop.load()) {
-        struct pollfd pfd = { .fd = sockfd, .events = POLLIN, .revents = 0 };
-        int pr = poll(&pfd, 1, 4); // short timeout: also need to notice pending input to send
-        if (pr > 0 && (pfd.revents & POLLIN)) {
+        struct pollfd pfds[2];
+        pfds[0] = { .fd = sockfd, .events = POLLIN, .revents = 0 };
+        nfds_t npfds = 1;
+        if (hasVideoConn) {
+            pfds[1] = { .fd = videoSockfd, .events = POLLIN, .revents = 0 };
+            npfds = 2;
+        }
+        int pr = poll(pfds, npfds, 4); // short timeout: also need to notice pending input to send
+        if (pr > 0 && (pfds[0].revents & POLLIN)) {
             ssize_t n = recv(sockfd, chunk, sizeof(chunk), 0);
             if (n <= 0) {
                 break; // peer closed or socket error
@@ -412,6 +714,18 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
             buf.append(chunk, static_cast<size_t>(n));
         } else if (pr < 0 && errno != EINTR) {
             break;
+        }
+        if (hasVideoConn && pr > 0 && (pfds[1].revents & POLLIN)) {
+            // Unlike the control socket above, n <= 0 here is never
+            // treated as "connection closed" -- UDP is connectionless, so
+            // there is no such signal on this channel. Session lifetime
+            // stays entirely driven by the control connection, per
+            // docs/protocol.md.
+            ssize_t n = recv(videoSockfd, udpChunk, sizeof(udpChunk), 0);
+            if (n > 0) {
+                processUdpDatagram(listener, videoReassembly, audioReassembly, udpChunk,
+                                   static_cast<size_t>(n), inflate_buf, rgb565_out);
+            }
         }
 
         bool should_stop = false;
@@ -431,58 +745,14 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
                 break;
             }
 
-            unison_msg_type type;
-            if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
-                if (type == UNISON_MSG_VIDEO) {
-                    unison_video_header hdr;
-                    if (unison_parse_video_header(frame.payload, frame.payload_size, &hdr) != UNISON_OK) {
-                        // fall through to the audio branch below, same as
-                        // an unparseable header always has
-                    } else if (hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)) {
-                        // hdr.compressed_data is a raw Annex-B NAL stream
-                        // here, not raw-deflate -- handed straight to
-                        // H264Decoder instead of through
-                        // unison_inflate_raw()/unison_decode_video_frame()
-                        // below, same split every other client's own
-                        // compressed-video path uses.
-                        if (listener.onCompressedVideoFrame) {
-                            std::vector<uint8_t> data(hdr.compressed_data,
-                                                       hdr.compressed_data + hdr.compressed_size);
-                            listener.onCompressedVideoFrame(hdr.width, hdr.height,
-                                                             (hdr.format & UNISON_VIDEO_FORMAT_H265) != 0,
-                                                             std::move(data));
-                        }
-                    } else if (listener.onVideoFrame) {
-                        // rgb565_out is the PERSISTENT framebuffer: resizing
-                        // it to the same size every frame (width/height
-                        // don't change mid-stream) is a no-op that leaves
-                        // its content alone, which is exactly what a
-                        // UNISON_VIDEO_FORMAT_TILES frame needs -- it only
-                        // patches the tiles it lists, every other pixel must
-                        // keep whatever the previous frame decoded there.
-                        size_t framebuffer_size = static_cast<size_t>(hdr.width) * hdr.height * 2;
-                        inflate_buf.resize(unison_video_max_inflated_size(hdr.width, hdr.height));
-                        rgb565_out.resize(framebuffer_size);
-                        size_t inflated_size = 0;
-                        if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, inflate_buf.data(),
-                                                 inflate_buf.size(), &inflated_size) == UNISON_INFLATE_OK &&
-                            unison_decode_video_frame(hdr.format, inflate_buf.data(), inflated_size, hdr.width,
-                                                        hdr.height, rgb565_out.data(),
-                                                        rgb565_out.size()) == UNISON_OK) {
-                            listener.onVideoFrame(hdr.width, hdr.height, rgb565_out);
-                        }
-                    }
-                } else if (type == UNISON_MSG_AUDIO && listener.onAudioFrame) {
-                    unison_audio_frame audio;
-                    if (unison_parse_audio_frame(frame.payload, frame.payload_size, &audio) == UNISON_OK &&
-                        audio.sample_count > 0) {
-                        std::vector<int16_t> pcm(audio.sample_count);
-                        for (size_t i = 0; i < audio.sample_count; i++) {
-                            pcm[i] = unison_read_s16le(audio.samples + i * 2);
-                        }
-                        listener.onAudioFrame(audio.sample_rate, audio.channels, std::move(pcm));
-                    }
-                }
+            // Video/Audio normally arrive on the UDP channel instead once
+            // hasVideoConn -- either type landing here regardless (a
+            // server bug, or one that doesn't honor its own
+            // session_ready.video_port) is dropped rather than handled
+            // twice/out of order against whatever the UDP reassembly
+            // state is doing.
+            if (!hasVideoConn) {
+                dispatchVideoOrAudioMessage(listener, frame.payload, frame.payload_size, inflate_buf, rgb565_out);
             }
 
             buf.consume(frame.frame_size);
@@ -510,6 +780,10 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
 
     close(sockfd);
     sockfd = -1;
+    if (videoSockfd >= 0) {
+        close(videoSockfd);
+        videoSockfd = -1;
+    }
     if (listener.onDisconnected && !suppressDisconnectedCallback.load()) {
         listener.onDisconnected("Verbindung getrennt");
     }

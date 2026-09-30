@@ -16,11 +16,13 @@ UDP, separate from the TCP connection carrying `Input`/`Text input`/`Mic`. (An e
 `protocol_version = 3` design offered a second *TCP* connection for `Video` alone instead — replaced
 outright rather than kept as a fallback, once TCP's own head-of-line blocking on real Wi-Fi turned
 out to still be the dominant source of latency even with `Input` no longer sharing a connection with
-it; see this file's git history.) As of this revision only Cemu's `WIIU_GAMEPAD` server and the
-Android client have actually been updated to `4` and use it — per the exact-match rule below, this
-means the Android client currently can't connect to azahar/melonDS/dolphin-gba-stream (still on an
-earlier version) at all until those are updated too, not just that they'd fall back to not using
-this feature.
+it; see this file's git history.) As of this revision, Cemu's `WIIU_GAMEPAD` server, Azahar's
+`N3DS_BOTTOM_SCREEN` server, and the Android and Switch clients have been updated to `4` and use it
+— per the exact-match rule below, this means those two clients currently can't connect to
+melonDS/dolphin-gba-stream (still on an earlier version) at all until those are updated too, not
+just that they'd fall back to not using this feature. (Azahar's `N3DS_BOTTOM_SCREEN` has no
+outgoing Audio at all — see [Stream Types](#stream-types) below — so its dedicated channel only
+ever carries `Video`.)
 
 ## Endpoints
 
