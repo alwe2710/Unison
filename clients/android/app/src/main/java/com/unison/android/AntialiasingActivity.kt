@@ -32,12 +32,18 @@ import androidx.compose.ui.unit.dp
  * earlier shape where it WAS that list, with an inline Switch per console --
  * moved out to ConsoleSettingsActivity so this screen could show more than a
  * single toggle per console without cramming both the antialiasing switch
- * and a video-mode picker into one flat list row). Two settings live here,
- * both keyed by this one stream_type: bilinear-vs-nearest upscale (inline
- * Switch, same as before) and the video-mode/compression picker (own
- * sub-screen, VideoModeActivity) -- used to be a single global choice shared
- * by every console (SettingsActivity's own former "Videomodus" row), moved
- * here per console for the same reason antialiasing already was.
+ * and a video-mode picker into one flat list row).
+ *
+ * Up to three settings live here, all keyed by this one stream_type: the
+ * bilinear-vs-nearest upscale switch (GC_GBA_LINK only now -- every other
+ * console always renders h264/h265 through VideoSurfaceView's SurfaceView,
+ * whose compositing has no app-controllable filter switch at all, so the
+ * toggle never did anything for them; see its own call site comment), the
+ * N3DS_BOTTOM_SCREEN-only second-stick toggle, and the video-mode/
+ * compression picker (own sub-screen, VideoModeActivity, shown for every
+ * console) -- the last of these used to be a single global choice shared by
+ * every console (SettingsActivity's own former "Videomodus" row), moved here
+ * per console for the same reason antialiasing already was.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 class AntialiasingActivity : LocalizedActivity() {
@@ -76,21 +82,36 @@ class AntialiasingActivity : LocalizedActivity() {
                         }
                     ) { innerPadding ->
                         Column(modifier = Modifier.padding(innerPadding).padding(horizontal = 16.dp).fillMaxSize()) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-                            ) {
-                                Text(
-                                    stringResource(R.string.settings_antialiasing),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Switch(
-                                    checked = bilinear,
-                                    onCheckedChange = {
-                                        bilinear = it
-                                        prefs.setBilinearFor(streamType, it)
-                                    }
-                                )
+                            // GC_GBA_LINK only -- the one stream type that
+                            // still actually renders through the Compose
+                            // Image/FilterQuality path this setting controls
+                            // (its own raw/tiling video modes, see
+                            // Prefs.videoModeFor()'s own comment). WIIU_GAMEPAD/
+                            // N3DS_BOTTOM_SCREEN/NDS_BOTTOM_SCREEN now always
+                            // render h264/h265 through VideoSurfaceView
+                            // instead (PlayerScreen), whose SurfaceView-based
+                            // compositing has no app-controllable nearest-vs-
+                            // bilinear switch at all -- this toggle silently
+                            // had no effect for any of them even before that
+                            // (reported live), so it's hidden rather than
+                            // left showing a control that does nothing.
+                            if (streamType == "GC_GBA_LINK") {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                                ) {
+                                    Text(
+                                        stringResource(R.string.settings_antialiasing),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Switch(
+                                        checked = bilinear,
+                                        onCheckedChange = {
+                                            bilinear = it
+                                            prefs.setBilinearFor(streamType, it)
+                                        }
+                                    )
+                                }
                             }
 
                             // N3DS_BOTTOM_SCREEN only -- WIIU_GAMEPAD keeps
@@ -99,9 +120,13 @@ class AntialiasingActivity : LocalizedActivity() {
                             // other console has a stick at all. See
                             // Prefs.n3dsSecondStickEnabled's own comment on
                             // why this exists (previously always shown for
-                            // any n3ds_touch_and_buttons session).
+                            // any n3ds_touch_and_buttons session). No leading
+                            // divider here (unlike before): this and the
+                            // bilinear row above are mutually exclusive now
+                            // (GC_GBA_LINK vs. N3DS_BOTTOM_SCREEN), so there's
+                            // never anything above this section to separate
+                            // from.
                             if (streamType == "N3DS_BOTTOM_SCREEN") {
-                                HorizontalDivider()
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
@@ -126,7 +151,16 @@ class AntialiasingActivity : LocalizedActivity() {
                                 )
                             }
 
-                            HorizontalDivider()
+                            // Only a divider when something above it was
+                            // actually shown (GC_GBA_LINK's bilinear row or
+                            // N3DS_BOTTOM_SCREEN's second-stick section) --
+                            // otherwise (WIIU_GAMEPAD/NDS_BOTTOM_SCREEN) this
+                            // row is the first thing on the screen, and a
+                            // leading divider with nothing above it would
+                            // just be an empty line under the app bar.
+                            if (streamType == "GC_GBA_LINK" || streamType == "N3DS_BOTTOM_SCREEN") {
+                                HorizontalDivider()
+                            }
 
                             // Own sub-screen (VideoModeActivity), same
                             // whole-row-navigates treatment SettingsActivity's
