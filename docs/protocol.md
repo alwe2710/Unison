@@ -426,16 +426,14 @@ default for every other client), this means "can use the channel if the server o
 client converted to `protocol_version = 4` so far (Android, Switch, 3DS, NDS/DSi, iOS) leaves this
 field unset without ever needing to think about it.
 
-A server whose own implementation has already fully replaced the old TCP-multiplexed `Video`/`Audio`
-send path with the new channel (true of all four reference servers as of this revision — see
-[Stream Types](#stream-types)) has no fallback left to actually honor `no_udp_video` with a working
-session: `hello_ack.no_udp_video: true` against one of these today gets a `handshake_error`
-(`udp_video_required`) instead, rejecting the connection outright rather than silently accepting one
-that will never show a frame. This is a real, currently-unresolved gap for `clients/web` specifically
-— it can request an exact-match `protocol_version` handshake against any of these four servers and
-get *past* the version check, but is then always rejected once `no_udp_video` reaches this check, until
-either a server re-adds a TCP fallback specifically for this case or `clients/web` grows a WebRTC
-data-channel transport (a much larger undertaking, not started at the time of this revision).
+All four reference servers (see [Stream Types](#stream-types)) implement this opt-out: each keeps a
+second, `no_udp_video`-only send path alongside its normal UDP one (a plain `SendWebSocketBinaryFrame`
+of the same message body the fragment header would otherwise wrap, on the same control connection a
+`hello_ack`/`session_ready` already went out on) rather than requiring every client to be able to open
+a raw UDP socket. `clients/web` is the one client that actually sets this field today, and can
+therefore stream from any of the four — at the cost of head-of-line blocking on real packet loss for
+that session specifically, the same tradeoff every `protocol_version <= 3` session already accepted,
+which is exactly why the dedicated channel exists at all for every other client.
 
 #### Fragment framing
 
