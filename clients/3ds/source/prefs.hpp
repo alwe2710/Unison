@@ -60,7 +60,27 @@ class Prefs {
     std::string videoModeFor(const std::string &streamType) const;
     void setVideoModeFor(const std::string &streamType, const std::string &value);
 
+    // "TYPE=mode,TYPE=mode,..." for every kKnownStreamTypes entry's own
+    // videoModeFor() result -- passed to GbaSession::connect() instead of a
+    // single pre-decided mode, since the real stream_type for a manual
+    // host:port connection isn't known until the server's own `hello` names
+    // it (session.cpp's performAppHandshake() resolves the one real value
+    // to actually send once that happens, picking it out of this same map
+    // by the real stream_type). This is what makes a manual connection
+    // negotiate identically to a discovery-based one (which already knows
+    // its real type before ever calling connect()) instead of guessing
+    // upfront -- see docs/clients.md.
+    std::string videoModesByTypeSerialized() const;
+
     static constexpr const char *kVideoModeDefault = "tiles";
+
+    // Every stream_type this app's servers can ever actually report in
+    // their own `hello` -- used to build videoModesByTypeSerialized()'s map
+    // ahead of knowing which one a given connection will turn out to be.
+    // Order doesn't matter (session.cpp looks entries up by name, never
+    // iterates positionally).
+    static constexpr const char *kKnownStreamTypes[] = {"WIIU_GAMEPAD", "N3DS_BOTTOM_SCREEN",
+                                                          "NDS_BOTTOM_SCREEN", "GC_GBA_LINK"};
 
   private:
     void load();

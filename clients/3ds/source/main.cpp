@@ -240,9 +240,12 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
             *connectedHost = hp->host;
             videoTex->reset();
             compressedVideoDecoder->reset();
-            // "" -- manual host:port entry, real stream_type unknown until
-            // hello, see Prefs::videoModeFor()'s own comment.
-            session->connect(hp->host, hp->port, prefs->videoModeFor(""),
+            // videoModesByTypeSerialized(), not videoModeFor("") -- the real
+            // stream_type for this manual host:port entry isn't known until
+            // the server's own `hello` names it; session.cpp's
+            // performAppHandshake() resolves the one real value once it can,
+            // see docs/clients.md.
+            session->connect(hp->host, hp->port, prefs->videoModesByTypeSerialized(),
                 GbaSession::Listener {
                     .onConnected =
                         [connected, connectedStreamType, connectedGrantedVideoMode](
@@ -307,7 +310,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // arrives.
                 videoTex->reset();
                 compressedVideoDecoder->reset();
-                session->connect(lastSearchedHost, port, prefs->videoModeFor("GC_GBA_LINK"),
+                session->connect(lastSearchedHost, port, prefs->videoModesByTypeSerialized(),
                     GbaSession::Listener {
                         // Written from the session's background thread, in
                         // this order (streamType/grantedVideoMode before
@@ -435,7 +438,7 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
                 // call below).
                 videoTex->reset();
                 compressedVideoDecoder->reset();
-                session->connect(srv.host, srv.handshakePort, prefs->videoModeFor(srv.streamType),
+                session->connect(srv.host, srv.handshakePort, prefs->videoModesByTypeSerialized(),
                     GbaSession::Listener {
                         .onConnected =
                             [connected, connectedStreamType, connectedGrantedVideoMode](

@@ -94,6 +94,19 @@ void Prefs::setVideoModeFor(const std::string &streamType, const std::string &va
     videoModeByStreamType[streamType] = value;
 }
 
+std::string Prefs::videoModesByTypeSerialized() const {
+    std::string out;
+    for (const char *streamType : kKnownStreamTypes) {
+        if (!out.empty()) {
+            out += ",";
+        }
+        out += streamType;
+        out += "=";
+        out += videoModeFor(streamType);
+    }
+    return out;
+}
+
 void Prefs::load() {
     std::ifstream in(kFile);
     if (!in.is_open()) {

@@ -51,9 +51,14 @@ class GbaSession {
     ~GbaSession();
 
     // Starts the background thread. Only one connection at a time; call
-    // disconnect() before reusing this object. videoMode is sent verbatim
-    // as hello_ack.video_mode (unison/docs/protocol.md).
-    void connect(std::string host, int port, std::string videoMode, Listener listener);
+    // disconnect() before reusing this object. videoModesByType is
+    // Prefs::videoModesByTypeSerialized() -- every known stream_type's own
+    // requested video_mode, not a single pre-decided one: the real
+    // stream_type isn't known for a manual host:port connection until the
+    // server's own `hello` names it, so performAppHandshake() (session.cpp)
+    // is what actually picks the one real value to send as
+    // hello_ack.video_mode, once it can. See docs/clients.md.
+    void connect(std::string host, int port, std::string videoModesByType, Listener listener);
 
     // Merges into whatever mask is already pending and marks it dirty;
     // sent from the session thread's own loop, not from here, so this
@@ -78,5 +83,5 @@ class GbaSession {
     int videoSockfd = -1;
     Listener listener;
 
-    void threadMain(std::string host, int port, std::string videoMode);
+    void threadMain(std::string host, int port, std::string videoModesByType);
 };

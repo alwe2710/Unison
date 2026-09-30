@@ -453,6 +453,38 @@ bool receive_one_ws_frame(int fd, RecvBuffer *buf, std::atomic<bool> *stop_flag,
 
 constexpr int kAppHandshakeTimeoutMs = 3000;
 
+// Resolves this connection's real hello_ack.video_mode from the server's
+// own authoritative hello.stream_type once it's known, rather than a value
+// guessed before the handshake even started -- modesByType is
+// Prefs::videoModesByTypeSerialized() ("TYPE=mode,TYPE=mode,..."). Falls
+// back to "h264" for a stream_type Prefs has never heard of (a server from
+// a future/unknown fork) -- the same safe default Prefs::videoModeFor()'s
+// own comment already settled on for an unrecognized type, since every
+// currently-known type but one no longer accepts anything else anyway. See
+// docs/clients.md.
+std::string resolveVideoMode(const std::string &modesByType, const std::string &streamType) {
+    size_t pos = 0;
+    while (pos < modesByType.size()) {
+        size_t eq = modesByType.find('=', pos);
+        if (eq == std::string::npos) {
+            break;
+        }
+        size_t comma = modesByType.find(',', eq);
+        const std::string type = modesByType.substr(pos, eq - pos);
+        const std::string mode = modesByType.substr(eq + 1, comma == std::string::npos
+                                                                 ? std::string::npos
+                                                                 : comma - eq - 1);
+        if (type == streamType) {
+            return mode;
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        pos = comma + 1;
+    }
+    return "h264";
+}
+
 struct AppHandshakeResult {
     bool ok = false;
     std::string reason;
@@ -478,7 +510,7 @@ struct AppHandshakeResult {
 // docs/protocol.md), closes `*fd` and reconnects to the redirect target,
 // repeating -- bounded to one hop, matching the protocol's own design.
 AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *host, int *port,
-                                        std::atomic<bool> *stop_flag, const std::string &videoMode) {
+                                        std::atomic<bool> *stop_flag, const std::string &videoModesByType) {
     // Last hop wins on a redirect -- the redirect target's own hello is the
     // authoritative one for the connection that actually carries stream data.
     std::string streamType;
@@ -505,6 +537,12 @@ AppHandshakeResult performAppHandshake(int *fd, RecvBuffer *buf, std::string *ho
                                 " -- bitte Client oder Server aktualisieren" };
         }
         streamType = hello.stream_type;
+        // Resolved here, from THIS hop's real hello.stream_type -- a
+        // redirect hop re-resolves against its own hello on the next loop
+        // iteration, so the value actually sent below always matches
+        // whichever hop ends up serving data, never a stale guess from the
+        // original (redirect-source) hello. See docs/clients.md.
+        const std::string videoMode = resolveVideoMode(videoModesByType, streamType);
 
         // GC_GBA_LINK is the one stream type this app ever dials a specific
         // already-chosen player port for (see main.cpp's P1-P4 picker) --
@@ -600,7 +638,7 @@ GbaSession::~GbaSession() {
     disconnect();
 }
 
-void GbaSession::connect(std::string host, int port, std::string videoMode, Listener l) {
+void GbaSession::connect(std::string host, int port, std::string videoModesByType, Listener l) {
     if (thread.joinable()) {
         // A previous attempt's background thread can have exited on its
         // own (handshake failure, peer closed the connection) without
@@ -621,7 +659,7 @@ void GbaSession::connect(std::string host, int port, std::string videoMode, List
     }
     listener = std::move(l);
     stop.store(false);
-    thread = std::thread(&GbaSession::threadMain, this, std::move(host), port, std::move(videoMode));
+    thread = std::thread(&GbaSession::threadMain, this, std::move(host), port, std::move(videoModesByType));
 }
 
 void GbaSession::sendInput(uint16_t keyMask) {
@@ -636,7 +674,7 @@ void GbaSession::disconnect() {
     }
 }
 
-void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
+void GbaSession::threadMain(std::string host, int port, std::string videoModesByType) {
     RecvBuffer buf;
     if (!connect_and_ws_upgrade(host, port, &sockfd, &stop, &buf)) {
         if (sockfd >= 0) {
@@ -653,7 +691,7 @@ void GbaSession::threadMain(std::string host, int port, std::string videoMode) {
     // match, this slot requested and free -- before any Video/Audio/Input
     // binary frame is allowed on this connection. May reconnect `sockfd`/
     // `host`/`port` once, on a redirect (see performAppHandshake).
-    AppHandshakeResult hs = performAppHandshake(&sockfd, &buf, &host, &port, &stop, videoMode);
+    AppHandshakeResult hs = performAppHandshake(&sockfd, &buf, &host, &port, &stop, videoModesByType);
     if (!hs.ok) {
         if (sockfd >= 0) {
             close(sockfd);
