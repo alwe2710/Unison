@@ -16,13 +16,13 @@ UDP, separate from the TCP connection carrying `Input`/`Text input`/`Mic`. (An e
 `protocol_version = 3` design offered a second *TCP* connection for `Video` alone instead — replaced
 outright rather than kept as a fallback, once TCP's own head-of-line blocking on real Wi-Fi turned
 out to still be the dominant source of latency even with `Input` no longer sharing a connection with
-it; see this file's git history.) As of this revision, Cemu's `WIIU_GAMEPAD` server, Azahar's
-`N3DS_BOTTOM_SCREEN` server, and the Android and Switch clients have been updated to `4` and use it
-— per the exact-match rule below, this means those two clients currently can't connect to
-melonDS/dolphin-gba-stream (still on an earlier version) at all until those are updated too, not
-just that they'd fall back to not using this feature. (Azahar's `N3DS_BOTTOM_SCREEN` has no
-outgoing Audio at all — see [Stream Types](#stream-types) below — so its dedicated channel only
-ever carries `Video`.)
+it; see this file's git history.) As of this revision, all four server forks (Cemu's `WIIU_GAMEPAD`,
+Azahar's `N3DS_BOTTOM_SCREEN`, melonDS's `NDS_BOTTOM_SCREEN`, dolphin-gba-stream's `GC_GBA_LINK`) and
+the Android and Switch clients have been updated to `4` and use it — per the exact-match rule below,
+this means the remaining three clients (3DS, iOS, NDS/DSi, Web) currently can't connect to any of
+them at all until each is updated too, not just that they'd fall back to not using this feature.
+(Azahar's `N3DS_BOTTOM_SCREEN` and melonDS's `NDS_BOTTOM_SCREEN` have no outgoing Audio at all — see
+[Stream Types](#stream-types) below — so their dedicated channel only ever carries `Video`.)
 
 ## Endpoints
 
