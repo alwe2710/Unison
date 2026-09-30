@@ -52,11 +52,12 @@ parts are fundamentally different per target platform:
 
 | Directory | Target platform | Toolchain | Status |
 |---|---|---|---|
-| [`clients/android/`](clients/android/) | Android app | Android SDK/NDK | working demo (connect, video, audio, input) |
+| [`clients/android/`](clients/android/) | Android app | Android SDK/NDK | working (connect, video, audio, input, discovery) |
 | [`clients/3ds/`](clients/3ds/) | Nintendo 3DS homebrew | devkitARM / libctru | working (connect, video, audio, input, discovery) |
 | [`clients/switch/`](clients/switch/) | Nintendo Switch homebrew | devkitA64 / libnx | working (connect, video, audio, input, discovery) |
 | [`clients/nds/`](clients/nds/) | Nintendo DS homebrew | devkitARM / libnds | feasibility test client, see [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
-| [`clients/web/`](clients/web/) | Any browser | none (static HTML/WASM) | working (connect, video, audio, input) |
+| [`clients/web/`](clients/web/) | Any browser | none (static HTML/WASM) | working (connect, video, audio, input) -- no discovery, a browser can't receive the UDP beacon; port-probes a typed-in host instead, see [`clients/web/README.md`](clients/web/README.md) |
+| [`clients/ios/`](clients/ios/) | iOS app | Xcode / SwiftUI (macOS-only toolchain, builds via CI) | scaffold, not yet streaming -- project setup, CI, and the pure-logic pieces (`Prefs`, `LocaleHelper`, button tables) with real tests are in; the Swift↔`unison_core` bridge, video/audio, and every screen but the connect form are not, see [`clients/ios/README.md`](clients/ios/README.md) |
 
 Shared logo/icon source for every client: [`assets/logo/`](assets/logo/).
 
