@@ -56,23 +56,35 @@ reasoning as `clients/switch`'s CMakeLists.txt not committing a generated
   tests for the same pure-logic pieces (`PrefsTest.kt` ->
   `PrefsTests.swift`, etc.).
 
-## Phasing (this is not a finished client yet)
+## Status
 
-This first commit is a scaffold: project setup, CI pipeline, and the
-pure-logic pieces (`Prefs`, `LocaleHelper`, button tables) with real tests
-— proving the whole XcodeGen + `xcodebuild`-on-macOS-CI loop actually
-works before investing in the much larger remaining pieces:
+This was originally scaffolded as a project-setup-only first commit (see
+git history) with a "Phasing" list of everything still to build. That list
+is stale -- every item on it has since been implemented:
 
-1. **Swift↔unison_core C bridge** — Android's `jni_bridge.c` is JNI- and
-   MediaCodec-specific and isn't portable as-is; iOS needs its own thin
-   bridge (Swift's native C interop via a module map, no JNI-equivalent
-   glue needed for the protocol parsing itself) plus AVFoundation/
-   VideoToolbox for video decode and AVAudioEngine for audio
-   playback/capture, replacing MediaCodec/AudioTrack/AudioRecord.
-2. **MenuView**: real UDP discovery-beacon listener + lobby/slot-picker
-   flow (`MenuActivity.kt` is ~430 lines; the current `MenuView` is just
-   the manual host:port form).
-3. **PlayerView**: the actual streaming screen — touch overlay, physical
-   keyboard/game-controller input via `GCController`, video rendering.
+1. **Swift↔unison_core C bridge**: `Sources/Native/unison_native_bridge.c`
+   (~1200 lines) -- full handshake (hello/hello_ack/session_ready,
+   redirect, dedicated UDP video/audio channel), AVFoundation/VideoToolbox
+   video decode (`CompressedVideoDecoder.swift`) and AVAudioEngine audio
+   playback/capture, mirroring `jni_bridge.c`'s own shape.
+2. **MenuView**: `BeaconListener.swift` is a real UDP discovery-beacon
+   listener (binds `UNISON_BEACON_PORT`, parses broadcast packets into
+   `DiscoveredServer` values); `MenuView.swift`/`LobbyModel.swift` cover
+   both the discovered-server list and the GC_GBA_LINK P1-P4 slot picker,
+   alongside the manual host:port form.
+3. **PlayerView**: `PlayerView.swift` (~1000 lines) -- real `TouchOverlay`
+   (`DragGesture`-based), `ControllerInputHandler.swift`/
+   `ControllerObserver.swift` for physical `GCController` input, and video
+   rendering via `CompressedVideoDecoder`.
 4. **SettingsView, LanguageView, VideoModeView, KeyBindingsView,
-   TextInputView** — direct ports of their Android counterparts.
+   TextInputView, AntialiasingView, ConsoleSettingsView** all exist as
+   direct ports of their Android counterparts.
+
+Verified by file presence/line counts and `.github/workflows/build.yml`'s
+own `ios` job comments (real `xcodebuild test` runs since 2026-08-05,
+covering `BeaconListenerTests`, `GbaStreamClientTests`, and a
+`SettingsViewUITests` UI-test bundle) -- not by building or running the
+app itself, since that's only possible on macOS (see above). Whether
+every feature is bug-free on a real device is a separate question from
+whether it exists; this section only corrects the stale "not built yet"
+claim.
