@@ -54,6 +54,11 @@
 "settings_on_screen_controls" = "Afficher les commandes à l'écran";
 "settings_hardware_decode" = "Décodeur matériel";
 "settings_hardware_decode_hint" = "Désactiver si l'image vidéo semble déformée ou décalée.";
+"settings_debug_overlay" = "Superposition de diagnostic";
+"settings_debug_overlay_hint" = "Affiche la latence de décodage et les images perdues pendant le flux.";
+"debug_overlay_latency" = "Latence : %1$ldms";
+"debug_overlay_latency_unknown" = "Latence : --";
+"debug_overlay_dropped" = "Perdues : %1$ld";
 "settings_antialiasing" = "Filtrage bilinéaire";
 "settings_video_mode" = "Mode vidéo";
 "settings_console_specific" = "Paramètres spécifiques à la console";

@@ -54,6 +54,11 @@
 "settings_on_screen_controls" = "Show on-screen controls";
 "settings_hardware_decode" = "Hardware decoder";
 "settings_hardware_decode_hint" = "Turn off if the video image looks distorted or skewed.";
+"settings_debug_overlay" = "Debug overlay";
+"settings_debug_overlay_hint" = "Shows decode latency and dropped frames on top of the stream.";
+"debug_overlay_latency" = "Latency: %1$ldms";
+"debug_overlay_latency_unknown" = "Latency: --";
+"debug_overlay_dropped" = "Dropped: %1$ld";
 "settings_antialiasing" = "Bilinear filtering";
 "settings_video_mode" = "Video mode";
 "settings_console_specific" = "Console-specific settings";

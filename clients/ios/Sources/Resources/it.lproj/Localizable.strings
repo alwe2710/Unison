@@ -54,6 +54,11 @@
 "settings_on_screen_controls" = "Mostra controlli a schermo";
 "settings_hardware_decode" = "Decodificatore hardware";
 "settings_hardware_decode_hint" = "Disattiva se l'immagine video appare distorta o disallineata.";
+"settings_debug_overlay" = "Overlay diagnostico";
+"settings_debug_overlay_hint" = "Mostra la latenza di decodifica e i frame scartati durante lo streaming.";
+"debug_overlay_latency" = "Latenza: %1$ldms";
+"debug_overlay_latency_unknown" = "Latenza: --";
+"debug_overlay_dropped" = "Scartati: %1$ld";
 "settings_antialiasing" = "Filtro bilineare";
 "settings_video_mode" = "Modalità video";
 "settings_console_specific" = "Impostazioni specifiche per console";
