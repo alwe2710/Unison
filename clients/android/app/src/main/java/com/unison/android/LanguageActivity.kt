@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -61,7 +63,12 @@ class LanguageActivity : LocalizedActivity() {
                         val options = Prefs.LANGUAGES
                             .map { it.value to stringResource(it.labelRes) }
                             .sortedBy { it.second }
-                        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                        Column(
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                        ) {
                             for ((value, label) in options) {
                                 Row(
                                     modifier = Modifier

@@ -135,109 +135,130 @@ class MenuActivity : LocalizedActivity() {
                             )
                         }
                     ) { innerPadding ->
-                        Column(modifier = Modifier.padding(innerPadding).padding(16.dp).fillMaxSize()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = hostText,
-                                    onValueChange = { hostText = it },
-                                    label = { Text(stringResource(R.string.host_hint)) },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Button(onClick = { searchLobby() }, enabled = !searching) {
-                                    Text(stringResource(R.string.menu_connect))
+                        // A single top-level LazyColumn, not a plain Column --
+                        // the header controls (host field, picker, discovery
+                        // row) plus the discovered-servers list all scroll
+                        // together as one screen. This used to be a
+                        // non-scrolling Column with a nested
+                        // LazyColumn(weight(1f)) for discoveredServers only --
+                        // in landscape (this Activity has no fixed
+                        // orientation, see its own class comment), the fixed-
+                        // height header content alone could already exceed
+                        // the available height on a shorter device, squeezing
+                        // that inner LazyColumn's own weighted share down to
+                        // a sliver or clipping it/the header entirely, with
+                        // no way to reach whatever fell outside it (reported
+                        // live: a found server, or the Settings screen's own
+                        // equivalent non-scrolling Column, going off the
+                        // bottom of the screen with no scroll available at
+                        // all).
+                        LazyColumn(modifier = Modifier.padding(innerPadding).padding(16.dp).fillMaxSize()) {
+                            item {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedTextField(
+                                        value = hostText,
+                                        onValueChange = { hostText = it },
+                                        label = { Text(stringResource(R.string.host_hint)) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Button(onClick = { searchLobby() }, enabled = !searching) {
+                                        Text(stringResource(R.string.menu_connect))
+                                    }
                                 }
                             }
 
                             if (pickerVisible) {
-                                Spacer(Modifier.height(12.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    slotStates.forEachIndexed { index, state ->
-                                        Button(
-                                            onClick = {
-                                                lastSearchedHost?.let {
-                                                    launchPlayer(
-                                                        it,
-                                                        GbaStreamClient.PLAYER_BASE_PORT + index,
-                                                        GbaStreamClient.STREAM_TYPE_GC_GBA_LINK
-                                                    )
-                                                }
-                                            },
-                                            enabled = state == SlotState.FREE,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text("P${index + 1}")
+                                item {
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        slotStates.forEachIndexed { index, state ->
+                                            Button(
+                                                onClick = {
+                                                    lastSearchedHost?.let {
+                                                        launchPlayer(
+                                                            it,
+                                                            GbaStreamClient.PLAYER_BASE_PORT + index,
+                                                            GbaStreamClient.STREAM_TYPE_GC_GBA_LINK
+                                                        )
+                                                    }
+                                                },
+                                                enabled = state == SlotState.FREE,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("P${index + 1}")
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            Spacer(Modifier.height(8.dp))
-                            Text(statusText, style = MaterialTheme.typography.bodyMedium)
+                            item {
+                                Spacer(Modifier.height(8.dp))
+                                Text(statusText, style = MaterialTheme.typography.bodyMedium)
 
-                            Spacer(Modifier.height(16.dp))
-                            HorizontalDivider()
-                            Spacer(Modifier.height(16.dp))
+                                Spacer(Modifier.height(16.dp))
+                                HorizontalDivider()
+                                Spacer(Modifier.height(16.dp))
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(R.string.discovery_title), modifier = Modifier.weight(1f))
-                                Button(onClick = { startDiscovery() }, enabled = !discovering) {
-                                    Text(stringResource(R.string.discovery_start))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(stringResource(R.string.discovery_title), modifier = Modifier.weight(1f))
+                                    Button(onClick = { startDiscovery() }, enabled = !discovering) {
+                                        Text(stringResource(R.string.discovery_start))
+                                    }
                                 }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            if (discovering) {
-                                LinearProgressIndicator(
-                                    progress = { discoveryProgress },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
                                 Spacer(Modifier.height(4.dp))
-                            }
-                            Text(
-                                discoveryStatusText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(Modifier.height(8.dp))
-                            LazyColumn(modifier = Modifier.weight(1f)) {
-                                items(discoveredServers) { server ->
-                                    TextButton(
-                                        onClick = {
-                                            if (server.compatible) {
-                                                if (server.streamType == GbaStreamClient.STREAM_TYPE_GC_GBA_LINK) {
-                                                    hostText = server.host
-                                                    runSearch(server.host)
-                                                } else {
-                                                    launchPlayer(server.host, server.handshakePort, server.streamType)
-                                                }
-                                            }
-                                        },
-                                        enabled = server.compatible,
+                                if (discovering) {
+                                    LinearProgressIndicator(
+                                        progress = { discoveryProgress },
                                         modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            val title = if (server.gameTitle.isNotEmpty()) {
-                                                "${server.emulatorIdentifier}: ${server.gameTitle}"
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                }
+                                Text(
+                                    discoveryStatusText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+
+                            items(discoveredServers) { server ->
+                                TextButton(
+                                    onClick = {
+                                        if (server.compatible) {
+                                            if (server.streamType == GbaStreamClient.STREAM_TYPE_GC_GBA_LINK) {
+                                                hostText = server.host
+                                                runSearch(server.host)
                                             } else {
-                                                server.emulatorIdentifier
+                                                launchPlayer(server.host, server.handshakePort, server.streamType)
                                             }
-                                            Text("${server.host} — $title")
-                                            if (!server.compatible) {
-                                                Text(
-                                                    getString(
-                                                        R.string.discovery_incompatible,
-                                                        server.protocolVersion,
-                                                        GbaStreamClient.PROTOCOL_VERSION
-                                                    ),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.error
-                                                )
-                                            }
+                                        }
+                                    },
+                                    enabled = server.compatible,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        val title = if (server.gameTitle.isNotEmpty()) {
+                                            "${server.emulatorIdentifier}: ${server.gameTitle}"
+                                        } else {
+                                            server.emulatorIdentifier
+                                        }
+                                        Text("${server.host} — $title")
+                                        if (!server.compatible) {
+                                            Text(
+                                                getString(
+                                                    R.string.discovery_incompatible,
+                                                    server.protocolVersion,
+                                                    GbaStreamClient.PROTOCOL_VERSION
+                                                ),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
                                         }
                                     }
                                 }
