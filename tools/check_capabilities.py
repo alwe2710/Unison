@@ -10,22 +10,34 @@ four emulator forks, which live in separate repos not checked out here
 (see docs/capabilities.md's own note) and stay a manually maintained,
 informational-only record for this pass.
 
-Two extraction strategies, named directly in each client's JSON entry:
+Three extraction strategies, named directly in each client's JSON entry:
 
 - ``video_mode_option_kotlin``: Android's Prefs.kt declares its supported
   modes as a Kotlin list of ``VideoModeOption("id", ...)`` calls -- pull
   every id out via regex and compare the resulting set exactly against
   the declared ``video_modes``.
-- ``grep_h264_h265``: every other client has no video-mode picker at all
-  right now (see capabilities.md) -- "tiles" is always assumed present
-  (the universal fallback for a client that never sets
-  hello_ack.video_mode). Beyond that, this only checks for the literal
-  strings "h264"/"h265" appearing anywhere in the client's own source
-  tree, since that's the one drift direction worth catching automatically
-  right now: a client quietly gaining (or losing) H.264/H265 support
-  without capabilities.md being updated to match. It deliberately does
-  NOT try to detect "legacy" support this way -- unlike h264/h265, that
-  string has no equivalently unambiguous signal to grep for.
+- ``format_dispatch_h264_h265``: "tiles" is always assumed present (the
+  universal fallback for a client that never sets hello_ack.video_mode).
+  Beyond that, requires the literal enum constant name
+  (``UNISON_VIDEO_FORMAT_H264``/``_H265``) to appear combined with
+  ``format`` via a bitwise AND (``hdr.format & UNISON_VIDEO_FORMAT_H264``,
+  or the same inside an ``|``'d parenthesized group) -- i.e. it has to
+  appear in what looks like real dispatch code deciding what to do with a
+  received frame, not just anywhere in the source tree. Replaces an
+  earlier, naive ``grep_h264_h265`` strategy (bare substring search for
+  "h264"/"h265" anywhere at all) that produced a real false positive for
+  nds: that client's own code comments explain *why* it has no H.264/H.265
+  path at all, and a comment doing that necessarily still contains the
+  word "h264" -- caught live when this script flagged 3ds/switch/nds
+  together and a closer read showed 3ds/switch have real decoders
+  (MVD hardware / ffmpeg software respectively) but nds categorically
+  doesn't (its own `unison_decode_video_frame()` call rejects anything but
+  TILES/INDEXED outright). It deliberately does NOT try to detect "legacy"
+  support this way -- unlike h264/h265, that string has no equivalently
+  unambiguous signal to grep for.
+- ``grep_h264_h265``: the older, naive version described above -- kept
+  (not yet migrated) for any client not confirmed to need the stricter
+  check.
 
 Exit code is non-zero (and every mismatch is printed) if anything
 disagrees; this is meant to be cheap and static, no build step involved.
@@ -88,8 +100,34 @@ def extract_grep_h264_h265(source_glob: str) -> set:
     return modes
 
 
+# Requires the enum constant combined with `format` via a bitwise AND --
+# real dispatch code deciding what to do with a received frame
+# (`hdr.format & UNISON_VIDEO_FORMAT_H264`, or the same name inside an
+# `|`'d parenthesized group, as clients/switch/source/session.cpp's own
+# `hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)`
+# does) -- never just the bare constant name on its own line, which a
+# comment explaining the format's *absence* would also contain. See this
+# script's own docstring for why this replaced a naive substring grep.
+FORMAT_DISPATCH_H264_RE = re.compile(r"format\s*&\s*\(?[^)\n]*UNISON_VIDEO_FORMAT_H264")
+FORMAT_DISPATCH_H265_RE = re.compile(r"format\s*&\s*\(?[^)\n]*UNISON_VIDEO_FORMAT_H265")
+
+
+def extract_format_dispatch_h264_h265(source_glob: str) -> set:
+    modes = {"tiles"}  # universal fallback, see this script's docstring
+    for path in REPO_ROOT.glob(source_glob):
+        if not path.is_file() or GENERATED_STRINGS_FILE_RE.search(path.name):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if FORMAT_DISPATCH_H264_RE.search(text):
+            modes.add("h264")
+        if FORMAT_DISPATCH_H265_RE.search(text):
+            modes.add("h265")
+    return modes
+
+
 EXTRACTORS = {
     "video_mode_option_kotlin": extract_video_mode_option_kotlin,
+    "format_dispatch_h264_h265": extract_format_dispatch_h264_h265,
     "grep_h264_h265": extract_grep_h264_h265,
 }
 
