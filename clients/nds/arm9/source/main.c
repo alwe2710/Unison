@@ -491,6 +491,141 @@ static bool receiveOneWsFrame(int fd, unison_ws_frame *outFrame) {
  * GBA_STREAM_PLAYER_BASE_PORT in the dolphin-gba-stream fork). */
 #define PLAYER_BASE_PORT 6801
 
+/* Dedicated video/audio channel (docs/protocol.md, "Dedicated video/audio
+ * channel (UDP)", protocol_version 4) -- fixed-size reassembly, no malloc
+ * on this platform (see g_recvBuf/g_inflateBuf/g_framebuf's own style
+ * above). 48 fragments * UNISON_UDP_MAX_FRAGMENT_PAYLOAD (~1191 bytes)
+ * is ~57KB, comfortably covering a deflate-compressed 240x160 RGB565
+ * frame (this client's only video mode, see runSession()'s own
+ * UNISON_VIDEO_FORMAT_H264/_H265-free dispatch below) or an audio chunk
+ * with real margin -- just a safety cap against a malformed header, not a
+ * tuned value. One instance each for video and audio: a frame_id counts
+ * independently per msg_type (unison_udp_fragment_header's own comment).
+ */
+#define UDP_MAX_FRAGMENTS 48
+#define UDP_REASSEMBLY_CAP (UDP_MAX_FRAGMENTS * UNISON_UDP_MAX_FRAGMENT_PAYLOAD)
+
+typedef struct {
+    bool active;
+    uint32_t frameId;
+    uint16_t fragmentCount;
+    uint16_t fragmentsReceived;
+    /* One bit per fragment index (UDP_MAX_FRAGMENTS <= 48, fits in 64 bits). */
+    uint64_t receivedMask;
+    uint16_t fragmentLen[UDP_MAX_FRAGMENTS];
+    uint8_t buf[UDP_REASSEMBLY_CAP];
+} UdpReassemblyState;
+
+static UdpReassemblyState g_videoReassembly;
+static UdpReassemblyState g_audioReassembly;
+
+/* Feeds one fragment into *state. A newer frame_id than the one currently
+ * in progress discards that old, incomplete state outright (same "newest
+ * wins" policy the video dedup elsewhere in this protocol already uses).
+ * Returns true (with *outPayload / *outLen valid, pointing into state->buf
+ * until the next call) once *state has every fragment for the frame_id
+ * currently being assembled; false otherwise (still incomplete, or this
+ * fragment was malformed/out of range and was ignored). */
+static bool processUdpFragment(UdpReassemblyState *state, const unison_udp_fragment_header *hdr,
+                                 const uint8_t *fragmentPayload, size_t fragmentPayloadLen,
+                                 const uint8_t **outPayload, size_t *outLen) {
+    if (hdr->fragment_count == 0 || hdr->fragment_count > UDP_MAX_FRAGMENTS ||
+        hdr->fragment_index >= hdr->fragment_count || fragmentPayloadLen > UNISON_UDP_MAX_FRAGMENT_PAYLOAD) {
+        return false;
+    }
+    /* Every fragment but the last must be exactly UNISON_UDP_MAX_FRAGMENT_PAYLOAD
+     * bytes for the offset-by-index placement below to be valid. */
+    if (hdr->fragment_index != (uint16_t)(hdr->fragment_count - 1) &&
+        fragmentPayloadLen != UNISON_UDP_MAX_FRAGMENT_PAYLOAD) {
+        return false;
+    }
+
+    if (!state->active || hdr->frame_id != state->frameId || hdr->fragment_count != state->fragmentCount) {
+        state->active = true;
+        state->frameId = hdr->frame_id;
+        state->fragmentCount = hdr->fragment_count;
+        state->fragmentsReceived = 0;
+        state->receivedMask = 0;
+        memset(state->fragmentLen, 0, sizeof(state->fragmentLen));
+    }
+
+    if ((state->receivedMask & ((uint64_t)1 << hdr->fragment_index)) == 0) {
+        state->receivedMask |= (uint64_t)1 << hdr->fragment_index;
+        state->fragmentLen[hdr->fragment_index] = (uint16_t)fragmentPayloadLen;
+        memcpy(state->buf + (size_t)hdr->fragment_index * UNISON_UDP_MAX_FRAGMENT_PAYLOAD, fragmentPayload,
+               fragmentPayloadLen);
+        state->fragmentsReceived++;
+    }
+
+    if (state->fragmentsReceived < state->fragmentCount) {
+        return false;
+    }
+
+    *outLen = (size_t)(state->fragmentCount - 1) * UNISON_UDP_MAX_FRAGMENT_PAYLOAD +
+              state->fragmentLen[state->fragmentCount - 1];
+    *outPayload = state->buf;
+    state->active = false; /* consumed -- the next datagram (new frame_id) starts fresh */
+    return true;
+}
+
+/* Creates a SOCK_DGRAM socket and connect()s it to host:port -- for UDP,
+ * connect() just fixes the peer address kernel-side so plain send()/recv()
+ * work without per-call addressing (docs/protocol.md, "Dedicated
+ * video/audio channel (UDP)"), it does not perform a handshake the way TCP
+ * connect() does. Same inet_addr()-only addressing (no DNS) as
+ * connectAndHandshake() above. */
+static bool createAndConnectUdpSocket(const char *host, int port, int *outFd) {
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    addr.sin_addr.s_addr = inet_addr(host);
+
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return false;
+    }
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        closesocket(fd);
+        return false;
+    }
+    int nonblocking = 1;
+    ioctl(fd, FIONBIO, &nonblocking);
+    *outFd = fd;
+    return true;
+}
+
+/* Rendezvous handshake for the UDP video/audio channel (docs/protocol.md)
+ * -- sends UNISON_MSG_UDP_HELLO (empty payload, fragment_index/
+ * fragment_count both 0) every ~200ms until either the first real
+ * datagram arrives back or timeoutTicks elapses, paced by
+ * swiWaitForVBlank() the same way runSession()'s own tick loop is (no
+ * poll()/select() on this platform, see that loop's own top comment) --
+ * fd must already be non-blocking (createAndConnectUdpSocket() above sets
+ * this). The first datagram received back is *real* Video/Audio data (the
+ * server starts streaming as soon as it's learned the client's address,
+ * it doesn't ack the hello specifically) -- copied into outBuf / *outLen
+ * rather than just used as a yes/no rendezvous signal, so the caller can
+ * still process it instead of silently dropping the first frame. */
+static bool udpRendezvous(int fd, int timeoutTicks, uint8_t *outBuf, size_t outBufCap, ssize_t *outLen) {
+    const unison_udp_fragment_header helloHdr = {UNISON_MSG_UDP_HELLO, 0, 0, 0};
+    uint8_t helloDatagram[UNISON_UDP_FRAGMENT_HEADER_SIZE];
+    unison_build_udp_fragment_header(&helloHdr, helloDatagram);
+
+    for (int tick = 0; tick < timeoutTicks; tick++) {
+        swiWaitForVBlank();
+        if (tick % 12 == 0) { /* ~200ms at 60Hz */
+            send(fd, helloDatagram, sizeof(helloDatagram), 0);
+        }
+        ssize_t n = recv(fd, outBuf, outBufCap, 0);
+        if (n > 0) {
+            *outLen = n;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* App-level handshake (unison/handshake.h, docs/protocol.md
  * "Verbindungsaufbau: Handshake"), run once *fd is already WS-upgraded
  * (g_recvBuf may already hold the server's first message -- see
@@ -503,10 +638,13 @@ static bool receiveOneWsFrame(int fd, unison_ws_frame *outFrame) {
  * always NUL-terminated on return, empty string on success. */
 static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, char *outReason,
                                  size_t outReasonCap, char outStreamType[UNISON_STREAM_TYPE_LEN],
-                                 const char *videoMode, char outGrantedVideoMode[UNISON_VIDEO_MODE_LEN]) {
+                                 const char *videoMode, char outGrantedVideoMode[UNISON_VIDEO_MODE_LEN],
+                                 bool *outHasVideoPort, int *outVideoPort) {
     outReason[0] = '\0';
     outStreamType[0] = '\0';
     outGrantedVideoMode[0] = '\0';
+    *outHasVideoPort = false;
+    *outVideoPort = 0;
 
     for (int hop = 0; hop < 2; hop++) {
         unison_ws_frame frame;
@@ -615,6 +753,8 @@ static bool performAppHandshake(int *fd, char *host, size_t hostCap, int *port, 
         if (!ready.has_redirect) {
             strncpy(outGrantedVideoMode, ready.video_mode, UNISON_VIDEO_MODE_LEN - 1);
             outGrantedVideoMode[UNISON_VIDEO_MODE_LEN - 1] = '\0';
+            *outHasVideoPort = ready.has_video_port;
+            *outVideoPort = ready.video_port;
             return true;
         }
 
@@ -645,6 +785,58 @@ typedef struct {
     unsigned audioFrames, audioBytes;
     unsigned decodeErrors;
 } Stats;
+
+/* Dispatches one already-unwrapped UNISON_MSG_VIDEO/UNISON_MSG_AUDIO
+ * message body -- shared between the WS-framed control-connection path
+ * (protocol_version <=2, or a server that never offered video_port) and
+ * the UDP-reassembled path in runSession() below, since the message
+ * *bodies* are identical either way, only the framing around them
+ * differs. Exactly the logic runSession()'s own WS-frame loop used to
+ * have inline, pulled out unchanged so both paths share it. */
+static void handleVideoOrAudioMessage(int fd, const uint8_t *payload, size_t payloadLen, Stats *window,
+                                       unsigned *totalVideoFrames, unsigned *totalDecodeErrors) {
+    unison_msg_type type;
+    if (unison_peek_type(payload, payloadLen, &type) != UNISON_OK) {
+        return;
+    }
+    if (type == UNISON_MSG_VIDEO) {
+        unison_video_header hdr;
+        if (unison_parse_video_header(payload, payloadLen, &hdr) == UNISON_OK) {
+            if (hdr.width != GBA_W || hdr.height != GBA_H) {
+                window->decodeErrors++;
+            } else {
+                size_t inflated_size = 0;
+                if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, g_inflateBuf,
+                                         sizeof(g_inflateBuf), &inflated_size) == UNISON_INFLATE_OK &&
+                    unison_decode_video_frame(hdr.format, g_inflateBuf, inflated_size, hdr.width, hdr.height,
+                                                g_framebuf, sizeof(g_framebuf)) == UNISON_OK) {
+                    window->videoFrames++;
+                    window->videoBytes += (unsigned)payloadLen;
+                    (*totalVideoFrames)++;
+                    blitFrame(g_framebuf);
+                    /* Re-send input right after every decoded video frame,
+                     * same reasoning as the original inline site this was
+                     * extracted from. */
+                    scanKeys();
+                    sendGbaInput(fd, buildGbaKeyMask(keysHeld()));
+                } else {
+                    window->decodeErrors++;
+                    (*totalDecodeErrors)++;
+                }
+            }
+        }
+    } else if (type == UNISON_MSG_AUDIO) {
+        unison_audio_frame audioFrame;
+        if (unison_parse_audio_frame(payload, payloadLen, &audioFrame) == UNISON_OK) {
+            window->audioFrames++;
+            window->audioBytes += (unsigned)payloadLen;
+            /* Mono was requested (performAppHandshake()), so sample_count
+             * here is already mono sample count, matching g_audioRing 1:1
+             * -- no downmixing needed client-side. */
+            audioRingPush(audioFrame.samples, audioFrame.sample_count);
+        }
+    }
+}
 
 /* Runs one connection's receive/decode loop until disconnected or the
  * user presses START. Paced by swiWaitForVBlank() (60Hz) rather than a
@@ -690,8 +882,10 @@ static void runSession(const char *hostIn, int portIn) {
     char handshakeFailReason[96];
     char streamType[UNISON_STREAM_TYPE_LEN];
     char grantedVideoMode[UNISON_VIDEO_MODE_LEN];
+    bool hasVideoPort = false;
+    int videoPort = 0;
     if (!performAppHandshake(&fd, host, sizeof(host), &port, handshakeFailReason, sizeof(handshakeFailReason),
-                              streamType, g_prefVideoMode, grantedVideoMode)) {
+                              streamType, g_prefVideoMode, grantedVideoMode, &hasVideoPort, &videoPort)) {
         if (fd >= 0) {
             closesocket(fd);
         }
@@ -741,6 +935,42 @@ static void runSession(const char *hostIn, int portIn) {
 
     int nonblocking = 1;
     ioctl(fd, FIONBIO, &nonblocking);
+
+    /* Dedicated video/audio channel (docs/protocol.md, "Dedicated
+     * video/audio channel (UDP)", protocol_version 4): a connected UDP
+     * socket carrying Video and Audio, no app handshake of its own (every
+     * negotiated parameter already came from the exchange above) -- just
+     * the rendezvous hello below. videoFd stays -1 (its initializer) when
+     * the server didn't offer video_port, which is exactly what the tick
+     * loop below already treats as "no dedicated channel, Video/Audio
+     * arrive on the control socket instead" (protocol_version <=2
+     * behavior). */
+    int videoFd = -1;
+    uint8_t pendingFirstVideoDatagram[UNISON_UDP_MAX_DATAGRAM_SIZE];
+    ssize_t pendingFirstVideoDatagramLen = 0;
+    if (hasVideoPort) {
+        if (!createAndConnectUdpSocket(host, videoPort, &videoFd) ||
+            !udpRendezvous(videoFd, 300 /* ~5s at 60Hz */, pendingFirstVideoDatagram,
+                            sizeof(pendingFirstVideoDatagram), &pendingFirstVideoDatagramLen)) {
+            if (videoFd >= 0) {
+                closesocket(videoFd);
+            }
+            closesocket(fd);
+            iprintf(STR_HANDSHAKE_FAILED, "Video-Verbindung fehlgeschlagen");
+            iprintf("\n");
+            iprintf("\n%s\n", STR_PRESS_KEY_FOR_MENU);
+            while (true) {
+                swiWaitForVBlank();
+                scanKeys();
+                if (keysDown()) {
+                    return;
+                }
+            }
+        }
+    }
+    const bool hasVideoConn = videoFd >= 0;
+    g_videoReassembly.active = false;
+    g_audioReassembly.active = false;
 
     /* Which physical screen shows the video (MAIN engine, VRAM_A) vs. the
      * text console/stats (SUB engine, see main()'s videoSetMode/
@@ -792,6 +1022,29 @@ static void runSession(const char *hostIn, int portIn) {
      * button) -- held rather than a single tap, same reasoning as
      * Switch's hold-to-exit, to avoid an accidental mid-game disconnect. */
     int exitHoldTicks = 0;
+
+    /* The rendezvous handshake above had to read *some* datagram off the
+     * socket to know it succeeded -- that datagram is real Video/Audio
+     * data, so it's processed here first, before the tick loop below ever
+     * runs, rather than being discarded. */
+    if (hasVideoConn && pendingFirstVideoDatagramLen > 0) {
+        unison_udp_fragment_header hdr;
+        if (unison_parse_udp_fragment_header(pendingFirstVideoDatagram, (size_t)pendingFirstVideoDatagramLen,
+                                               &hdr) == UNISON_OK) {
+            const uint8_t *fragPayload = pendingFirstVideoDatagram + UNISON_UDP_FRAGMENT_HEADER_SIZE;
+            const size_t fragPayloadLen = (size_t)pendingFirstVideoDatagramLen - UNISON_UDP_FRAGMENT_HEADER_SIZE;
+            const uint8_t *payload = NULL;
+            size_t payloadLen = 0;
+            if (hdr.msg_type == UNISON_MSG_VIDEO &&
+                processUdpFragment(&g_videoReassembly, &hdr, fragPayload, fragPayloadLen, &payload, &payloadLen)) {
+                handleVideoOrAudioMessage(fd, payload, payloadLen, &window, &totalVideoFrames, &totalDecodeErrors);
+            } else if (hdr.msg_type == UNISON_MSG_AUDIO &&
+                       processUdpFragment(&g_audioReassembly, &hdr, fragPayload, fragPayloadLen, &payload,
+                                          &payloadLen)) {
+                handleVideoOrAudioMessage(fd, payload, payloadLen, &window, &totalVideoFrames, &totalDecodeErrors);
+            }
+        }
+    }
 
     for (;;) {
         swiWaitForVBlank();
@@ -861,67 +1114,52 @@ static void runSession(const char *hostIn, int portIn) {
                     goto disconnected;
                 }
 
-                unison_msg_type type;
-                if (unison_peek_type(frame.payload, frame.payload_size, &type) == UNISON_OK) {
-                    if (type == UNISON_MSG_VIDEO) {
-                        unison_video_header hdr;
-                        if (unison_parse_video_header(frame.payload, frame.payload_size, &hdr) == UNISON_OK) {
-                            if (hdr.width != GBA_W || hdr.height != GBA_H) {
-                                window.decodeErrors++;
-                            } else {
-                                size_t inflated_size = 0;
-                                if (unison_inflate_raw(hdr.compressed_data, hdr.compressed_size, g_inflateBuf,
-                                                         sizeof(g_inflateBuf), &inflated_size) == UNISON_INFLATE_OK &&
-                                    unison_decode_video_frame(hdr.format, g_inflateBuf, inflated_size, hdr.width,
-                                                                hdr.height, g_framebuf, sizeof(g_framebuf)) == UNISON_OK) {
-                                    window.videoFrames++;
-                                    window.videoBytes += (unsigned)frame.payload_size;
-                                    totalVideoFrames++;
-                                    blitFrame(g_framebuf);
-                                    /* Re-send input right after every decoded
-                                     * video frame, not just once per outer
-                                     * loop iteration (see the top of this
-                                     * loop) -- a burst of several video
-                                     * frames arriving back-to-back (e.g.
-                                     * after a brief WiFi stall) used to be
-                                     * decoded here in full, with input never
-                                     * re-scanned until the whole backlog was
-                                     * drained; a quick press+release entirely
-                                     * within that window was silently never
-                                     * sent at all, not just delayed --
-                                     * scanKeys() only captures state at the
-                                     * moment it's called. This doesn't wait
-                                     * for the next real hardware vblank
-                                     * (unlike the outer loop's own
-                                     * swiWaitForVBlank()), so it costs
-                                     * nothing when there's no backlog: keys
-                                     * only actually change once per real
-                                     * vblank regardless of how often
-                                     * scanKeys() itself is called. */
-                                    scanKeys();
-                                    sendGbaInput(fd, buildGbaKeyMask(keysHeld()));
-                                } else {
-                                    window.decodeErrors++;
-                                    totalDecodeErrors++;
-                                }
-                            }
-                        }
-                    } else if (type == UNISON_MSG_AUDIO) {
-                        unison_audio_frame audioFrame;
-                        if (unison_parse_audio_frame(frame.payload, frame.payload_size, &audioFrame) ==
-                            UNISON_OK) {
-                            window.audioFrames++;
-                            window.audioBytes += (unsigned)frame.payload_size;
-                            /* Mono was requested (performAppHandshake()), so
-                             * sample_count here is already mono sample
-                             * count, matching g_audioRing 1:1 -- no
-                             * downmixing needed client-side. */
-                            audioRingPush(audioFrame.samples, audioFrame.sample_count);
-                        }
-                    }
+                /* Video/Audio normally arrive on the UDP channel instead
+                 * once hasVideoConn -- either type landing here regardless
+                 * (a server bug, or one that doesn't honor its own
+                 * session_ready.video_port) is dropped rather than handled
+                 * twice/out of order against whatever the UDP reassembly
+                 * state is doing. */
+                if (!hasVideoConn) {
+                    handleVideoOrAudioMessage(fd, frame.payload, frame.payload_size, &window, &totalVideoFrames,
+                                               &totalDecodeErrors);
                 }
 
                 recvBufConsume(frame.frame_size);
+            }
+        }
+
+        if (hasVideoConn) {
+            /* Unlike the control socket above, n <= 0 here is never
+             * treated as "connection closed" -- UDP is connectionless, so
+             * there is no such signal on this channel. Session lifetime
+             * stays entirely driven by the control connection, per
+             * docs/protocol.md. One datagram per tick, same reasoning as
+             * this platform having no poll()/select() elsewhere -- a
+             * backlog just waits an extra tick, same tradeoff the control
+             * socket's own single-chunk-per-recv-call drain loop above
+             * already accepts for its own reads. */
+            uint8_t udpChunk[UNISON_UDP_MAX_DATAGRAM_SIZE];
+            ssize_t n = recv(videoFd, udpChunk, sizeof(udpChunk), 0);
+            if (n > 0) {
+                unison_udp_fragment_header hdr;
+                if (unison_parse_udp_fragment_header(udpChunk, (size_t)n, &hdr) == UNISON_OK) {
+                    const uint8_t *fragPayload = udpChunk + UNISON_UDP_FRAGMENT_HEADER_SIZE;
+                    const size_t fragPayloadLen = (size_t)n - UNISON_UDP_FRAGMENT_HEADER_SIZE;
+                    const uint8_t *payload = NULL;
+                    size_t payloadLen = 0;
+                    if (hdr.msg_type == UNISON_MSG_VIDEO &&
+                        processUdpFragment(&g_videoReassembly, &hdr, fragPayload, fragPayloadLen, &payload,
+                                           &payloadLen)) {
+                        handleVideoOrAudioMessage(fd, payload, payloadLen, &window, &totalVideoFrames,
+                                                   &totalDecodeErrors);
+                    } else if (hdr.msg_type == UNISON_MSG_AUDIO &&
+                               processUdpFragment(&g_audioReassembly, &hdr, fragPayload, fragPayloadLen, &payload,
+                                                  &payloadLen)) {
+                        handleVideoOrAudioMessage(fd, payload, payloadLen, &window, &totalVideoFrames,
+                                                   &totalDecodeErrors);
+                    }
+                }
             }
         }
 
@@ -936,6 +1174,9 @@ static void runSession(const char *hostIn, int portIn) {
 
 disconnected:
     closesocket(fd);
+    if (videoFd >= 0) {
+        closesocket(videoFd);
+    }
     if (disconnectReason != NULL) {
         iprintf("\n");
         iprintf(STR_STATUS_DISCONNECTED_REASON, disconnectReason);
