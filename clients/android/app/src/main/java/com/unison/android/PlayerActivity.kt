@@ -1412,7 +1412,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         val c = GbaStreamClient(this)
         client = c
         statusText = getString(R.string.status_connecting)
-        c.connect(host, port, prefs.videoModeFor(streamType), prefs.hardwareDecodeEnabled)
+        c.connect(host, port, prefs.videoModesByTypeSerialized(), prefs.hardwareDecodeEnabled)
     }
 
     private fun disconnect() {
@@ -1432,7 +1432,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     // before touching Compose state. onAudioFrame is the one exception --
     // writing to AudioTrack from a background thread is exactly what it's for.
 
-    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String) {
+    override fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String, realStreamType: String) {
         // TEMPORARY diagnostic (2026-08-06) -- reported live: sticks still
         // not read even after dispatchGenericMotionEvent started correctly
         // firing (confirmed via the D-pad fix working). One cheap
@@ -1457,7 +1457,18 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
             // rather than assuming "tiles" was granted, see
             // docs/protocol.md "Video-mode fallback" and this field's own
             // comment in GbaStreamClient.Listener.
-            val requested = prefs.videoModeFor(streamType)
+            //
+            // prefs.videoModeFor(realStreamType), not the EXTRA_STREAM_TYPE
+            // streamType val above -- that one is only ever a pre-connect
+            // guess ("" for manual host:port entry, unresolved until now),
+            // while realStreamType is the server's own hello.stream_type,
+            // exactly the value jni_bridge.c's perform_app_handshake()
+            // itself already used to resolve what was actually requested
+            // (see GbaStreamClient.connect()'s own comment) -- recomputing
+            // it here the same way is what keeps this comparison honest for
+            // a manual connection instead of comparing against a guess that
+            // was never actually sent.
+            val requested = prefs.videoModeFor(realStreamType)
             if (grantedVideoMode.isNotBlank() && requested != grantedVideoMode) {
                 videoModeFallback = requested to grantedVideoMode
             }

@@ -94,14 +94,21 @@ class Prefs(context: Context) {
     /** One of VIDEO_MODES' values, sent verbatim as hello_ack.video_mode
      * during the handshake (see docs/protocol.md) -- a manual override from
      * the per-console settings screen (ConsoleDetailActivity). Per
-     * stream_type, same reasoning/shape as bilinearFor() below (and same
-     * "" == manual host:port entry, real stream_type unknown until hello,
-     * falls back to VIDEO_MODE_DEFAULT) -- used to be one single global
-     * value shared by every console, which meant picking e.g. H.264 for
-     * Cemu also silently requested H.264 the next time you connected to
-     * Dolphin (which never supports it, always falls back, but still).
-     * Servers that don't implement the negotiation at all just ignore the
-     * field either way. */
+     * stream_type, same reasoning/shape as bilinearFor() below -- used to be
+     * one single global value shared by every console, which meant picking
+     * e.g. H.264 for Cemu also silently requested H.264 the next time you
+     * connected to Dolphin (which never supports it, always falls back, but
+     * still). Servers that don't implement the negotiation at all just
+     * ignore the field either way.
+     *
+     * Only ever called with one of KNOWN_STREAM_TYPES' own entries now --
+     * never with "" (manual host:port entry's real stream_type isn't known
+     * until the server's own `hello` names it, which happens native-side,
+     * mid-handshake, long after any Kotlin call could pass a streamType in
+     * at all; see videoModesByTypeSerialized() and
+     * GbaStreamClient.connect()'s own comment for how that's resolved
+     * instead). A stale "" pref key may still exist on disk from before that
+     * existed; it's simply never read again. */
     fun videoModeFor(streamType: String): String {
         val mode = prefs.getString(prefKeyForVideoMode(streamType), VIDEO_MODE_DEFAULT) ?: VIDEO_MODE_DEFAULT
         // WIIU_GAMEPAD (Cemu)/N3DS_BOTTOM_SCREEN (azahar)/NDS_BOTTOM_SCREEN
@@ -115,35 +122,28 @@ class Prefs(context: Context) {
         // and it also normalizes a stale "legacy"/"tiles" pref saved before
         // this existed, since videoModesFor() keeps either from ever being
         // picked again going forward.
-        //
-        // "" (manual host:port entry) gets the same h264 correction, not
-        // just the three named types above: there's no per-console screen
-        // to ever set prefKeyForVideoMode("") to anything else (only the 4
-        // known consoles get a VideoModeActivity row), so it always held
-        // the unset default (VIDEO_MODE_DEFAULT == "tiles") -- and with 3
-        // of the 4 real stream types no longer accepting that at all,
-        // requesting it by default just meant every single manual
-        // connection to one of them hit the "Anderer Videomodus" fallback
-        // dialog (reported live: "möchte sich per raw/tiling verbinden,
-        // obwohl dieses Verfahren für WiiU gar nicht mehr angeboten wird").
-        // The one real tradeoff is GC_GBA_LINK, the sole remaining type
-        // that both supports raw/tiling AND actually honors whatever's
-        // requested (dolphin-gba-stream's own GBAStreamHost.cpp) -- a
-        // manual connection to one now silently gets h264 (bilinear
-        // upscale) instead of tiles (crisp pixel art) by default, same as
-        // it always would have without ever explicitly picking a mode.
-        // Accepted: GC_GBA_LINK's primary entry point is the P1-P4 slot
-        // picker (which knows the real stream_type and reads
-        // videoModeFor("GC_GBA_LINK") normally), not manual host:port
-        // entry, so this only affects that already-rare combination.
-        return if ((isRawFallbackRemovedFor(streamType) || streamType.isEmpty()) &&
-            (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264"
+        return if (isRawFallbackRemovedFor(streamType) && (mode == "legacy" || mode == VIDEO_MODE_DEFAULT)) "h264"
         else mode
     }
 
     fun setVideoModeFor(streamType: String, value: String) {
         prefs.edit().putString(prefKeyForVideoMode(streamType), value).apply()
     }
+
+    /** "TYPE=mode,TYPE=mode,..." for every KNOWN_STREAM_TYPES entry's own
+     * videoModeFor() result -- passed to GbaStreamClient.connect() instead
+     * of a single pre-decided mode, since the real stream_type for a manual
+     * host:port connection isn't known until the server's own `hello` names
+     * it. jni_bridge.c's perform_app_handshake() resolves the one real
+     * value to actually send once that happens, picking it out of this same
+     * map by the real stream_type -- exactly the value a discovery-based
+     * connection (which already knows its real type before ever calling
+     * connect()) would also get, since both now go through the identical
+     * "look up this real type's own videoModeFor()" step, just at different
+     * times. This is what removes the need for any manual-entry-specific
+     * guess at all. */
+    fun videoModesByTypeSerialized(): String =
+        KNOWN_STREAM_TYPES.joinToString(",") { "$it=${videoModeFor(it)}" }
 
     /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
      * filtering (crisp/pixelated upscale). Per stream_type ("GC_GBA_LINK",
@@ -262,6 +262,14 @@ class Prefs(context: Context) {
         internal fun isRawFallbackRemovedFor(streamType: String): Boolean =
             streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" ||
                 streamType == "NDS_BOTTOM_SCREEN"
+
+        /** Every stream_type this app's servers can ever actually report in
+         * their own `hello` -- used to build videoModesByTypeSerialized()'s
+         * map ahead of knowing which one a given connection will turn out to
+         * be. Order doesn't matter (jni_bridge.c looks entries up by name,
+         * never iterates positionally). */
+        internal val KNOWN_STREAM_TYPES =
+            listOf("WIIU_GAMEPAD", "N3DS_BOTTOM_SCREEN", "NDS_BOTTOM_SCREEN", "GC_GBA_LINK")
 
         /** VideoModeActivity's actual list for a given console -- drops both
          * raw options (legacy/tiles) for any console whose own encoder no

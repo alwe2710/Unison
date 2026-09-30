@@ -158,10 +158,25 @@ typedef struct {
     jobject listener; // global ref
     char host[128];
     int port;
-    // Settings.videoMode (Prefs.VIDEO_MODES) at connect() time -- sent
-    // verbatim as hello_ack.video_mode during the handshake, see
-    // perform_app_handshake(). Read once here rather than from Prefs
-    // directly since this file has no Context to build one from.
+    // Prefs.videoModesByTypeSerialized() at connect() time --
+    // "TYPE=mode,TYPE=mode,..." for every stream_type Prefs knows about
+    // (Kotlin has no Context-free way to read SharedPreferences from this
+    // file, same reasoning as prefer_hardware_decode below). Deliberately
+    // NOT the single mode to request: at connect() time -- especially for
+    // a manual host:port entry, where the real stream_type is unknown
+    // until the server's own `hello` names it -- Kotlin cannot yet know
+    // which of these modes actually applies. perform_app_handshake()
+    // resolves the one real value into video_mode below once hello.stream_type
+    // is in hand, exactly the value discovery-based connect() would also
+    // have picked for that same real type: this is what makes the two
+    // connection paths negotiate identically instead of a manual entry
+    // guessing upfront and needing a later correction.
+    char video_modes_by_type[256];
+    // Resolved from video_modes_by_type above by perform_app_handshake()
+    // right after it parses the server's `hello` -- sent verbatim as
+    // hello_ack.video_mode. Empty/unset before that point; never read
+    // before it's written (handshake always runs before anything else
+    // touches the socket).
     char video_mode[UNISON_VIDEO_MODE_LEN];
     // Prefs.hardwareDecodeEnabled at connect() time -- see
     // ensure_video_codec()'s own comment. Read once here, same reasoning as
@@ -663,7 +678,50 @@ typedef struct {
     // produce.
     bool has_video_port;
     int32_t video_port;
+    // The server's own hello.stream_type, verbatim, from whichever hop
+    // actually served data (a redirect hop's own hello is overwritten by
+    // the final one, same as every other field here) -- passed up to
+    // Kotlin via Listener.onConnected() so PlayerActivity's own
+    // requested-vs-granted video-mode comparison can use the REAL type
+    // instead of the EXTRA_STREAM_TYPE intent extra, which is "" for a
+    // manual host:port connection and would otherwise make that
+    // comparison compare against the wrong (pre-handshake, unresolved)
+    // request.
+    char stream_type[UNISON_STREAM_TYPE_LEN];
 } app_handshake_result;
+
+// Resolves this connection's real hello_ack.video_mode from the server's
+// own authoritative hello.stream_type once it's known, rather than a
+// value guessed before the handshake even started -- modes_by_type is
+// unison_session.video_modes_by_type ("TYPE=mode,TYPE=mode,..." from
+// Prefs.videoModesByTypeSerialized(), see that field's own comment).
+// Falls back to "h264" for a stream_type Prefs has never heard of (a
+// server from a future/unknown fork) -- the same safe default
+// Prefs.videoModeFor()'s own comment already settled on for an
+// unrecognized type, since every currently-known type but one no longer
+// accepts anything else anyway.
+static void resolve_video_mode(const char *modes_by_type, const char *stream_type, char *out,
+                                size_t out_cap) {
+    const char *p = modes_by_type;
+    while (p && *p) {
+        const char *eq = strchr(p, '=');
+        if (!eq) {
+            break;
+        }
+        const size_t type_len = (size_t)(eq - p);
+        const char *comma = strchr(eq, ',');
+        const size_t mode_len = comma ? (size_t)(comma - eq - 1) : strlen(eq + 1);
+        if (type_len == strlen(stream_type) && strncmp(p, stream_type, type_len) == 0) {
+            const size_t copy_len = mode_len < out_cap - 1 ? mode_len : out_cap - 1;
+            memcpy(out, eq + 1, copy_len);
+            out[copy_len] = '\0';
+            return;
+        }
+        p = comma ? comma + 1 : NULL;
+    }
+    strncpy(out, "h264", out_cap - 1);
+    out[out_cap - 1] = '\0';
+}
 
 // App-level handshake (unison/handshake.h, docs/protocol.md
 // "Verbindungsaufbau: Handshake"), run once `s->sockfd` is already
@@ -713,6 +771,15 @@ static app_handshake_result perform_app_handshake(unison_session *s, byte_buf *b
             result.extended_input || strcmp(hello.input_encoding, "touch_and_buttons") == 0;
         result.touch_input =
             result.has_buttons || strcmp(hello.input_encoding, "n3ds_touch") == 0;
+        strncpy(result.stream_type, hello.stream_type, sizeof(result.stream_type) - 1);
+        result.stream_type[sizeof(result.stream_type) - 1] = '\0';
+        // Resolved here, from THIS hop's real hello.stream_type -- a
+        // redirect hop re-resolves against its own hello on the next loop
+        // iteration, so the value actually sent below always matches
+        // whichever hop ends up serving data, never a stale guess from
+        // the original (redirect-source) hello.
+        resolve_video_mode(s->video_modes_by_type, hello.stream_type, s->video_mode,
+                            sizeof(s->video_mode));
 
         unison_hello_ack_request ack_req;
         memset(&ack_req, 0, sizeof(ack_req));
@@ -1562,7 +1629,7 @@ static void *client_thread_main(void *arg) {
     (*s->jvm)->AttachCurrentThread(s->jvm, &env, NULL);
 
     jclass listener_class = (*env)->GetObjectClass(env, s->listener);
-    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZIILjava/lang/String;)V");
+    jmethodID on_connected = (*env)->GetMethodID(env, listener_class, "onConnected", "(ZZZIILjava/lang/String;Ljava/lang/String;)V");
     jmethodID on_video = (*env)->GetMethodID(env, listener_class, "onVideoFrame", "(II[B)V");
     jmethodID on_audio = (*env)->GetMethodID(env, listener_class, "onAudioFrame", "(II[S)V");
     jmethodID on_text_input_request =
@@ -1635,10 +1702,12 @@ static void *client_thread_main(void *arg) {
     // docs/protocol.md's "Video-mode fallback" without needing a nullable
     // String across the JNI boundary.
     jstring jgranted_video_mode = (*env)->NewStringUTF(env, hs.granted_video_mode);
+    jstring jstream_type = (*env)->NewStringUTF(env, hs.stream_type);
     (*env)->CallVoidMethod(env, s->listener, on_connected, (jboolean)hs.touch_input,
                             (jboolean)hs.has_buttons, (jboolean)hs.extended_input, (jint)hs.width,
-                            (jint)hs.height, jgranted_video_mode);
+                            (jint)hs.height, jgranted_video_mode, jstream_type);
     (*env)->DeleteLocalRef(env, jgranted_video_mode);
+    (*env)->DeleteLocalRef(env, jstream_type);
     run_session_loop(env, s, on_video, on_audio, on_text_input_request, on_mic_enable, &buf);
     byte_buf_free(&buf);
 
@@ -1656,7 +1725,7 @@ JNIEXPORT jlong JNICALL Java_com_unison_android_GbaStreamClient_nativeConnect(JN
                                                                                 jobject thiz,
                                                                                 jstring jhost,
                                                                                 jint jport,
-                                                                                jstring jvideoMode,
+                                                                                jstring jvideoModesByType,
                                                                                 jboolean jpreferHardwareDecode,
                                                                                 jobject listener) {
     (void)thiz;
@@ -1670,9 +1739,9 @@ JNIEXPORT jlong JNICALL Java_com_unison_android_GbaStreamClient_nativeConnect(JN
     strncpy(s->host, host_chars, sizeof(s->host) - 1);
     (*env)->ReleaseStringUTFChars(env, jhost, host_chars);
 
-    const char *video_mode_chars = (*env)->GetStringUTFChars(env, jvideoMode, NULL);
-    strncpy(s->video_mode, video_mode_chars, sizeof(s->video_mode) - 1);
-    (*env)->ReleaseStringUTFChars(env, jvideoMode, video_mode_chars);
+    const char *video_modes_chars = (*env)->GetStringUTFChars(env, jvideoModesByType, NULL);
+    strncpy(s->video_modes_by_type, video_modes_chars, sizeof(s->video_modes_by_type) - 1);
+    (*env)->ReleaseStringUTFChars(env, jvideoModesByType, video_modes_chars);
 
     s->prefer_hardware_decode = jpreferHardwareDecode != JNI_FALSE;
 

@@ -35,11 +35,23 @@ class GbaStreamClient(private val listener: Listener) {
         //
         // grantedVideoMode is session_ready.video_mode verbatim -- empty if
         // the server predates that field entirely (see docs/protocol.md
-        // "Video-mode fallback"). Compare against Prefs.videoModeFor() (what
-        // was actually requested, see connect()'s own videoMode param) to
-        // decide whether to prompt: skip the comparison entirely if this is
-        // blank, don't treat blank as "tiles was granted".
-        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String)
+        // "Video-mode fallback"). Compare against Prefs.videoModeFor(streamType)
+        // (what was actually requested -- see this callback's own streamType
+        // param, NOT PlayerActivity's EXTRA_STREAM_TYPE intent extra, which
+        // is "" for a manual host:port connection) to decide whether to
+        // prompt: skip the comparison entirely if this is blank, don't treat
+        // blank as "tiles was granted".
+        //
+        // streamType is the server's own hello.stream_type, verbatim --
+        // always the real, authoritative type (unlike PlayerActivity's own
+        // EXTRA_STREAM_TYPE, which is only ever a pre-connect guess: correct
+        // for a discovery-based connection, "" -- unknown -- for a manual
+        // one). jni_bridge.c's perform_app_handshake() already resolves
+        // hello_ack.video_mode from this same value before ever sending it
+        // (see connect()'s own comment), so this is what made that
+        // resolution possible in the first place, now surfaced here for
+        // anything Kotlin-side that also needs the real type once connected.
+        fun onConnected(isTouch: Boolean, hasButtons: Boolean, hasSticks: Boolean, width: Int, height: Int, grantedVideoMode: String, streamType: String)
         fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray)
         fun onAudioFrame(sampleRate: Int, channels: Int, pcm: ShortArray)
         // The server's own on-screen software keyboard (e.g. Cemu's swkbd)
@@ -70,12 +82,18 @@ class GbaStreamClient(private val listener: Listener) {
     private var nativeHandle: Long = 0
 
     /** Spawns a background native thread; connect result arrives via onConnected/onDisconnected.
-     * videoMode is sent verbatim as hello_ack.video_mode (Prefs.videoModeFor(streamType), one of
-     * Prefs.VIDEO_MODES) -- see docs/protocol.md; servers that don't implement the negotiation
-     * just ignore it. preferHardwareDecode mirrors Prefs.hardwareDecodeEnabled -- only consulted
-     * by ensure_video_codec() (jni_bridge.c) for h264/h265 sessions, harmless/unused otherwise. */
-    fun connect(host: String, port: Int, videoMode: String = Prefs.VIDEO_MODE_DEFAULT, preferHardwareDecode: Boolean = true) {
-        nativeHandle = nativeConnect(host, port, videoMode, preferHardwareDecode, listener)
+     * videoModesByType is Prefs.videoModesByTypeSerialized() -- every known stream_type's own
+     * requested video_mode, not a single pre-decided one: the real stream_type isn't known for a
+     * manual host:port connection until the server's own `hello` names it (mid-handshake, native
+     * side), so jni_bridge.c's perform_app_handshake() is what actually picks the one real value
+     * to send as hello_ack.video_mode, once it can -- see that function's own comment. This is
+     * what makes a manual connection negotiate identically to a discovery-based one instead of
+     * guessing upfront and needing a later correction (see this class's Listener.onConnected's own
+     * streamType param). preferHardwareDecode mirrors Prefs.hardwareDecodeEnabled -- only
+     * consulted by ensure_video_codec() (jni_bridge.c) for h264/h265 sessions, harmless/unused
+     * otherwise. */
+    fun connect(host: String, port: Int, videoModesByType: String, preferHardwareDecode: Boolean = true) {
+        nativeHandle = nativeConnect(host, port, videoModesByType, preferHardwareDecode, listener)
     }
 
     /** Hands the TextureView's Surface (see PlayerScreen's video layer) down
@@ -169,7 +187,7 @@ class GbaStreamClient(private val listener: Listener) {
         return if (handle != 0L) nativeGetStreamStats(handle) else null
     }
 
-    private external fun nativeConnect(host: String, port: Int, videoMode: String, preferHardwareDecode: Boolean, listener: Listener): Long
+    private external fun nativeConnect(host: String, port: Int, videoModesByType: String, preferHardwareDecode: Boolean, listener: Listener): Long
     private external fun nativeSetVideoSurface(handle: Long, surface: android.view.Surface?)
     private external fun nativeSendInput(handle: Long, keyMask: Int)
     private external fun nativeSendTouch(handle: Long, pressed: Boolean, x: Int, y: Int)
