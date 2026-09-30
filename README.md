@@ -36,7 +36,9 @@ Every fork follows the same general shape, under its own project's naming:
 ### Wire protocol
 
 See [`docs/protocol.md`](docs/protocol.md) — the single source of truth every client and server
-implements against.
+implements against. [`docs/clients.md`](docs/clients.md) covers behavioral rules that aren't part
+of the wire format itself but every client implementation still needs to follow (e.g. how/when to
+resolve `hello_ack.video_mode`).
 
 ## Goal of this repo
 
