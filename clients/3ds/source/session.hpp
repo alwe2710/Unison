@@ -68,6 +68,14 @@ class GbaSession {
     std::atomic<uint16_t> pendingKeymask { 0 };
     std::atomic<bool> inputDirty { false };
     int sockfd = -1;
+    // Dedicated video/audio channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)", protocol_version 4) -- a connected
+    // SOCK_DGRAM socket, -1 whenever the server didn't offer
+    // session_ready.video_port, in which case Video/Audio keep arriving on
+    // sockfd above exactly as in protocol_version <=2. Only ever touched by
+    // threadMain() and the functions it calls, same "one owner" reasoning
+    // as sockfd itself.
+    int videoSockfd = -1;
     Listener listener;
 
     void threadMain(std::string host, int port, std::string videoMode);
