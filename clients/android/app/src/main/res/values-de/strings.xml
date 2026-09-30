@@ -54,6 +54,11 @@
     <string name="settings_on_screen_controls">On-Screen-Controls anzeigen</string>
     <string name="settings_hardware_decode">Hardware-Decoder</string>
     <string name="settings_hardware_decode_hint">Deaktivieren, falls das Videobild verzerrt oder verschoben aussieht.</string>
+    <string name="settings_debug_overlay">Diagnose-Overlay</string>
+    <string name="settings_debug_overlay_hint">Zeigt Decode-Latenz und verworfene Frames während des Streams an.</string>
+    <string name="debug_overlay_latency">Latenz: %1$dms</string>
+    <string name="debug_overlay_latency_unknown">Latenz: --</string>
+    <string name="debug_overlay_dropped">Verworfen: %1$d</string>
     <string name="settings_antialiasing">Bilineare Filterung</string>
     <string name="settings_video_mode">Videomodus</string>
     <string name="settings_console_specific">Konsolenspezifische Einstellungen</string>

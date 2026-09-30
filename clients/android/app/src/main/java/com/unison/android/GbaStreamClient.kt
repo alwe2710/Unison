@@ -155,6 +155,20 @@ class GbaStreamClient(private val listener: Listener) {
         }
     }
 
+    /** Debug-overlay snapshot (Settings' "Diagnose-Overlay" toggle,
+     * PlayerScreen) -- [0] is the most recently rendered h264/h265 frame's
+     * decode latency in ms (-1 if none has rendered yet this session, e.g.
+     * a tiles/legacy session), [1] is the cumulative dropped-frame count
+     * (jni_bridge.c's own "Unison video decode backlog" diagnostic, just
+     * exposed as a running total instead of a log line). null before/after
+     * a session (no native handle) -- callers should just skip the update
+     * rather than show stale numbers. Cheap enough to poll on a timer
+     * (two atomic loads, no lock) -- see PlayerScreen's own polling loop. */
+    fun getStreamStats(): LongArray? {
+        val handle = nativeHandle
+        return if (handle != 0L) nativeGetStreamStats(handle) else null
+    }
+
     private external fun nativeConnect(host: String, port: Int, videoMode: String, preferHardwareDecode: Boolean, listener: Listener): Long
     private external fun nativeSetVideoSurface(handle: Long, surface: android.view.Surface?)
     private external fun nativeSendInput(handle: Long, keyMask: Int)
@@ -165,6 +179,7 @@ class GbaStreamClient(private val listener: Listener) {
     )
     private external fun nativeSendTextInputResponse(handle: Long, confirmed: Boolean, text: String)
     private external fun nativeSendMicAudio(handle: Long, sampleRate: Int, samples: ShortArray)
+    private external fun nativeGetStreamStats(handle: Long): LongArray
     private external fun nativeDisconnect(handle: Long)
 
     companion object {

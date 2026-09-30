@@ -49,6 +49,7 @@ class SettingsActivity : LocalizedActivity() {
     private lateinit var prefs: Prefs
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var hardwareDecodeEnabled by mutableStateOf(true)
+    private var showDebugOverlay by mutableStateOf(false)
     private var language by mutableStateOf(Prefs.LANGUAGE_SYSTEM)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +57,7 @@ class SettingsActivity : LocalizedActivity() {
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         hardwareDecodeEnabled = prefs.hardwareDecodeEnabled
+        showDebugOverlay = prefs.showDebugOverlay
         language = prefs.language
 
         setContent {
@@ -122,6 +124,35 @@ class SettingsActivity : LocalizedActivity() {
                                         prefs.hardwareDecodeEnabled = it
                                     },
                                     modifier = Modifier.testTag("hardwareDecodeSwitch")
+                                )
+                            }
+
+                            HorizontalDivider()
+
+                            // Opt-in stats readout drawn over PlayerScreen
+                            // (decode latency + cumulative dropped frames,
+                            // GbaStreamClient.getStreamStats()) -- off by
+                            // default, same "not for everyday use" treatment
+                            // as the hardware-decoder toggle above.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.settings_debug_overlay))
+                                    Text(
+                                        stringResource(R.string.settings_debug_overlay_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = showDebugOverlay,
+                                    onCheckedChange = {
+                                        showDebugOverlay = it
+                                        prefs.showDebugOverlay = it
+                                    },
+                                    modifier = Modifier.testTag("debugOverlaySwitch")
                                 )
                             }
 

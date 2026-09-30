@@ -54,6 +54,11 @@
     <string name="settings_on_screen_controls">Show on-screen controls</string>
     <string name="settings_hardware_decode">Hardware decoder</string>
     <string name="settings_hardware_decode_hint">Turn off if the video image looks distorted or skewed.</string>
+    <string name="settings_debug_overlay">Debug overlay</string>
+    <string name="settings_debug_overlay_hint">Shows decode latency and dropped frames on top of the stream.</string>
+    <string name="debug_overlay_latency">Latency: %1$dms</string>
+    <string name="debug_overlay_latency_unknown">Latency: --</string>
+    <string name="debug_overlay_dropped">Dropped: %1$d</string>
     <string name="settings_antialiasing">Bilinear filtering</string>
     <string name="settings_video_mode">Video mode</string>
     <string name="settings_console_specific">Console-specific settings</string>

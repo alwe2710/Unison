@@ -71,6 +71,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.delay
 import java.nio.ByteBuffer
 
 /**
@@ -173,6 +174,16 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
     private var disconnectedReason by mutableStateOf<String?>(null)
     private var onScreenControlsEnabled by mutableStateOf(true)
     private var bilinearVideoFilter by mutableStateOf(false)
+
+    // Settings' "Diagnose-Overlay" toggle (Prefs.showDebugOverlay) -- read
+    // once in onCreate like the other prefs above; debugLatencyMs/
+    // debugDroppedFrames are refreshed by PlayerScreen's own polling
+    // LaunchedEffect (see there), not written from anywhere else.
+    // debugLatencyMs null mirrors GbaStreamClient.getStreamStats()[0] == -1
+    // (no h264/h265 frame has rendered yet this session).
+    private var showDebugOverlay by mutableStateOf(false)
+    private var debugLatencyMs by mutableStateOf<Long?>(null)
+    private var debugDroppedFrames by mutableStateOf(0L)
 
     // Launched from GbaStreamClient.Listener.onTextInputRequest() (the
     // server's own on-screen keyboard has no way to reach a remote client,
@@ -332,6 +343,7 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
         bilinearVideoFilter = prefs.bilinearFor(streamType)
         hasRightStick = Prefs.hasRightStick(streamType, prefs.n3dsSecondStickEnabled)
+        showDebugOverlay = prefs.showDebugOverlay
 
         setContent {
             UnisonTheme {
@@ -441,6 +453,55 @@ class PlayerActivity : LocalizedActivity(), GbaStreamClient.Listener {
                             .background(Color(0x80000000))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
+                }
+
+                // Settings' "Diagnose-Overlay" toggle -- polls
+                // GbaStreamClient.getStreamStats() twice a second (cheap:
+                // two atomic loads native-side, no lock) rather than
+                // reacting to a per-frame callback, since at the stream's
+                // now-60Hz capture rate a per-frame Compose recomposition
+                // would be far chattier than this readout needs to be. Only
+                // polls while connected -- statsResult is null once the
+                // session tears down (nativeHandle already cleared), which
+                // simply stops updating the last-known numbers rather than
+                // zeroing them, same "leave the last real value showing"
+                // choice as statusText above.
+                if (showDebugOverlay && connected) {
+                    LaunchedEffect(connected) {
+                        while (true) {
+                            client?.getStreamStats()?.let { stats ->
+                                debugLatencyMs = stats[0].takeIf { it >= 0 }
+                                debugDroppedFrames = stats[1]
+                            }
+                            delay(500)
+                        }
+                    }
+                    // Bottom-center, not a corner: every on-screen-control
+                    // layout this screen has (gba_buttons, touch+buttons,
+                    // touch+buttons+sticks) puts something in all four
+                    // corners (D-pad/VirtualStick bottom-start,
+                    // Action-buttons bottom-end, L/R/ZL/ZR top-start/end,
+                    // the optional second VirtualStick top-end) but never
+                    // bottom-center -- tried top-end first (live-tested),
+                    // which collided badly with the R/ZR buttons there.
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 8.dp)
+                            .background(Color(0x80000000))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            debugLatencyMs?.let { stringResource(R.string.debug_overlay_latency, it) }
+                                ?: stringResource(R.string.debug_overlay_latency_unknown),
+                            color = Color.White
+                        )
+                        Text(
+                            stringResource(R.string.debug_overlay_dropped, debugDroppedFrames),
+                            color = Color.White
+                        )
+                    }
                 }
 
                 // No manual disconnect button: the system back button already

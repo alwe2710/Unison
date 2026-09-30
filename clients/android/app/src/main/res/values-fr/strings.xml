@@ -54,6 +54,11 @@
     <string name="settings_on_screen_controls">Afficher les commandes à l\'écran</string>
     <string name="settings_hardware_decode">Décodeur matériel</string>
     <string name="settings_hardware_decode_hint">Désactiver si l\'image vidéo semble déformée ou décalée.</string>
+    <string name="settings_debug_overlay">Superposition de diagnostic</string>
+    <string name="settings_debug_overlay_hint">Affiche la latence de décodage et les images perdues pendant le flux.</string>
+    <string name="debug_overlay_latency">Latence : %1$dms</string>
+    <string name="debug_overlay_latency_unknown">Latence : --</string>
+    <string name="debug_overlay_dropped">Perdues : %1$d</string>
     <string name="settings_antialiasing">Filtrage bilinéaire</string>
     <string name="settings_video_mode">Mode vidéo</string>
     <string name="settings_console_specific">Paramètres spécifiques à la console</string>

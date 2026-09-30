@@ -154,6 +154,16 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(PREF_N3DS_SECOND_STICK, false)
         set(value) = prefs.edit().putBoolean(PREF_N3DS_SECOND_STICK, value).apply()
 
+    /** PlayerScreen's small on-screen stats readout (decode latency +
+     * cumulative dropped frames, GbaStreamClient.getStreamStats() /
+     * jni_bridge.c's nativeGetStreamStats()) -- opt-in and off by default,
+     * same "not for everyday use" treatment as hardwareDecodeEnabled's own
+     * toggle, just for reading live numbers during a latency investigation
+     * instead of tailing logcat. */
+    var showDebugOverlay: Boolean
+        get() = prefs.getBoolean(PREF_DEBUG_OVERLAY, false)
+        set(value) = prefs.edit().putBoolean(PREF_DEBUG_OVERLAY, value).apply()
+
     private fun prefKeyFor(button: GbaButton) = "keybind_${button.prefKey}"
     private fun prefKeyFor(button: ExtButton) = "extkeybind_${button.prefKey}"
     private fun prefKeyForBilinear(streamType: String) = "bilinear_video_filter.$streamType"
@@ -183,6 +193,7 @@ class Prefs(context: Context) {
         private const val PREF_HARDWARE_DECODE = "hardware_decode_enabled"
         private const val PREF_LANGUAGE = "language"
         private const val PREF_N3DS_SECOND_STICK = "n3ds_second_stick_enabled"
+        private const val PREF_DEBUG_OVERLAY = "show_debug_overlay"
         private const val NO_KEYCODE = -1
 
         const val LANGUAGE_SYSTEM = "system"

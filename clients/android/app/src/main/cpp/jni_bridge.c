@@ -301,6 +301,16 @@ typedef struct {
     // the same displayed image. Only ever touched by the session thread,
     // same as video_codec.
     int64_t last_video_render_time_ms;
+    // Debug-overlay stats (Settings' "Diagnose-Overlay" toggle,
+    // PlayerScreen) -- written by the session thread alongside the
+    // existing decode-latency/backlog diagnostics (handle_h264_h265_video_message's
+    // own comment on both), read by nativeGetStreamStats() from whatever
+    // thread Compose's polling LaunchedEffect happens to run on. Atomic
+    // (not plain fields like last_video_render_time_ms above) specifically
+    // because of that second reader -- everything else touching this
+    // struct's video fields is session-thread-only.
+    atomic_llong last_decode_latency_ms; // -1 until the first frame renders
+    atomic_ullong dropped_frame_total; // cumulative across the whole session, never reset
 } unison_session;
 
 static bool send_all(int fd, const uint8_t *data, size_t size, atomic_bool *stop_flag) {
@@ -947,24 +957,38 @@ static int64_t monotonic_now_ms(void) {
 // non-blocking (0 timeout): this runs on the network/session thread
 // alongside socket polling and input sending, so it must never stall
 // waiting on the decoder.
-static void handle_h264_h265_video_message(unison_session *s, const unison_video_header *hdr) {
+static void handle_h264_h265_video_message(unison_session *s, const unison_video_header *hdr,
+                                            int64_t reassembledAtMs) {
     ensure_video_codec(s, hdr->format, (int32_t)hdr->width, (int32_t)hdr->height);
     if (!s->video_codec) {
         return;
     }
 
+    // reassembledAtMs (as microseconds, the unit presentationTimeUs is
+    // documented in) rides through MediaCodec as this input's PTS purely as
+    // a courier -- this pipeline has no real presentation-time concept of
+    // its own (last_video_render_time_ms's own rate floor already handles
+    // display pacing independently) and every frame used a constant 0
+    // before, so this can only make the decoder's own PTS-based internal
+    // ordering more correct, never less. Read back out of
+    // AMediaCodecBufferInfo.presentationTimeUs at output time below to
+    // measure this exact frame's own decode+internal-buffering latency
+    // (server-side capture-to-wire is separately confirmed at 2-8ms, see
+    // WiiuGamepadStream.cpp's own diagnostic -- this is the other half of
+    // the same "still feels delayed regardless of bitrate" investigation).
     const ssize_t inIdx = AMediaCodec_dequeueInputBuffer(s->video_codec, 0);
     if (inIdx >= 0) {
         size_t bufSize = 0;
         uint8_t *buf = AMediaCodec_getInputBuffer(s->video_codec, inIdx, &bufSize);
         if (buf && hdr->compressed_size <= bufSize) {
             memcpy(buf, hdr->compressed_data, hdr->compressed_size);
-            AMediaCodec_queueInputBuffer(s->video_codec, inIdx, 0, hdr->compressed_size, 0, 0);
+            AMediaCodec_queueInputBuffer(s->video_codec, inIdx, 0, hdr->compressed_size,
+                                        reassembledAtMs * 1000, 0);
         } else {
             // NAL didn't fit the buffer MediaCodec handed us -- shouldn't
             // happen at this resolution/bitrate, but queue an empty buffer
             // rather than feed the decoder a truncated NAL.
-            AMediaCodec_queueInputBuffer(s->video_codec, inIdx, 0, 0, 0, 0);
+            AMediaCodec_queueInputBuffer(s->video_codec, inIdx, 0, 0, reassembledAtMs * 1000, 0);
         }
     }
     // No dropped-input-buffer case handled here (inIdx < 0, meaning the
@@ -983,6 +1007,7 @@ static void handle_h264_h265_video_message(unison_session *s, const unison_video
     // torn together in the same displayed image. Anything not rendered is
     // released with render=false (discarded, not displayed).
     AMediaCodecBufferInfo info;
+    AMediaCodecBufferInfo pendingInfo;
     ssize_t pendingIdx = -1;
     int droppedCount = 0;
     for (;;) {
@@ -995,6 +1020,7 @@ static void handle_h264_h265_video_message(unison_session *s, const unison_video
             droppedCount++;
         }
         pendingIdx = outIdx;
+        pendingInfo = info;
     }
     if (pendingIdx >= 0) {
         // ~40ms floor between renders (a little under the 50ms/20fps
@@ -1006,6 +1032,35 @@ static void handle_h264_h265_video_message(unison_session *s, const unison_video
         if (nowMs - s->last_video_render_time_ms >= 40) {
             AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, true);
             s->last_video_render_time_ms = nowMs;
+
+            // pendingInfo.presentationTimeUs carries the reassembledAtMs
+            // timestamp this exact frame was queued with (see
+            // handle_h264_h265_video_message's own comment) -- reading it
+            // back here, after the full dequeue-drain-render round trip,
+            // is the first real measurement of decode+internal-decoder-
+            // buffering latency on the client side (server-side
+            // capture-to-wire is separately measured in
+            // WiiuGamepadStream.cpp at a steady 2-8ms, ruling the server
+            // out -- this is the other half of the same "still delayed
+            // regardless of bitrate" investigation).
+            const int64_t queuedAtMs = pendingInfo.presentationTimeUs / 1000;
+            const int64_t decodeLatencyMs = nowMs - queuedAtMs;
+            if (queuedAtMs > 0) {
+                // Debug-overlay stat (Settings' "Diagnose-Overlay" --
+                // PlayerScreen polls this via nativeGetStreamStats()).
+                // Updated every render, not rate-limited like the log
+                // below: the overlay is opt-in and its own polling
+                // interval is what controls how often it's actually
+                // read.
+                atomic_store(&s->last_decode_latency_ms, (long long)decodeLatencyMs);
+            }
+            static int64_t s_lastDecodeDiagLogMs = 0;
+            if (queuedAtMs > 0 && nowMs - s_lastDecodeDiagLogMs > 1000) {
+                s_lastDecodeDiagLogMs = nowMs;
+                __android_log_print(ANDROID_LOG_ERROR, LOG_TAG,
+                                    "Unison decode latency (reassembly-to-render): %lldms",
+                                    (long long)decodeLatencyMs);
+            }
         } else {
             AMediaCodec_releaseOutputBuffer(s->video_codec, pendingIdx, false);
             droppedCount++;
@@ -1017,6 +1072,11 @@ static void handle_h264_h265_video_message(unison_session *s, const unison_video
     // multiple frames backed up and ready at once -- i.e. it fell behind
     // and is catching up, exactly the kind of backlog that reads as lag.
     if (droppedCount > 0) {
+        // Cumulative, unlike the rate-limited log line below -- the
+        // debug overlay's own dropped-frame counter (nativeGetStreamStats())
+        // must not miss any drops just because they happened inside the
+        // same second as a previous log line.
+        atomic_fetch_add(&s->dropped_frame_total, (unsigned long long)droppedCount);
         __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Unison video decode backlog: dropped %d stale ready frame(s)", droppedCount);
     }
 }
@@ -1040,7 +1100,14 @@ static void handle_video_message(JNIEnv *env, unison_session *s, jmethodID on_vi
     }
 
     if (hdr.format & (UNISON_VIDEO_FORMAT_H264 | UNISON_VIDEO_FORMAT_H265)) {
-        handle_h264_h265_video_message(s, &hdr);
+        // Captured right here (fully reassembled, about to enter the
+        // decoder) rather than e.g. at UDP-datagram-arrival time in the
+        // caller -- this is the honest "this frame's compressed bytes are
+        // now complete and ready to decode" moment, mirroring Cemu's own
+        // m_latestFrameCapturedAt (WiiuGamepadStream.h) as the other half
+        // of the same latency investigation: server-side capture-to-wire
+        // is already measured there, this measures wire-to-screen.
+        handle_h264_h265_video_message(s, &hdr, monotonic_now_ms());
         return;
     }
 
@@ -1634,6 +1701,8 @@ JNIEXPORT jlong JNICALL Java_com_unison_android_GbaStreamClient_nativeConnect(JN
     pthread_mutex_init(&s->video_window_mutex, NULL);
     atomic_init(&s->video_window_changed, false);
     s->last_video_render_time_ms = 0;
+    atomic_init(&s->last_decode_latency_ms, -1);
+    atomic_init(&s->dropped_frame_total, 0);
 
     if (pthread_create(&s->thread, NULL, client_thread_main, s) != 0) {
         LOGE("pthread_create failed");
@@ -1843,6 +1912,32 @@ JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeSendMicAudi
     pthread_mutex_unlock(&s->pending_mic_audio_mutex);
 
     (*env)->ReleaseShortArrayElements(env, samples, elems, JNI_ABORT);
+}
+
+// Debug-overlay poll (Settings' "Diagnose-Overlay" toggle, PlayerScreen) --
+// [0] is the most recently rendered h264/h265 frame's reassembly-to-render
+// decode latency in ms (-1 if no frame has rendered yet this session, e.g.
+// a tiles/legacy session that never goes through
+// handle_h264_h265_video_message at all), [1] is the cumulative count of
+// decoded-but-discarded frames (see the "Unison video decode backlog" log
+// this mirrors). A plain jlongArray rather than two separate calls -- both
+// values come from the same struct, no reason to pay two JNI round trips
+// for what's really one snapshot.
+JNIEXPORT jlongArray JNICALL Java_com_unison_android_GbaStreamClient_nativeGetStreamStats(JNIEnv *env,
+                                                                                            jobject thiz,
+                                                                                            jlong handle) {
+    (void)thiz;
+    unison_session *s = (unison_session *)(intptr_t)handle;
+    jlong values[2] = {-1, 0};
+    if (s) {
+        values[0] = (jlong)atomic_load(&s->last_decode_latency_ms);
+        values[1] = (jlong)atomic_load(&s->dropped_frame_total);
+    }
+    jlongArray result = (*env)->NewLongArray(env, 2);
+    if (result) {
+        (*env)->SetLongArrayRegion(env, result, 0, 2, values);
+    }
+    return result;
 }
 
 JNIEXPORT void JNICALL Java_com_unison_android_GbaStreamClient_nativeDisconnect(JNIEnv *env,

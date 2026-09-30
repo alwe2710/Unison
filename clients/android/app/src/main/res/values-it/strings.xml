@@ -54,6 +54,11 @@
     <string name="settings_on_screen_controls">Mostra controlli a schermo</string>
     <string name="settings_hardware_decode">Decodificatore hardware</string>
     <string name="settings_hardware_decode_hint">Disattiva se l\'immagine video appare distorta o disallineata.</string>
+    <string name="settings_debug_overlay">Overlay diagnostico</string>
+    <string name="settings_debug_overlay_hint">Mostra la latenza di decodifica e i frame scartati durante lo streaming.</string>
+    <string name="debug_overlay_latency">Latenza: %1$dms</string>
+    <string name="debug_overlay_latency_unknown">Latenza: --</string>
+    <string name="debug_overlay_dropped">Scartati: %1$d</string>
     <string name="settings_antialiasing">Filtro bilineare</string>
     <string name="settings_video_mode">Modalità video</string>
     <string name="settings_console_specific">Impostazioni specifiche per console</string>
