@@ -61,7 +61,10 @@ final class GbaStreamClientTests: XCTestCase {
         let listener = RecordingListener(disconnectedExpectation: expectation)
         let client = GbaStreamClient(listener: listener)
 
-        client.connect(host: "127.0.0.1", port: port)
+        // Empty map: irrelevant here -- a closed port fails before the
+        // handshake ever reaches the point where perform_app_handshake()
+        // would resolve a video_mode from it.
+        client.connect(host: "127.0.0.1", port: port, videoModesByType: "")
         wait(for: [expectation], timeout: 5)
 
         XCTAssertEqual(listener.disconnectReason, "Verbindung fehlgeschlagen")

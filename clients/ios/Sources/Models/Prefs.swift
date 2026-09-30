@@ -214,6 +214,21 @@ final class Prefs {
         defaults.set(value, forKey: prefKeyForVideoMode(streamType))
     }
 
+    /// "TYPE=mode,TYPE=mode,..." for every Prefs.knownStreamTypes entry's
+    /// own videoMode(for:) result -- passed to GbaStreamClient.connect()
+    /// instead of a single pre-decided mode, since the real stream_type for
+    /// a manual host:port connection isn't known until the server's own
+    /// `hello` names it. unison_native_bridge.c's perform_app_handshake()
+    /// resolves the one real value to actually send once that happens,
+    /// picking it out of this same map by the real stream_type -- exactly
+    /// the value a discovery-based connection (which already knows its
+    /// real type before ever calling connect()) would also get, since both
+    /// now go through the identical "look up this real type's own
+    /// videoMode(for:)" step, just at different times. See docs/clients.md.
+    func videoModesByTypeSerialized() -> String {
+        Prefs.knownStreamTypes.map { "\($0)=\(videoMode(for: $0))" }.joined(separator: ",")
+    }
+
     /// true = bilinear filtering (smooth upscale), false = nearest-neighbor
     /// (crisp/pixelated upscale). Per stream_type, same rationale as
     /// Prefs.kt's own comment.
@@ -258,6 +273,13 @@ final class Prefs {
     static func defaultBilinear(for streamType: String) -> Bool {
         streamType == "WIIU_GAMEPAD" || streamType == "N3DS_BOTTOM_SCREEN" || streamType == "NDS_BOTTOM_SCREEN"
     }
+
+    /// Every stream_type this app's servers can ever actually report in
+    /// their own `hello` -- used to build videoModesByTypeSerialized()'s
+    /// map ahead of knowing which one a given connection will turn out to
+    /// be. Order doesn't matter (unison_native_bridge.c looks entries up by
+    /// name, never iterates positionally).
+    static let knownStreamTypes = ["WIIU_GAMEPAD", "N3DS_BOTTOM_SCREEN", "NDS_BOTTOM_SCREEN", "GC_GBA_LINK"]
 
     private static let n3dsSecondStickKey = "n3ds_second_stick_enabled"
 

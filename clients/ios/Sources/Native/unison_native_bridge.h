@@ -84,7 +84,16 @@ typedef struct {
 // NULL only on a local allocation/thread-spawn failure, not a connection
 // failure -- a bad host/port/rejected handshake reports through
 // on_disconnected instead, exactly like the Kotlin API.
-unison_native_client *unison_native_connect(const char *host, int port, const char *video_mode,
+//
+// video_modes_by_type is Prefs.videoModesByTypeSerialized() --
+// "TYPE=mode,TYPE=mode,..." for every known stream_type, not a single
+// pre-decided mode: the real stream_type isn't known for a manual
+// host:port connection until the server's own `hello` names it, so
+// perform_app_handshake() (unison_native_bridge.c) is what actually picks
+// the one real value to send as hello_ack.video_mode, once it can. See
+// docs/clients.md.
+unison_native_client *unison_native_connect(const char *host, int port,
+                                             const char *video_modes_by_type,
                                              unison_native_callbacks callbacks);
 
 // Sets the current gba_buttons keymask (protocol.h's unison_key bits,

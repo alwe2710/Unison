@@ -124,7 +124,7 @@ final class PlayerViewModel: NSObject, ObservableObject, GbaStreamClient.Listene
     func connect(host: String, port: Int32, knownStreamType: String) {
         let client = GbaStreamClient(listener: self)
         self.client = client
-        client.connect(host: host, port: port, videoMode: prefs.videoMode(for: knownStreamType))
+        client.connect(host: host, port: port, videoModesByType: prefs.videoModesByTypeSerialized())
         controllerHandler = ControllerInputHandler(viewModel: self)
     }
 

@@ -76,6 +76,24 @@ static void byte_buf_free(byte_buf *b) {
 struct unison_native_client {
     char host[128];
     int port;
+    // Prefs.videoModesByTypeSerialized() at connect() time --
+    // "TYPE=mode,TYPE=mode,..." for every stream_type Prefs knows about.
+    // Deliberately NOT the single mode to request: at connect() time --
+    // especially for a manual host:port entry, where the real stream_type
+    // is unknown until the server's own `hello` names it -- Swift cannot
+    // yet know which of these modes actually applies. perform_app_handshake()
+    // resolves the one real value into video_mode below once
+    // hello.stream_type is in hand, exactly the value discovery-based
+    // connect() would also have picked for that same real type: this is
+    // what makes the two connection paths negotiate identically instead of
+    // a manual entry guessing upfront and needing a later correction. See
+    // docs/clients.md.
+    char video_modes_by_type[256];
+    // Resolved from video_modes_by_type above by perform_app_handshake()
+    // right after it parses the server's `hello` -- sent verbatim as
+    // hello_ack.video_mode. Empty/unset before that point; never read
+    // before it's written (handshake always runs before anything else
+    // touches the socket).
     char video_mode[UNISON_VIDEO_MODE_LEN];
     unison_native_callbacks callbacks;
     int sockfd;
@@ -415,6 +433,40 @@ typedef struct {
     int video_port;
 } app_handshake_result;
 
+// Resolves this connection's real hello_ack.video_mode from the server's
+// own authoritative hello.stream_type once it's known, rather than a value
+// guessed before the handshake even started -- modes_by_type is
+// unison_native_client.video_modes_by_type ("TYPE=mode,TYPE=mode,..." from
+// Prefs.videoModesByTypeSerialized(), see that field's own comment). Falls
+// back to "h264" for a stream_type Prefs has never heard of (a server from
+// a future/unknown fork) -- the same safe default Prefs.videoMode(for:)'s
+// own comment already settled on for an unrecognized type, since every
+// currently-known type but one no longer accepts anything else anyway.
+// Ported verbatim from jni_bridge.c's own resolve_video_mode(). See
+// docs/clients.md.
+static void resolve_video_mode(const char *modes_by_type, const char *stream_type, char *out,
+                                size_t out_cap) {
+    const char *p = modes_by_type;
+    while (p && *p) {
+        const char *eq = strchr(p, '=');
+        if (!eq) {
+            break;
+        }
+        const size_t type_len = (size_t)(eq - p);
+        const char *comma = strchr(eq, ',');
+        const size_t mode_len = comma ? (size_t)(comma - eq - 1) : strlen(eq + 1);
+        if (type_len == strlen(stream_type) && strncmp(p, stream_type, type_len) == 0) {
+            const size_t copy_len = mode_len < out_cap - 1 ? mode_len : out_cap - 1;
+            memcpy(out, eq + 1, copy_len);
+            out[copy_len] = '\0';
+            return;
+        }
+        p = comma ? comma + 1 : NULL;
+    }
+    strncpy(out, "h264", out_cap - 1);
+    out[out_cap - 1] = '\0';
+}
+
 // App-level handshake (unison/handshake.h, docs/protocol.md
 // "Verbindungsaufbau: Handshake") -- ported from jni_bridge.c's
 // perform_app_handshake(), same single-redirect-hop behavior and (kept
@@ -458,6 +510,13 @@ static app_handshake_result perform_app_handshake(unison_native_client *c, byte_
             result.has_buttons || strcmp(hello.input_encoding, "n3ds_touch") == 0;
         strncpy(result.stream_type, hello.stream_type, sizeof(result.stream_type) - 1);
         result.stream_type[sizeof(result.stream_type) - 1] = '\0';
+        // Resolved here, from THIS hop's real hello.stream_type -- a
+        // redirect hop re-resolves against its own hello on the next loop
+        // iteration, so the value actually sent below always matches
+        // whichever hop ends up serving data, never a stale guess from the
+        // original (redirect-source) hello. See docs/clients.md.
+        resolve_video_mode(c->video_modes_by_type, hello.stream_type, c->video_mode,
+                            sizeof(c->video_mode));
 
         unison_hello_ack_request ack_req;
         memset(&ack_req, 0, sizeof(ack_req));
@@ -1096,7 +1155,8 @@ static void *client_thread_main(void *arg) {
     return NULL;
 }
 
-unison_native_client *unison_native_connect(const char *host, int port, const char *video_mode,
+unison_native_client *unison_native_connect(const char *host, int port,
+                                             const char *video_modes_by_type,
                                              unison_native_callbacks callbacks) {
     unison_native_client *c = calloc(1, sizeof(unison_native_client));
     if (!c) {
@@ -1104,7 +1164,7 @@ unison_native_client *unison_native_connect(const char *host, int port, const ch
     }
 
     strncpy(c->host, host, sizeof(c->host) - 1);
-    strncpy(c->video_mode, video_mode, sizeof(c->video_mode) - 1);
+    strncpy(c->video_modes_by_type, video_modes_by_type, sizeof(c->video_modes_by_type) - 1);
     c->port = port;
     c->sockfd = -1;
     c->callbacks = callbacks;

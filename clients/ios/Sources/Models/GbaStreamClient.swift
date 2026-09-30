@@ -56,7 +56,6 @@ final class GbaStreamClient {
         func onDisconnected(reason: String)
     }
 
-    static let videoModeDefault = Prefs.videoModeDefault
     // Mirrors GbaStreamClient.kt's own companion-object constants.
     static let streamTypeGcGbaLink = "GC_GBA_LINK"
     static let playerBasePort: Int32 = 6801
@@ -74,11 +73,14 @@ final class GbaStreamClient {
     }
 
     /// Spawns a background native thread; connect result arrives via
-    /// listener.onConnected/onDisconnected. videoMode is sent verbatim as
-    /// hello_ack.video_mode (Prefs.videoMode(for:), one of Prefs.videoModes) --
-    /// see docs/protocol.md; servers that don't implement the negotiation
-    /// just ignore it.
-    func connect(host: String, port: Int32, videoMode: String = GbaStreamClient.videoModeDefault) {
+    /// listener.onConnected/onDisconnected. videoModesByType is
+    /// Prefs.videoModesByTypeSerialized() -- every known stream_type's own
+    /// requested video_mode, not a single pre-decided one: the real
+    /// stream_type isn't known for a manual host:port connection until the
+    /// server's own `hello` names it, so unison_native_bridge.c's
+    /// perform_app_handshake() is what actually picks the one real value to
+    /// send as hello_ack.video_mode, once it can. See docs/clients.md.
+    func connect(host: String, port: Int32, videoModesByType: String) {
         let retained = Unmanaged.passRetained(self)
         selfRetain = retained
 
@@ -136,7 +138,7 @@ final class GbaStreamClient {
             client.listener?.onDisconnected(reason: text)
         }
 
-        handle = unison_native_connect(host, port, videoMode, callbacks)
+        handle = unison_native_connect(host, port, videoModesByType, callbacks)
     }
 
     /// Sets the current gba_buttons keymask (GbaKey bits, OR'd together) --
