@@ -66,17 +66,17 @@ this pass).
       "video_modes": ["tiles", "h264", "h265", "legacy"]
     },
     "3ds": {
-      "source_glob": "clients/3ds/source/**",
+      "source_glob": "clients/3ds/source/**/*",
       "extract": "format_dispatch_h264_h265",
       "video_modes": ["tiles", "h264"]
     },
     "switch": {
-      "source_glob": "clients/switch/source/**",
+      "source_glob": "clients/switch/source/**/*",
       "extract": "format_dispatch_h264_h265",
       "video_modes": ["tiles", "h264", "h265"]
     },
     "nds": {
-      "source_glob": "clients/nds/arm9/source/**",
+      "source_glob": "clients/nds/arm9/source/**/*",
       "extract": "format_dispatch_h264_h265",
       "video_modes": ["tiles"]
     },

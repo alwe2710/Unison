@@ -66,6 +66,18 @@ VIDEO_MODE_DEFAULT_RE = re.compile(r'VIDEO_MODE_DEFAULT\s*=\s*"([a-z0-9]+)"')
 # implemented there -- excluded here so it doesn't look like one.
 GENERATED_STRINGS_FILE_RE = re.compile(r"strings_generated\.")
 
+# A docs/capabilities.md `source_glob` ending in a bare "**" (not "**/*")
+# looks like it recurses into every file, but pathlib.Path.glob() only
+# started matching plain files with a bare "**" in Python 3.13 (before
+# that, "**" alone matched directories only) -- real CI run (2026-10-01):
+# passed locally on a 3.13+ interpreter, then failed on GitHub Actions'
+# older default python3, which silently found zero files for a bare-"**"
+# glob and reported every mode as missing. Every `source_glob` in that
+# file's JSON block must end in "**/*" (an explicit "match files too"),
+# never a bare "**", to stay portable across Python versions -- this
+# isn't enforced here, just documented, since getting it wrong doesn't
+# raise an error, it just silently extracts nothing.
+
 
 def load_declared_capabilities() -> dict:
     text = CAPABILITIES_MD.read_text(encoding="utf-8")
