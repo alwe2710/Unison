@@ -18,8 +18,8 @@ outright rather than kept as a fallback, once TCP's own head-of-line blocking on
 out to still be the dominant source of latency even with `Input` no longer sharing a connection with
 it; see this file's git history.) As of this revision, all four server forks (Cemu's `WIIU_GAMEPAD`,
 Azahar's `N3DS_BOTTOM_SCREEN`, melonDS's `NDS_BOTTOM_SCREEN`, dolphin-gba-stream's `GC_GBA_LINK`) and
-the Android and Switch clients have been updated to `4` and use it — per the exact-match rule below,
-this means the remaining three clients (3DS, iOS, NDS/DSi, Web) currently can't connect to any of
+the Android, Switch, and 3DS clients have been updated to `4` and use it — per the exact-match rule
+below, this means the remaining three clients (iOS, NDS/DSi, Web) currently can't connect to any of
 them at all until each is updated too, not just that they'd fall back to not using this feature.
 (Azahar's `N3DS_BOTTOM_SCREEN` and melonDS's `NDS_BOTTOM_SCREEN` have no outgoing Audio at all — see
 [Stream Types](#stream-types) below — so their dedicated channel only ever carries `Video`.)
@@ -423,8 +423,8 @@ in its own `hello_ack`. A server that sees this must omit `session_ready.video_p
 that session and keep `Video`/`Audio` multiplexed on the control connection, exactly as it would for
 a `protocol_version <= 3` session; it must not attempt the rendezvous at all in this case. Absent (the
 default for every other client), this means "can use the channel if the server offers one" — every
-client converted to `protocol_version = 4` so far (Android, Switch, 3DS, NDS/DSi, iOS) leaves this
-field unset without ever needing to think about it.
+client converted to `protocol_version = 4` so far (Android, Switch, 3DS) leaves this field unset
+without ever needing to think about it.
 
 All four reference servers (see [Stream Types](#stream-types)) implement this opt-out: each keeps a
 second, `no_udp_video`-only send path alongside its normal UDP one (a plain `SendWebSocketBinaryFrame`
