@@ -4,6 +4,22 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// `git describe --tags --always --dirty` at configuration time -- e.g.
+// "v0.2-74-ga44ed9e" -- rather than a manually-bumped versionName, so the
+// Settings "Info" screen (InfoActivity, BuildConfig.VERSION_NAME) always
+// reflects what was actually built instead of a number someone forgot to
+// bump. "--always" falls back to a bare short SHA if no tag exists yet;
+// if this isn't a git checkout at all (e.g. a source tarball), falls back
+// to the literal "unknown" rather than failing the build. `fetch-depth: 0`
+// in .github/workflows/build.yml's android job is required for this to
+// see any real history in CI -- actions/checkout@v4's own default is a
+// shallow, tag-less clone.
+val gitVersion: String = providers.exec {
+    workingDir = rootDir
+    commandLine("git", "describe", "--tags", "--always", "--dirty")
+    isIgnoreExitValue = true
+}.standardOutput.asText.get().trim().ifEmpty { "unknown" }
+
 android {
     namespace = "com.unison.android"
     compileSdk = 34
@@ -13,7 +29,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1"
+        versionName = gitVersion
     }
 
     externalNativeBuild {
@@ -40,6 +56,10 @@ android {
 
     buildFeatures {
         compose = true
+        // Generates BuildConfig.VERSION_NAME (InfoActivity's own version
+        // display) -- AGP doesn't emit a BuildConfig class at all unless
+        // this is explicitly on.
+        buildConfig = true
     }
 
     // Robolectric needs the app's own resources (strings.xml etc.) on its

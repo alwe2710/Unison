@@ -230,6 +230,28 @@ class SettingsActivity : LocalizedActivity() {
                                     modifier = Modifier.weight(1f)
                                 )
                             }
+
+                            HorizontalDivider()
+
+                            // Own sub-screen (InfoActivity) -- app name,
+                            // build version, license, repo link. Same
+                            // whole-row-navigates treatment as every other
+                            // sub-screen row here.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        startActivity(Intent(this@SettingsActivity, InfoActivity::class.java))
+                                    }
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Text(
+                                    stringResource(R.string.settings_info),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
