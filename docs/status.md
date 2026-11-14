@@ -6,6 +6,29 @@ delete sections as they go stale. See [`docs/protocol.md`](protocol.md) (wire fo
 [`docs/clients.md`](clients.md) (cross-client behavioral rules) for the actual reference docs this
 summarizes pointers to.
 
+## Settings "Info" screen (app name, dynamic version, license, repo link)
+
+Done for all clients except NDS (no free input button for a new menu entry; NDS's UI is a plain
+libnds text console with every button already allocated — see `clients/nds/arm9/source/main.c`'s
+`slotSelectMenu()`). Commits `cce9688` (Android), `42a2818` (3DS), `3c148bd` (Switch), `27ba2d6`
+(iOS), `f5a535d` (Web), pushed to `main` as of 2026-11-14.
+
+Version string is `git describe --tags --always --dirty` at build time (Android/3DS/Switch/iOS) or
+committed-and-manually-regenerated (Web, no build step exists — `clients/web/generate_version.sh`).
+License is the new `LICENSE` file (PolyForm Noncommercial 1.0.0) added this round; its
+`Required Notice` names `alwe2710` (GitHub handle, not a real legal name — kept as-is per explicit
+decision, not a placeholder needing follow-up).
+
+CI confirmed (run `43642074053`): `3ds`/`switch`/`web`/`core` jobs all green with these changes.
+`ios` job's **project generation and build both succeeded** (confirms the new `preBuildScripts`
+"Generate Version.swift" phase and the `optional: true` source entry in `project.yml` are correct)
+— its one test failure is the pre-existing, unrelated `BeaconListenerTests` issue, see below.
+`android` job failed at the same pre-existing `setup-android@v3` step, also unrelated.
+
+If NDS ever gets its own Info entry later: same version mechanism isn't available (no CMake in its
+build — classic devkitARM Makefile only), would need a different approach (e.g. a `Makefile`-level
+`git describe` + a generated header, or just a hardcoded string accepted as a known limitation).
+
 ## `protocol_version = 4` (dedicated UDP video/audio channel) rollout
 
 All four server forks (Cemu/`WIIU_GAMEPAD`, Azahar/`N3DS_BOTTOM_SCREEN`, melonDS/`NDS_BOTTOM_SCREEN`,
@@ -76,8 +99,10 @@ both pre-existing/infra-level, not caused by this session's changes (the `3ds (.
   `DEVKITPRO=/home/alex/devkitpro-local/root/opt/devkitpro` and
   `DEVKITARM=$DEVKITPRO/devkitARM` (plus `PATH+=$DEVKITARM/bin:$DEVKITPRO/tools/bin`) before running
   the same `cmake -S clients/3ds -B build/3ds -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake`
-  sequence `.github/workflows/build.yml`'s `build-3ds` job uses. No devkitA64 (Switch) or Xcode/macOS
-  toolchain confirmed available locally the same way — check before assuming either is missing.
+  sequence `.github/workflows/build.yml`'s `build-3ds` job uses. **devkitA64 (Switch) is also
+  available**, same non-standard location (`$DEVKITPRO/devkitA64`) — confirmed 2026-11-14 building
+  `clients/switch` with `-DPLATFORM_SWITCH=ON -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake`.
+  No Xcode/macOS toolchain available locally — iOS changes can only be verified via the `ios` CI job.
 - **A local Azahar build** exists at
   `/run/media/alex/of/emulation-companion/azahar/build/bin/Release/azahar` — doubles as a 3DS
   homebrew runner (it's a Citra fork, loads `.3dsx` files directly via `-w <path>` CLI arg or
