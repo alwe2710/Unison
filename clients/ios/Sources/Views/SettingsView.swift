@@ -48,6 +48,10 @@ struct SettingsView: View {
                 NavigationLink(LocaleHelper.string("settings_key_bindings", prefs: prefs)) {
                     KeyBindingsView()
                 }
+
+                NavigationLink(LocaleHelper.string("settings_info", prefs: prefs)) {
+                    InfoView()
+                }
             }
         }
         .navigationTitle(LocaleHelper.string("settings", prefs: prefs))

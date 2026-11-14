@@ -50,3 +50,6 @@ clients/ios/*.xcodeproj/
 clients/ios/DerivedData/
 clients/ios/.build/
 clients/ios/*.xcworkspace/
+# Written by project.yml's preBuildScripts phase (`git describe`) on every
+# build, not committed -- same reasoning as the .xcodeproj above.
+clients/ios/Sources/Generated/Version.swift
