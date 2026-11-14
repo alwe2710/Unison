@@ -241,13 +241,17 @@
      than the viewport once both the keyboard table and the gamepad list live
      in it together -- language/video-mode's own short lists never needed it,
      but it's harmless for those too. */
-  #languagePanel,#videoModePanel,#keyBindingsPanel,#consoleSettingsPanel,#consoleDetailPanel{
+  #languagePanel,#videoModePanel,#keyBindingsPanel,#consoleSettingsPanel,#consoleDetailPanel,#infoPanel{
                  display:none;position:fixed;inset:0;background:rgba(20,15,26,0.94);
                  color:var(--ink);font-family:var(--font-body);z-index:40;flex-direction:column;
                  align-items:center;justify-content:center;gap:10px;padding:20px;box-sizing:border-box;
                  overflow-y:auto}
-  #languagePanel h3,#videoModePanel h3,#keyBindingsPanel h3,#consoleSettingsPanel h3,#consoleDetailPanel h3{
+  #languagePanel h3,#videoModePanel h3,#keyBindingsPanel h3,#consoleSettingsPanel h3,#consoleDetailPanel h3,#infoPanel h3{
                  font-family:var(--font-display);margin:0 0 4px;font-size:18px}
+  /* #infoPanel's own static text rows (app name/version/license/repo link)
+     -- no table/list needed like the panels above, just a small stack. */
+  #infoPanel .info-line{font-size:14px;text-align:center}
+  #infoPanel a{color:var(--accent)}
   .language-list{display:flex;flex-direction:column;gap:8px;width:100%;max-width:320px}
   .language-list button{font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer;
                         background:var(--surface);border:var(--border);border-radius:var(--radius);
@@ -279,7 +283,7 @@
      back to the game) or "Zurück" (these sub-panels, back to whichever
      panel opened them -- see openKeyBindingsPanel()/openConsoleSettingsPanel()/
      openConsoleDetailPanel()). */
-  #closeMenu,#closeKeyBindings,#closeConsoleSettings,#closeConsoleDetail{
+  #closeMenu,#closeKeyBindings,#closeConsoleSettings,#closeConsoleDetail,#closeInfo{
              margin-top:10px;background:transparent;border:var(--border);
              color:var(--muted);font-family:var(--font-body);font-size:12.5px;font-weight:600;
              padding:9px 20px;border-radius:999px;cursor:pointer}
@@ -389,6 +393,9 @@
     <span id="languageLabelDesktop"></span>
     <span id="languageValueDesktop" class="nav-row-value"></span>
   </button>
+  <button class="menu-row nav-row" id="infoRowDesktop">
+    <span id="infoLabelDesktop"></span>
+  </button>
   <!-- General (not per-console) decoder preference -- see
        hardwareDecodePref's own comment below. Duplicated between
        #settingsPanel (here, desktop) and #menuPanel (mobile), same
@@ -462,6 +469,20 @@
     <span id="videoModeValue" class="nav-row-value"></span>
   </button>
   <button id="closeConsoleDetail"></button>
+</div>
+<!-- Static info screen (app name/version/license/repo link), opened from
+     either settings panel's "Info" row -- same returnPanel +
+     explicit-back-button pattern as #keyBindingsPanel/#consoleSettingsPanel
+     above, see openInfoPanel() below. No selection/editable state here,
+     unlike every other sub-panel, so there's nothing to render on open
+     beyond the static text itself. -->
+<div id="infoPanel">
+  <h3 id="infoPanelTitle"></h3>
+  <div class="info-line" id="infoAppName"></div>
+  <div class="info-line" id="infoVersionLine"></div>
+  <div class="info-line" id="infoLicenseLine"></div>
+  <div class="info-line"><a id="infoRepoLink" href="https://github.com/alwe2710/Unison" target="_blank" rel="noopener"></a></div>
+  <button id="closeInfo"></button>
 </div>
 <div id="videoModeFallbackPanel">
   <div class="card">
@@ -537,9 +558,13 @@
     <span id="languageLabelMobile"></span>
     <span id="languageValueMobile" class="nav-row-value"></span>
   </button>
+  <button class="menu-row nav-row" id="infoRowMobile">
+    <span id="infoLabelMobile"></span>
+  </button>
   <button id="closeMenu"></button>
 </div>
 </div>
+<script src="version_generated.js"></script>
 <script src="strings_generated.js"></script>
 <script src="settings.js"></script>
 <script src="keybindings.js"></script>
@@ -955,6 +980,40 @@ document.getElementById('closeConsoleSettings').onclick = () => {
   consoleSettingsPanel.style.display = 'none';
   if (consoleSettingsReturnPanel) consoleSettingsReturnPanel.style.display = 'flex';
 };
+// #infoPanel -- fully static (app name/version/license/repo link), same
+// returnPanel-parameterized pattern as #consoleSettingsPanel just above,
+// but with nothing to render on open: the DOM text is set once here and
+// never changes while the page is open (UNISON_APP_VERSION, from
+// version_generated.js, is fixed per page load).
+const infoPanel = document.getElementById('infoPanel');
+let infoReturnPanel = null;
+
+function updateInfoRowValues() {
+  const label = t('settings_info');
+  document.getElementById('infoLabelDesktop').textContent = label;
+  document.getElementById('infoLabelMobile').textContent = label;
+}
+updateInfoRowValues();
+
+function openInfoPanel(returnPanel) {
+  infoReturnPanel = returnPanel;
+  returnPanel.style.display = 'none';
+  document.getElementById('infoPanelTitle').textContent = t('settings_info');
+  document.getElementById('closeInfo').textContent = t('back');
+  document.getElementById('infoAppName').textContent = t('app_name');
+  document.getElementById('infoVersionLine').textContent = t('info_version', UNISON_APP_VERSION);
+  document.getElementById('infoLicenseLine').textContent = t('info_license', 'PolyForm Noncommercial 1.0.0');
+  document.getElementById('infoRepoLink').textContent = t('info_repo');
+  infoPanel.style.display = 'flex';
+}
+
+document.getElementById('infoRowDesktop').onclick = () => openInfoPanel(document.getElementById('settingsPanel'));
+document.getElementById('infoRowMobile').onclick = () => openInfoPanel(document.getElementById('menuPanel'));
+document.getElementById('closeInfo').onclick = () => {
+  infoPanel.style.display = 'none';
+  if (infoReturnPanel) infoReturnPanel.style.display = 'flex';
+};
+
 document.getElementById('closeConsoleDetail').onclick = () => {
   consoleDetailPanel.style.display = 'none';
   renderConsoleRows();  // subtitle-equivalent (video mode label) may have changed
