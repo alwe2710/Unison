@@ -100,7 +100,7 @@ const char *labelForStreamType(const char *streamType) {
     return strings::kConsoleNdsBottomScreen; // NDS_BOTTOM_SCREEN
 }
 
-enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE, ANTIALIASING, CONSOLE_SETTINGS };
+enum class BottomScreenState { MENU, SETTINGS, LANGUAGE, VIDEO_MODE, ANTIALIASING, CONSOLE_SETTINGS, INFO };
 
 // strings::kStatusError ("Fehler: %s") applied -- small helper since this
 // is needed at both onDisconnected call sites below.
@@ -575,9 +575,40 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
         *screenState = BottomScreenState::CONSOLE_SETTINGS;
     }
 
-    ui::Rect backRect { 8, 172, 304, 26 };
+    ui::Rect infoRect { 8, 172, 304, 32 };
+    if (ui::button(textBuf, touch, infoRect, strings::kSettingsInfo)) {
+        *screenState = BottomScreenState::INFO;
+    }
+
+    ui::Rect backRect { 8, 210, 304, 26 };
     if (ui::button(textBuf, touch, backRect, strings::kBack)) {
         *screenState = BottomScreenState::MENU;
+    }
+}
+
+// Static "about" screen -- app name, build version (UNISON_APP_VERSION,
+// `git describe` at CMake configure time, see CMakeLists.txt's own
+// comment), license, repo URL. Plain text, no Prefs/state at all (unlike
+// every other sub-screen here), so there's nothing to persist -- only a
+// "Zurück"/"Back" button.
+void drawInfoScreen(C2D_TextBuf textBuf, const ui::Touch &touch, BottomScreenState *screenState) {
+    ui::drawText(textBuf, strings::kSettingsInfo, 8, 8, 0.55f, ui::kColorText);
+    ui::drawText(textBuf, strings::kAppName, 8, 48, 0.5f, ui::kColorText);
+
+    char versionLine[64];
+    snprintf(versionLine, sizeof(versionLine), strings::kInfoVersion, UNISON_APP_VERSION);
+    ui::drawText(textBuf, versionLine, 8, 76, 0.4f, ui::kColorTextDim);
+
+    char licenseLine[64];
+    snprintf(licenseLine, sizeof(licenseLine), strings::kInfoLicense, "PolyForm Noncommercial 1.0.0");
+    ui::drawText(textBuf, licenseLine, 8, 98, 0.4f, ui::kColorTextDim);
+
+    ui::drawText(textBuf, strings::kInfoRepo, 8, 122, 0.4f, ui::kColorTextDim);
+    ui::drawText(textBuf, "github.com/alwe2710/Unison", 8, 142, 0.4f, ui::kColorTextDim);
+
+    ui::Rect backRect { 8, 210, 304, 26 };
+    if (ui::button(textBuf, touch, backRect, strings::kBack)) {
+        *screenState = BottomScreenState::SETTINGS;
     }
 }
 
@@ -983,6 +1014,8 @@ int main(int argc, char *argv[]) {
             drawVideoModeScreen(textBuf, touch, &prefs, &screenState, selectedConsoleStreamType);
         } else if (screenState == BottomScreenState::ANTIALIASING) {
             drawAntialiasingScreen(textBuf, touch, &prefs, &screenState, selectedConsoleStreamType);
+        } else if (screenState == BottomScreenState::INFO) {
+            drawInfoScreen(textBuf, touch, &screenState);
         } else {
             drawLanguageScreen(textBuf, touch, &prefs, &screenState);
         }

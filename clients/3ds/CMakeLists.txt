@@ -22,6 +22,31 @@ add_executable(${PROJECT_NAME} ${UNISON_3DS_SRC})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/source)
 target_link_libraries(${PROJECT_NAME} PRIVATE unison_core citro2d citro3d ctru m)
 
+# `git describe --tags --always --dirty` at configure time (e.g.
+# "v0.2-74-ga44ed9e") -- shown on the Settings "Info" screen
+# (drawInfoScreen(), main.cpp) instead of a manually-bumped version
+# number that was never kept in sync. Falls back to "unknown" when this
+# isn't a git checkout at all (e.g. a source tarball) or git itself isn't
+# on PATH. `fetch-depth: 0` in .github/workflows/build.yml's 3ds job is
+# required for this to see any real tag history in CI --
+# actions/checkout@v4's own default is a shallow, tag-less clone.
+find_package(Git QUIET)
+set(UNISON_APP_VERSION "unknown")
+if (GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE UNISON_APP_VERSION_OUT
+        RESULT_VARIABLE UNISON_APP_VERSION_RESULT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if (UNISON_APP_VERSION_RESULT EQUAL 0 AND UNISON_APP_VERSION_OUT)
+        set(UNISON_APP_VERSION ${UNISON_APP_VERSION_OUT})
+    endif ()
+endif ()
+target_compile_definitions(${PROJECT_NAME} PRIVATE UNISON_APP_VERSION="${UNISON_APP_VERSION}")
+
 # smdhtool requires an exact 48x48 PNG (unlike the Switch/Android icons,
 # which accept the full-resolution logo directly) -- pre-resized once from
 # assets/logo/unison-logo.png rather than depending on ImageMagick/PIL at
