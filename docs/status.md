@@ -23,7 +23,8 @@ CI confirmed (run `43642074053`): `3ds`/`switch`/`web`/`core` jobs all green wit
 `ios` job's **project generation and build both succeeded** (confirms the new `preBuildScripts`
 "Generate Version.swift" phase and the `optional: true` source entry in `project.yml` are correct)
 — its one test failure is the pre-existing, unrelated `BeaconListenerTests` issue, see below.
-`android` job failed at the same pre-existing `setup-android@v3` step, also unrelated.
+`android` job failed at the same pre-existing `setup-android@v3` step, also unrelated -- since
+fixed, see the CI section below (commit `73d7514`).
 
 If NDS ever gets its own Info entry later: same version mechanism isn't available (no CMake in its
 build — classic devkitARM Makefile only), would need a different approach (e.g. a `Makefile`-level
@@ -75,15 +76,17 @@ this session did for 3DS (grep that file for "iOS, NDS/DSi, Web" and similar phr
   risk the older strategy had elsewhere; see `tools/check_capabilities.py`'s own docstring for what
   the two strategies actually check.
 
-## CI (`.github/workflows/build.yml`) — two known-red jobs, unrelated to recent work
+## CI (`.github/workflows/build.yml`) — one known-red job, unrelated to recent work
 
-As of commit `af599d7` (2026-10-01), `main`'s build workflow has two consistently failing jobs,
-both pre-existing/infra-level, not caused by this session's changes (the `3ds (.3dsx)` and
-`capability matrix lint` jobs are green again after today's fixes):
+**`android (assembleDebug)` fixed** (commit `73d7514`, 2026-11-14): was failing at the
+`android-actions/setup-android@v3` step itself (`sdkmanager tools` -- the legacy `tools` package
+was removed from Google's SDK repository years ago, and v3 defaulted to requesting it). Bumped to
+`android-actions/setup-android@v4`, which defaults to `platform-tools` alone; confirmed green in
+run `43643061937` (`assembleDebug` + `testDebugUnitTest` both pass now).
 
-- **`android (assembleDebug)`** fails at the `android-actions/setup-android@v3` step itself
-  (`sdkmanager failed to find package 'tools'`), before Gradle ever runs — looks like a runner-image/
-  Android SDK Preview licensing issue, not an app-code problem. Not investigated further.
+As of commit `af599d7` (2026-10-01), `main`'s build workflow had a second consistently failing job,
+pre-existing/infra-level, not caused by any of this session's changes:
+
 - **`ios (XcodeGen + xcodebuild, Simulator)`** fails in `Run UnisonTests`, specifically
   `BeaconListenerTests.testReceivesAndParsesARealBeaconPacket` (a real UDP socket bound inside the
   Simulator sandbox) — `GbaStreamClientTests` (this session's own test-signature fix) passes fine in
