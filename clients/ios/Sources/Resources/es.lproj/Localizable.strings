@@ -75,6 +75,10 @@
 "video_codec_unsupported" = "Este navegador no puede decodificar %1$@. Elige un modo de vídeo diferente.";
 "settings_bilinear_filter_header" = "Filtrado bilineal en lugar de vecino más cercano, por consola conectada.";
 "settings_key_bindings" = "Asignación de teclas";
+"settings_info" = "Información";
+"info_version" = "Versión: %1$@";
+"info_license" = "Licencia: %1$@";
+"info_repo" = "Código fuente en GitHub";
 "settings_bind" = "Asignar";
 "settings_clear" = "Borrar";
 "settings_unbound" = "sin asignar";

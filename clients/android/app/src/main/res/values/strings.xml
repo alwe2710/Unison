@@ -75,6 +75,10 @@
     <string name="video_codec_unsupported">This browser can\'t decode %1$s. Please choose a different video mode.</string>
     <string name="settings_bilinear_filter_header">Bilinear filtering instead of nearest-neighbor, per connected console.</string>
     <string name="settings_key_bindings">Key bindings</string>
+    <string name="settings_info">Info</string>
+    <string name="info_version">Version: %1$s</string>
+    <string name="info_license">License: %1$s</string>
+    <string name="info_repo">Source code on GitHub</string>
     <string name="settings_bind">Bind</string>
     <string name="settings_clear">Clear</string>
     <string name="settings_unbound">unbound</string>

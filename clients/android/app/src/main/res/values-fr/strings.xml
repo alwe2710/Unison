@@ -75,6 +75,10 @@
     <string name="video_codec_unsupported">Ce navigateur ne peut pas décoder %1$s. Veuillez choisir un autre mode vidéo.</string>
     <string name="settings_bilinear_filter_header">Filtrage bilinéaire au lieu du plus proche voisin, par console connectée.</string>
     <string name="settings_key_bindings">Assignation des touches</string>
+    <string name="settings_info">Infos</string>
+    <string name="info_version">Version : %1$s</string>
+    <string name="info_license">Licence : %1$s</string>
+    <string name="info_repo">Code source sur GitHub</string>
     <string name="settings_bind">Assigner</string>
     <string name="settings_clear">Effacer</string>
     <string name="settings_unbound">non assigné</string>

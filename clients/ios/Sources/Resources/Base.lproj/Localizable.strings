@@ -75,6 +75,10 @@
 "video_codec_unsupported" = "This browser can't decode %1$@. Please choose a different video mode.";
 "settings_bilinear_filter_header" = "Bilinear filtering instead of nearest-neighbor, per connected console.";
 "settings_key_bindings" = "Key bindings";
+"settings_info" = "Info";
+"info_version" = "Version: %1$@";
+"info_license" = "License: %1$@";
+"info_repo" = "Source code on GitHub";
 "settings_bind" = "Bind";
 "settings_clear" = "Clear";
 "settings_unbound" = "unbound";
