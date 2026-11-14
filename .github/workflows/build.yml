@@ -143,7 +143,16 @@ jobs:
       # Provisions the SDK and accepts licenses; the NDK + CMake 3.22.1
       # externalNativeBuild pulls (see app/build.gradle.kts) are fetched by
       # AGP itself on first use, same as a fresh local checkout.
-      - uses: android-actions/setup-android@v3
+      #
+      # v3 (and earlier) defaults `packages: 'tools platform-tools'` --
+      # the legacy 'tools' package was removed from Google's SDK
+      # repository years ago, so `sdkmanager tools` always fails
+      # ("Warning: Failed to find package 'tools'"), killing this whole
+      # step before platform-tools is ever installed. v4 defaults to
+      # `platform-tools` alone (and defensively filters 'tools' out even
+      # if asked for it) -- see android-actions/setup-android's own
+      # v4.0.0 release notes and main.ts.
+      - uses: android-actions/setup-android@v4
       - name: gradlew assembleDebug
         working-directory: clients/android
         run: ./gradlew :app:assembleDebug --stacktrace
