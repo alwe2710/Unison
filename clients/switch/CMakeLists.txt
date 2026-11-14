@@ -67,6 +67,33 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscal
 
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis unison_core Threads::Threads PkgConfig::FFMPEG)
 
+# `git describe --tags --always --dirty` at configure time (e.g.
+# "v0.2-74-ga44ed9e") -- shown on the Settings "Info" screen (InfoActivity,
+# info_activity.cpp) instead of VERSION_MAJOR/MINOR/ALTER above, which is
+# only ever consumed by the .nro's own nacptool call and isn't bumped on
+# every change. Same pattern as clients/3ds/CMakeLists.txt's own
+# UNISON_APP_VERSION. Falls back to "unknown" when this isn't a git
+# checkout at all or git itself isn't on PATH. `fetch-depth: 0` in
+# .github/workflows/build.yml's switch job is required for this to see any
+# real tag history in CI -- actions/checkout@v4's own default is a
+# shallow, tag-less clone.
+find_package(Git QUIET)
+set(UNISON_APP_VERSION "unknown")
+if (GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE UNISON_APP_VERSION_OUT
+        RESULT_VARIABLE UNISON_APP_VERSION_RESULT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if (UNISON_APP_VERSION_RESULT EQUAL 0 AND UNISON_APP_VERSION_OUT)
+        set(UNISON_APP_VERSION ${UNISON_APP_VERSION_OUT})
+    endif ()
+endif ()
+target_compile_definitions(${PROJECT_NAME} PRIVATE UNISON_APP_VERSION="${UNISON_APP_VERSION}")
+
 add_custom_target(${PROJECT_NAME}.nro DEPENDS ${PROJECT_NAME}
     COMMAND ${NX_NACPTOOL_EXE} --create "Unison" "${PROJECT_AUTHOR}" "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}" ${PROJECT_NAME}.nacp --titleid=${PROJECT_TITLEID}
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_RESOURCES} ${CMAKE_BINARY_DIR}/resources

@@ -1,6 +1,7 @@
 #include "settings_activity.hpp"
 
 #include "console_settings_activity.hpp"
+#include "info_activity.hpp"
 #include "language_activity.hpp"
 #include "strings_generated.hpp"
 
@@ -34,6 +35,7 @@ void SettingsActivity::onResume() {
     frame->setTitle(strings::kSettings);
     languageCell->setText(strings::kSettingsLanguage);
     consoleSettingsCell->setText(strings::kSettingsConsoleSpecific);
+    infoCell->setText(strings::kSettingsInfo);
 }
 
 brls::View *SettingsActivity::createContentView() {
@@ -58,6 +60,14 @@ brls::View *SettingsActivity::createContentView() {
         return true;
     });
     column->addView(consoleSettingsCell);
+
+    infoCell = new brls::DetailCell();
+    infoCell->setText(strings::kSettingsInfo);
+    infoCell->registerClickAction([](brls::View *) {
+        brls::Application::pushActivity(new InfoActivity());
+        return true;
+    });
+    column->addView(infoCell);
 
     auto *scroll = new brls::ScrollingFrame();
     scroll->setGrow(1.0f);

@@ -35,6 +35,9 @@ class SettingsActivity : public brls::Activity {
     // text of its own (there's no single "current" value across all four
     // consoles to summarize here), same as KeyBindingsActivity's own row.
     brls::DetailCell *consoleSettingsCell = nullptr;
+    // Navigates to InfoActivity (app name, version, license, repo link) --
+    // no detail text either, nothing here varies with Prefs.
+    brls::DetailCell *infoCell = nullptr;
     brls::AppletFrame *frame = nullptr;
 
     void updateLanguageCellUI();
